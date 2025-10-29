@@ -3090,7 +3090,12 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
     const extractMetadata = options.extractMetadata !== false; // default true
     const perChunkMetadataControl = options.perChunkMetadataControl || false;
 
-    if (!text || text.trim().length === 0) {
+    // Validate text parameter
+    if (!text || typeof text !== 'string') {
+        throw new Error('Document text must be a valid string');
+    }
+
+    if (text.trim().length === 0) {
         throw new Error('Document text is empty');
     }
 
@@ -5236,6 +5241,11 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
 
             default:
                 throw new Error(`Unknown content source type: ${sourceType}`);
+        }
+
+        // Ensure sourceName is a valid string
+        if (!sourceName || typeof sourceName !== 'string') {
+            sourceName = 'Unnamed Source';
         }
 
         const collectionId = `${COLLECTION_PREFIX}${sourceType}_${sourceName.replace(/[^a-zA-Z0-9]/g, '_')}`;
@@ -8984,6 +8994,11 @@ async function fetchTextFromUrl(url) {
 
         // Get text content
         const cleanText = doc.body ? doc.body.innerText : doc.documentElement.textContent;
+
+        // Ensure we have a valid string
+        if (!cleanText || typeof cleanText !== 'string') {
+            throw new Error('No text content found in the fetched page');
+        }
 
         console.log(`📄 [RAGBooks] Fetched ${cleanText.length} characters from URL: ${url}`);
         return cleanText.trim();

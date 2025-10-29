@@ -52,6 +52,8 @@ import { evaluateConditions, filterChunksByConditions, buildSearchContext, valid
 import { buildGroupIndex, applyGroupBoosts, enforceRequiredGroups, getGroupStats } from './chunk-groups.js';
 import { applyTemporalDecay, applyDecayToResults, applySceneAwareDecay, getDefaultDecaySettings } from './temporal-decay.js';
 import { performEnhancedSearch, performBasicSearch, buildSearchParams, getSearchFunction } from './search-orchestrator.js';
+import { generateSummariesForChunks, validateSummarySettings, contentTypeSupportsSummarization } from './summarization.js';
+import { cleanText, CLEANING_MODES, CLEANING_PATTERNS, validatePattern } from './text-cleaning.js';
 
 // Export generateQuietPrompt to window scope for testing/debugging
 if (typeof window !== 'undefined') {
@@ -281,6 +283,308 @@ function getAllContextualLibraries() {
     }
 
     return result;
+}
+
+/**
+ * Get all sources that are relevant to the current context (scope-aware)
+ * Returns sources from global + character-specific + chat-specific scopes
+ */
+function getScopedSources() {
+    const context = getContext();
+    const ragState = ensureRagState();
+
+    // Ensure scoped sources structure exists
+    if (!ragState.scopedSources) {
+        ragState.scopedSources = {
+            global: {},
+            character: {},
+            chat: {}
+        };
+    }
+
+    const result = {};
+
+    // Always include global sources
+    Object.assign(result, ragState.scopedSources.global || {});
+
+    // Add character-specific sources if we have a character
+    const charId = context?.characterId;
+    if (charId !== null && charId !== undefined) {
+        if (!ragState.scopedSources.character[charId]) {
+            ragState.scopedSources.character[charId] = {};
+        }
+        Object.assign(result, ragState.scopedSources.character[charId]);
+    }
+
+    // Add chat-specific sources if we have a chat
+    const chatId = context?.chatId;
+    if (chatId) {
+        if (!ragState.scopedSources.chat[chatId]) {
+            ragState.scopedSources.chat[chatId] = {};
+        }
+        Object.assign(result, ragState.scopedSources.chat[chatId]);
+    }
+
+    return result;
+}
+
+/**
+ * Save a source to the appropriate scoped storage based on metadata
+ */
+function saveScopedSource(collectionId, sourceData) {
+    const ragState = ensureRagState();
+    const metadata = ragState.collectionMetadata?.[collectionId];
+
+    if (!metadata) {
+        console.warn(`No metadata found for collection ${collectionId}, defaulting to global scope`);
+    }
+
+    const scope = metadata?.scope || 'global';
+    const scopeIdentifier = metadata?.scopeIdentifier;
+
+    // Ensure scoped sources structure exists
+    if (!ragState.scopedSources) {
+        ragState.scopedSources = {
+            global: {},
+            character: {},
+            chat: {}
+        };
+    }
+
+    // Save to appropriate scope
+    switch (scope) {
+        case 'character':
+            if (scopeIdentifier) {
+                if (!ragState.scopedSources.character[scopeIdentifier]) {
+                    ragState.scopedSources.character[scopeIdentifier] = {};
+                }
+                ragState.scopedSources.character[scopeIdentifier][collectionId] = sourceData;
+            } else {
+                // Fallback to global if no identifier
+                ragState.scopedSources.global[collectionId] = sourceData;
+            }
+            break;
+
+        case 'chat':
+            if (scopeIdentifier) {
+                if (!ragState.scopedSources.chat[scopeIdentifier]) {
+                    ragState.scopedSources.chat[scopeIdentifier] = {};
+                }
+                ragState.scopedSources.chat[scopeIdentifier][collectionId] = sourceData;
+            } else {
+                // Fallback to global if no identifier
+                ragState.scopedSources.global[collectionId] = sourceData;
+            }
+            break;
+
+        case 'global':
+        default:
+            ragState.scopedSources.global[collectionId] = sourceData;
+            break;
+    }
+
+    console.log(`💾 Saved source ${collectionId} to ${scope} scope` + (scopeIdentifier ? ` (${scopeIdentifier})` : ''));
+}
+
+/**
+ * Delete a scoped source
+ */
+function deleteScopedSource(collectionId) {
+    const ragState = ensureRagState();
+    const metadata = ragState.collectionMetadata?.[collectionId];
+
+    if (!metadata || !ragState.scopedSources) {
+        // Fallback: try to delete from old flat structure
+        if (ragState.sources && ragState.sources[collectionId]) {
+            delete ragState.sources[collectionId];
+        }
+        return;
+    }
+
+    const scope = metadata.scope || 'global';
+    const scopeIdentifier = metadata.scopeIdentifier;
+
+    // Delete from appropriate scope
+    switch (scope) {
+        case 'character':
+            if (scopeIdentifier && ragState.scopedSources.character[scopeIdentifier]) {
+                delete ragState.scopedSources.character[scopeIdentifier][collectionId];
+            }
+            break;
+
+        case 'chat':
+            if (scopeIdentifier && ragState.scopedSources.chat[scopeIdentifier]) {
+                delete ragState.scopedSources.chat[scopeIdentifier][collectionId];
+            }
+            break;
+
+        case 'global':
+        default:
+            if (ragState.scopedSources.global) {
+                delete ragState.scopedSources.global[collectionId];
+            }
+            break;
+    }
+
+    console.log(`🗑️ Deleted source ${collectionId} from ${scope} scope`);
+}
+
+/**
+ * Migrate flat sources to scoped structure (one-time migration)
+ */
+function migrateFlatSourcesToScoped() {
+    const ragState = ensureRagState();
+
+    // Check if migration already done or no flat sources exist
+    if (!ragState.sources || Object.keys(ragState.sources).length === 0) {
+        console.log('✅ No flat sources to migrate');
+        return { migrated: 0, skipped: 0 };
+    }
+
+    // Check if migration flag exists
+    if (ragState.scopeMigrationDone) {
+        console.log('✅ Scope migration already completed');
+        return { migrated: 0, skipped: Object.keys(ragState.sources).length };
+    }
+
+    console.log('🔄 Starting migration of flat sources to scoped structure...');
+
+    let migrated = 0;
+    let skipped = 0;
+
+    for (const [collectionId, sourceData] of Object.entries(ragState.sources)) {
+        try {
+            // Use saveScopedSource which reads metadata and places in correct scope
+            saveScopedSource(collectionId, sourceData);
+            migrated++;
+        } catch (error) {
+            console.error(`Failed to migrate ${collectionId}:`, error);
+            skipped++;
+        }
+    }
+
+    // Mark migration as done
+    ragState.scopeMigrationDone = true;
+
+    // Keep flat sources for backup during transition
+    console.log(`✅ Migration complete: ${migrated} migrated, ${skipped} skipped`);
+    console.log('📝 Flat sources kept as backup (can be removed manually if needed)');
+
+    saveSettingsDebounced();
+
+    return { migrated, skipped };
+}
+
+/**
+ * Recover orphaned collections by rebuilding scopedSources from libraries and sources data
+ * This fixes collections that disappeared from the UI but still have their data intact
+ */
+function recoverOrphanedCollections() {
+    const ragState = ensureRagState();
+    const recovered = [];
+    const skipped = [];
+
+    console.log('🔍 [Recovery] Scanning for orphaned collections...');
+
+    // Ensure scopedSources structure exists
+    if (!ragState.scopedSources) {
+        ragState.scopedSources = {
+            global: {},
+            character: {},
+            chat: {}
+        };
+    }
+
+    // Check all libraries (global, character, chat)
+    const allLibraries = {
+        global: ragState.libraries?.global || {},
+        character: ragState.libraries?.character || {},
+        chat: ragState.libraries?.chat || {}
+    };
+
+    for (const [scopeType, library] of Object.entries(allLibraries)) {
+        if (scopeType === 'global') {
+            // Process global library directly
+            for (const collectionId of Object.keys(library)) {
+                const sourceData = ragState.sources?.[collectionId];
+                const chunks = library[collectionId];
+
+                // Check if collection has data but is missing from scopedSources
+                if (chunks && Object.keys(chunks).length > 0) {
+                    const existsInScoped = ragState.scopedSources.global?.[collectionId];
+
+                    if (!existsInScoped && sourceData) {
+                        // Restore to scopedSources
+                        ragState.scopedSources.global[collectionId] = sourceData;
+                        recovered.push({
+                            id: collectionId,
+                            name: sourceData.name,
+                            type: sourceData.type,
+                            chunks: Object.keys(chunks).length,
+                            scope: 'global'
+                        });
+                        console.log(`✅ [Recovery] Restored global collection: ${collectionId} (${Object.keys(chunks).length} chunks)`);
+                    } else if (!sourceData) {
+                        skipped.push({
+                            id: collectionId,
+                            reason: 'No source metadata found',
+                            chunks: Object.keys(chunks).length
+                        });
+                        console.warn(`⚠️ [Recovery] Collection ${collectionId} has chunks but no source metadata`);
+                    }
+                }
+            }
+        } else {
+            // Process character/chat scoped libraries
+            for (const [scopeIdentifier, scopedCollections] of Object.entries(library)) {
+                for (const collectionId of Object.keys(scopedCollections)) {
+                    const sourceData = ragState.sources?.[collectionId];
+                    const chunks = scopedCollections[collectionId];
+
+                    if (chunks && Object.keys(chunks).length > 0) {
+                        const existsInScoped = ragState.scopedSources[scopeType]?.[scopeIdentifier]?.[collectionId];
+
+                        if (!existsInScoped && sourceData) {
+                            // Ensure nested structure exists
+                            if (!ragState.scopedSources[scopeType][scopeIdentifier]) {
+                                ragState.scopedSources[scopeType][scopeIdentifier] = {};
+                            }
+
+                            // Restore to scopedSources
+                            ragState.scopedSources[scopeType][scopeIdentifier][collectionId] = sourceData;
+                            recovered.push({
+                                id: collectionId,
+                                name: sourceData.name,
+                                type: sourceData.type,
+                                chunks: Object.keys(chunks).length,
+                                scope: `${scopeType}:${scopeIdentifier}`
+                            });
+                            console.log(`✅ [Recovery] Restored ${scopeType} collection: ${collectionId} (${Object.keys(chunks).length} chunks)`);
+                        } else if (!sourceData) {
+                            skipped.push({
+                                id: collectionId,
+                                reason: 'No source metadata found',
+                                chunks: Object.keys(chunks).length,
+                                scope: `${scopeType}:${scopeIdentifier}`
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (recovered.length > 0) {
+        saveSettingsDebounced();
+        console.log(`✅ [Recovery] Successfully recovered ${recovered.length} collection(s)`);
+        return { success: true, recovered, skipped };
+    } else if (skipped.length > 0) {
+        console.log(`⚠️ [Recovery] Found ${skipped.length} orphaned chunk(s) but couldn't recover (missing source metadata)`);
+        return { success: false, recovered: [], skipped };
+    } else {
+        console.log('✅ [Recovery] No orphaned collections found - all collections are properly registered');
+        return { success: true, recovered: [], skipped: [] };
+    }
 }
 
 // ============================================================================
@@ -685,13 +989,42 @@ async function saveChunksToLibrary(collectionId, chunks) {
 }
 
 /**
- * Get chunks from library for a specific collection
+ * Get chunks from library for a specific collection (searches all scopes)
  * @param {string} collectionId - Collection ID to retrieve
  * @returns {Object|null} Chunks object or null if not found
  */
 function getChunksFromLibrary(collectionId) {
-    const library = getContextualLibrary();
-    return library[collectionId] || null;
+    const ragState = ensureRagState();
+
+    // First check flat library (for backward compatibility)
+    if (ragState.library?.[collectionId]) {
+        console.log('[getChunksFromLibrary] Found chunks in flat library');
+        return ragState.library[collectionId];
+    }
+
+    // Then search ALL scoped libraries (global, character, chat)
+    const allLibraries = getAllContextualLibraries();
+
+    // Check global scope
+    if (allLibraries.global?.[collectionId]) {
+        console.log('[getChunksFromLibrary] Found chunks in global scope');
+        return allLibraries.global[collectionId];
+    }
+
+    // Check character scope
+    if (allLibraries.character?.[collectionId]) {
+        console.log('[getChunksFromLibrary] Found chunks in character scope');
+        return allLibraries.character[collectionId];
+    }
+
+    // Check chat scope
+    if (allLibraries.chat?.[collectionId]) {
+        console.log('[getChunksFromLibrary] Found chunks in chat scope');
+        return allLibraries.chat[collectionId];
+    }
+
+    console.warn('[getChunksFromLibrary] No chunks found for collection:', collectionId);
+    return null;
 }
 
 /**
@@ -2542,7 +2875,13 @@ async function parseLorebook(lorebookName, options = {}) {
     const extractMetadata = options.extractMetadata !== false; // default true
     const perChunkMetadataControl = options.perChunkMetadataControl || false;
 
+    // Text cleaning settings
+    const cleaningMode = options.cleaningMode || 'balanced';
+    const customPatterns = options.customPatterns || [];
+
     for (const entry of entries) {
+        // Clean the entry content before processing
+        entry.content = cleanText(entry.content, cleaningMode, customPatterns);
         // Handle different key formats
         let keys = [];
         if (Array.isArray(entry.key)) {
@@ -2662,6 +3001,16 @@ async function parseLorebook(lorebookName, options = {}) {
 
     console.log(`📚 Created ${chunks.length} chunks from lorebook using "${chunkingStrategy}" strategy`);
 
+    // Generate AI summaries if enabled and content type supports it
+    if (summarizeChunks && contentTypeSupportsSummarization('lorebook') && validateSummarySettings({ summarizeChunks, summaryStyle })) {
+        console.log(`🤖 Generating ${summaryStyle} summaries for lorebook chunks...`);
+        try {
+            await generateSummariesForChunks(chunks, summaryStyle);
+        } catch (error) {
+            console.error('Failed to generate summaries, continuing without them:', error);
+        }
+    }
+
     // Create summary chunks for chunks with summaryVector enabled
     const chunksWithSummaries = createSummaryChunks(chunks);
     console.log(`📚 Total chunks including summaries: ${chunksWithSummaries.length}`);
@@ -2693,6 +3042,10 @@ async function parseCharacterCard(characterId, options = {}) {
     const extractMetadata = options.extractMetadata !== false; // default true
     const perChunkMetadataControl = options.perChunkMetadataControl || false;
 
+    // Text cleaning settings
+    const cleaningMode = options.cleaningMode || 'balanced';
+    const customPatterns = options.customPatterns || [];
+
     // Load character data from SillyTavern
     const characters = getContext().characters;
     const character = characters.find(c => c.avatar === characterId || c.name === characterId);
@@ -2703,13 +3056,13 @@ async function parseCharacterCard(characterId, options = {}) {
 
     const chunks = [];
 
-    // Field mapping
+    // Field mapping with text cleaning applied
     const fieldMap = {
-        description: { text: character.description, label: 'Description' },
-        personality: { text: character.personality, label: 'Personality' },
-        scenario: { text: character.scenario, label: 'Scenario' },
-        first_message: { text: character.first_mes, label: 'First Message' },
-        example_dialogs: { text: character.mes_example, label: 'Example Dialogs' }
+        description: { text: cleanText(character.description || '', cleaningMode, customPatterns), label: 'Description' },
+        personality: { text: cleanText(character.personality || '', cleaningMode, customPatterns), label: 'Personality' },
+        scenario: { text: cleanText(character.scenario || '', cleaningMode, customPatterns), label: 'Scenario' },
+        first_message: { text: cleanText(character.first_mes || '', cleaningMode, customPatterns), label: 'First Message' },
+        example_dialogs: { text: cleanText(character.mes_example || '', cleaningMode, customPatterns), label: 'Example Dialogs' }
     };
 
     if (config.chunkingStrategy === CHUNKING_STRATEGIES.PER_FIELD) {
@@ -2840,6 +3193,16 @@ async function parseCharacterCard(characterId, options = {}) {
 
     console.log(`👤 Created ${chunks.length} chunks from character card`);
 
+    // Generate AI summaries if enabled and content type supports it
+    if (summarizeChunks && contentTypeSupportsSummarization('character') && validateSummarySettings({ summarizeChunks, summaryStyle })) {
+        console.log(`🤖 Generating ${summaryStyle} summaries for character chunks...`);
+        try {
+            await generateSummariesForChunks(chunks, summaryStyle);
+        } catch (error) {
+            console.error('Failed to generate summaries, continuing without them:', error);
+        }
+    }
+
     // Create summary chunks for chunks with summaryVector enabled
     const chunksWithSummaries = createSummaryChunks(chunks);
     console.log(`👤 Total chunks including summaries: ${chunksWithSummaries.length}`);
@@ -2886,6 +3249,14 @@ async function parseChatHistory(options = {}) {
     const characterName = context.name2; // Bot name
     const userName = context.name1; // User name
 
+    // Extract settings with defaults
+    const summarizeChunks = options.summarizeChunks || false;
+    const summaryStyle = options.summaryStyle || 'concise';
+
+    // Text cleaning settings
+    const cleaningMode = options.cleaningMode || 'basic'; // Chat defaults to basic cleaning
+    const customPatterns = options.customPatterns || [];
+
     // Determine name format based on settings
     const useMacros = config.nameFormat === 'macros';
     const getUserName = () => useMacros ? '{{user}}' : userName;
@@ -2898,6 +3269,8 @@ async function parseChatHistory(options = {}) {
 
         for (const msg of messages) {
             const speaker = msg.is_user ? getUserName() : getCharName();
+            // Clean the message text
+            const cleanedMessage = cleanText(msg.mes || '', cleaningMode, customPatterns);
 
             if (speaker !== currentSpeaker && currentGroup.length > 0) {
                 // Save previous group
@@ -2914,13 +3287,14 @@ async function parseChatHistory(options = {}) {
                     section: `${currentSpeaker}'s Messages`,
                     topic: 'Chat History',
                     keywords: keywords,
-                    systemKeywords: keywords
+                    systemKeywords: keywords,
+                    conditions: { enabled: false } // Chat chunks default to always active
                 });
                 currentGroup = [];
             }
 
             currentSpeaker = speaker;
-            currentGroup.push(`${speaker}: ${msg.mes}`);
+            currentGroup.push(`${speaker}: ${cleanedMessage}`);
         }
 
         // Save final group
@@ -2938,66 +3312,41 @@ async function parseChatHistory(options = {}) {
                 section: `${currentSpeaker}'s Messages`,
                 topic: 'Chat History',
                 keywords: keywords,
-                systemKeywords: keywords
+                systemKeywords: keywords,
+                conditions: { enabled: false } // Chat chunks default to always active
             });
         }
     } else if (config.chunkingStrategy === 'by_scene') {
         // Scene-based chunking - use processScenesToChunks from dual-vector.js
         const scenes = getScenes();
 
-        if (scenes && scenes.length > 0) {
-            console.log(`💬 Processing ${scenes.length} scenes into chunks`);
-            const sceneChunks = processScenesToChunks(chat, scenes, config);
-            chunks.push(...sceneChunks);
-        } else {
-            console.warn(`💬 No scenes found - falling back to BY_SPEAKER strategy`);
-            // Fall back to BY_SPEAKER if no scenes exist
-            let currentSpeaker = null;
-            let currentGroup = [];
+        // Validate scenes exist
+        if (!scenes || scenes.length === 0) {
+            throw new Error(
+                '❌ Scene-based chunking selected, but no scenes are marked in this chat.\n\n' +
+                '📝 To fix this:\n' +
+                '• Mark scenes using the green flag button (scene start) and red flag button (scene end) in your chat\n' +
+                '• OR choose a different chunking strategy (By Speaker, Natural, etc.)'
+            );
+        }
 
-            for (const msg of messages) {
-                const speaker = msg.is_user ? getUserName() : getCharName();
+        // Validate at least one scene is closed
+        const closedScenes = scenes.filter(s => s.end !== null && s.start <= s.end);
+        if (closedScenes.length === 0) {
+            throw new Error(
+                `❌ Scene-based chunking selected, but all ${scenes.length} scene(s) are still open.\n\n` +
+                '📝 To fix this:\n' +
+                '• Close at least one scene using the red flag button (scene end)\n' +
+                '• OR choose a different chunking strategy (By Speaker, Natural, etc.)'
+            );
+        }
 
-                if (speaker !== currentSpeaker && currentGroup.length > 0) {
-                    const chunkText = currentGroup.join('\n\n');
-                    const keywords = extractKeywords(chunkText, currentSpeaker, 'Chat');
-                    chunks.push({
-                        text: chunkText,
-                        metadata: {
-                            source: CONTENT_SOURCES.CHAT,
-                            speaker: currentSpeaker,
-                            messageCount: currentGroup.length,
-                            chatId: config.chatId || 'current'
-                        },
-                        section: `${currentSpeaker}'s Messages`,
-                        topic: 'Chat History',
-                        keywords: keywords,
-                        systemKeywords: keywords
-                    });
-                    currentGroup = [];
-                }
+        console.log(`💬 Processing ${closedScenes.length} closed scene(s) into chunks...`);
+        const sceneChunks = processScenesToChunks(chat, closedScenes, config);
+        chunks.push(...sceneChunks);
 
-                currentSpeaker = speaker;
-                currentGroup.push(`${speaker}: ${msg.mes}`);
-            }
-
-            if (currentGroup.length > 0) {
-                const chunkText = currentGroup.join('\n\n');
-                const keywords = extractKeywords(chunkText, currentSpeaker, 'Chat');
-                chunks.push({
-                    text: chunkText,
-                    metadata: {
-                        source: CONTENT_SOURCES.CHAT,
-                        speaker: currentSpeaker,
-                        messageCount: currentGroup.length,
-                        chatId: config.chatId || 'current'
-                    },
-                    section: `${currentSpeaker}'s Messages`,
-                    topic: 'Chat History',
-                    keywords: keywords,
-                    systemKeywords: keywords
-                });
-            }
+        if (sceneChunks.length === 0) {
+            console.warn(`⚠️ Scene processing returned 0 chunks - this may indicate an issue`);
         }
     } else if (config.chunkingStrategy === CHUNKING_STRATEGIES.SIZE_BASED) {
         // Fixed-size chunks with overlap
@@ -3024,7 +3373,8 @@ async function parseChatHistory(options = {}) {
                     section: 'Chat History',
                     topic: `Chunk ${chunks.length + 1}`,
                     keywords: keywords,
-                    systemKeywords: keywords
+                    systemKeywords: keywords,
+                    conditions: { enabled: false } // Chat chunks default to always active
                 });
 
                 // Keep last few messages for overlap
@@ -3051,12 +3401,23 @@ async function parseChatHistory(options = {}) {
                 section: 'Chat History',
                 topic: `Chunk ${chunks.length + 1}`,
                 keywords: keywords,
-                systemKeywords: keywords
+                systemKeywords: keywords,
+                conditions: { enabled: false } // Chat chunks default to always active
             });
         }
     }
 
     console.log(`💬 Created ${chunks.length} chunks from chat history`);
+
+    // Generate AI summaries if enabled and content type supports it
+    if (summarizeChunks && contentTypeSupportsSummarization('chat') && validateSummarySettings({ summarizeChunks, summaryStyle })) {
+        console.log(`🤖 Generating ${summaryStyle} summaries for chat chunks...`);
+        try {
+            await generateSummariesForChunks(chunks, summaryStyle);
+        } catch (error) {
+            console.error('Failed to generate summaries, continuing without them:', error);
+        }
+    }
 
     // Create summary chunks for chunks with summaryVector enabled
     const chunksWithSummaries = createSummaryChunks(chunks);
@@ -3090,6 +3451,10 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
     const extractMetadata = options.extractMetadata !== false; // default true
     const perChunkMetadataControl = options.perChunkMetadataControl || false;
 
+    // Text cleaning settings
+    const cleaningMode = options.cleaningMode || 'balanced';
+    const customPatterns = options.customPatterns || [];
+
     // Validate text parameter
     if (!text || typeof text !== 'string') {
         throw new Error('Document text must be a valid string');
@@ -3098,6 +3463,9 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
     if (text.trim().length === 0) {
         throw new Error('Document text is empty');
     }
+
+    // Clean the document text before processing
+    text = cleanText(text, cleaningMode, customPatterns);
 
     const chunks = [];
     const baseMetadata = {
@@ -3233,6 +3601,16 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
     }
 
     console.log(`📄 Created ${chunks.length} chunks from custom document`);
+
+    // Generate AI summaries if enabled and content type supports it
+    if (summarizeChunks && contentTypeSupportsSummarization('custom') && validateSummarySettings({ summarizeChunks, summaryStyle })) {
+        console.log(`🤖 Generating ${summaryStyle} summaries for custom document chunks...`);
+        try {
+            await generateSummariesForChunks(chunks, summaryStyle);
+        } catch (error) {
+            console.error('Failed to generate summaries, continuing without them:', error);
+        }
+    }
 
     // Create summary chunks for chunks with summaryVector enabled
     const chunksWithSummaries = createSummaryChunks(chunks);
@@ -4079,13 +4457,14 @@ async function queryAllRAGBooksCollections(queryText) {
 
     const activatedCollections = new Set();
 
-    // Get all active collections
-    const activeCollectionsList = Object.entries(settings.sources)
+    // Get all active collections (scope-aware: includes global + character + chat)
+    const scopedSources = getScopedSources();
+    const activeCollectionsList = Object.entries(scopedSources)
         .filter(([_, sourceData]) => sourceData.active)
         .map(([collectionId, sourceData]) => ({ collectionId, sourceData }));
 
     if (activeCollectionsList.length === 0) {
-        debugLog('No active RAGBooks collections');
+        debugLog('No active RAGBooks collections in current scope');
         return [];
     }
 
@@ -4102,6 +4481,17 @@ async function queryAllRAGBooksCollections(queryText) {
         // Check if collection is always active (ignores triggers)
         if (metadata.alwaysActive) {
             console.log(`✅ [RAGBooks] Collection ${collectionId} is ALWAYS ACTIVE - activating`);
+            activatedCollections.add(collectionId);
+            continue;
+        }
+
+        // Check if conditionals are enabled (advanced activation)
+        if (metadata.conditions?.enabled) {
+            console.log(`🔧 [RAGBooks] Collection ${collectionId} uses CONDITIONAL ACTIVATION`);
+            // Note: Actual condition evaluation would happen here
+            // For now, we'll treat conditional collections as always active
+            // Full condition evaluation requires context (speaker, emotion, etc.)
+            console.log(`⚠️ [RAGBooks] Conditional activation not yet fully implemented - treating as always active`);
             activatedCollections.add(collectionId);
             continue;
         }
@@ -4478,6 +4868,17 @@ async function queryRAG(characterName, queryText) {
         // Check if collection is always active (ignores triggers)
         if (metadata.alwaysActive) {
             console.log(`✅ [CarrotKernel RAG] Collection ${collectionId} is ALWAYS ACTIVE - activating`);
+            activatedCollections.add(collectionId);
+            continue;
+        }
+
+        // Check if conditionals are enabled (advanced activation)
+        if (metadata.conditions?.enabled) {
+            console.log(`🔧 [CarrotKernel RAG] Collection ${collectionId} uses CONDITIONAL ACTIVATION`);
+            // Note: Actual condition evaluation would happen here
+            // For now, we'll treat conditional collections as always active
+            // Full condition evaluation requires context (speaker, emotion, etc.)
+            console.log(`⚠️ [CarrotKernel RAG] Conditional activation not yet fully implemented - treating as always active`);
             activatedCollections.add(collectionId);
             continue;
         }
@@ -5108,14 +5509,14 @@ function addRAGButtonToMessage(messageId) {
             e.stopPropagation();
             await handleRAGButtonClick(messageId, documentInfo);
         })
-        .on('mouseenter', function() {
+        .on('mouseenter touchstart', function() {
             $(this).css({
                 'background': 'linear-gradient(135deg, #7c3aed, #6d28d9)',
                 'transform': 'translateY(-2px)',
                 'box-shadow': '0 4px 12px rgba(139, 92, 246, 0.4)'
             });
         })
-        .on('mouseleave', function() {
+        .on('mouseleave touchend', function() {
             $(this).css({
                 'background': 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
                 'transform': 'translateY(0)',
@@ -5243,6 +5644,35 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
                 throw new Error(`Unknown content source type: ${sourceType}`);
         }
 
+        // Validate that chunks were created
+        if (!chunks || chunks.length === 0) {
+            const strategy = sourceConfig.chunkingStrategy || 'default';
+            let errorMsg = `❌ Vectorization produced 0 chunks.\n\n`;
+
+            if (sourceType === CONTENT_SOURCES.CHAT) {
+                errorMsg += '📝 Possible causes:\n';
+                if (strategy === 'by_scene') {
+                    errorMsg += '• Scene-based chunking with no valid closed scenes\n';
+                    errorMsg += '• Scenes may be marked incorrectly\n';
+                } else if (!getContext()?.chat || getContext().chat.length === 0) {
+                    errorMsg += '• This chat has no messages\n';
+                } else {
+                    errorMsg += '• Unknown chunking issue - check console for errors\n';
+                }
+                errorMsg += '\n🔧 Try:\n';
+                errorMsg += '• Using a different chunking strategy\n';
+                errorMsg += '• Checking that your chat has messages\n';
+            } else {
+                errorMsg += `📝 Source type: ${sourceType}\n`;
+                errorMsg += `📝 Chunking strategy: ${strategy}\n`;
+                errorMsg += '\n🔧 This content may be empty or the chunking strategy failed.\n';
+            }
+
+            throw new Error(errorMsg);
+        }
+
+        console.log(`✅ Created ${chunks.length} chunks from ${sourceType}`);
+
         // Ensure sourceName is a valid string
         if (!sourceName || typeof sourceName !== 'string') {
             sourceName = 'Unnamed Source';
@@ -5269,7 +5699,7 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
         if (sourceConfig.messageRange !== undefined) sanitizedConfig.messageRange = sourceConfig.messageRange;
         // Don't store 'text' property as it can be very large
 
-        ragState.sources[collectionId] = {
+        const sourceData = {
             type: sourceType,
             name: sourceName,
             active: true,
@@ -5277,6 +5707,9 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
             lastVectorized: Date.now(),
             config: sanitizedConfig
         };
+
+        // Keep for backward compatibility during migration
+        ragState.sources[collectionId] = sourceData;
 
         // Initialize collection metadata for activation triggers (like lorebook triggers)
         if (!ragState.collectionMetadata) ragState.collectionMetadata = {};
@@ -5296,9 +5729,26 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
                 }
             }
 
+            // Determine scope and alwaysActive default based on source type
+            const context = getContext();
+            let scope = 'global';
+            let scopeIdentifier = null;
+            let alwaysActive = true; // All collections default to always active
+
+            if (sourceType === CONTENT_SOURCES.CHAT) {
+                scope = 'chat';
+                scopeIdentifier = context?.chatId || null;
+            } else if (sourceType === CONTENT_SOURCES.CHARACTER) {
+                scope = 'character';
+                scopeIdentifier = context?.characterId;
+            }
+
             ragState.collectionMetadata[collectionId] = {
                 keywords: defaultTriggers, // Activation triggers (determines IF collection activates)
-                alwaysActive: false, // If true, ignores triggers and always queries this collection
+                alwaysActive: alwaysActive, // If true, ignores triggers and always queries this collection
+                conditions: null, // Conditional activation rules (user can add via editor)
+                scope: scope, // 'global', 'character', or 'chat'
+                scopeIdentifier: scopeIdentifier, // chatId or characterId
                 sourceName: sourceName,
                 sourceType: sourceType,
                 createdAt: Date.now(),
@@ -5309,10 +5759,23 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
             ragState.collectionMetadata[collectionId].lastModified = Date.now();
         }
 
+        // Save to scoped sources (NEW: scope-aware storage)
+        saveScopedSource(collectionId, sourceData);
+
         saveSettingsDebounced();
 
-        console.log(`✅ Vectorized ${sourceType} "${sourceName}": ${chunks.length} chunks`);
-        console.log(`   Activation triggers: ${ragState.collectionMetadata[collectionId].keywords.join(', ')}`);
+        const metadata = ragState.collectionMetadata[collectionId];
+        console.log(`✅ Vectorized ${sourceType} "${sourceName}": ${chunks.length} chunks (scope: ${metadata.scope})`);
+
+        if (metadata.conditions && metadata.conditions.enabled) {
+            const conditionCount = metadata.conditions.rules?.length || 0;
+            console.log(`   Activation: Conditional (${conditionCount} ${conditionCount === 1 ? 'condition' : 'conditions'})`);
+        } else if (metadata.alwaysActive) {
+            console.log(`   Activation: Always Active`);
+        } else {
+            console.log(`   Activation triggers: ${metadata.keywords.join(', ')}`);
+        }
+
         return { success: true, collectionId, chunkCount: chunks.length };
     } catch (error) {
         console.error(`❌ Failed to vectorize ${sourceType}:`, error);
@@ -5416,7 +5879,7 @@ async function vectorizeDocumentFromMessage(characterName, content) {
 
             ragState.collectionMetadata[collectionId] = {
                 keywords: defaultTriggers, // Activation triggers (determines IF collection activates - like lorebook triggers)
-                alwaysActive: false, // If true, ignores triggers and always queries this collection
+                alwaysActive: true, // All collections default to always active
                 characterName: characterName,
                 createdAt: Date.now(),
                 lastModified: Date.now()
@@ -5940,14 +6403,31 @@ async function regenerateChunkKeywords(chunk, characterName, onSuccess, onError)
 // ============================================================================
 
 /**
- * Render all active collections in the UI
+ * Render all active collections in the UI (scope-aware with filtering)
  */
 function renderCollections() {
-    const settings = getRAGSettings();
     const collectionsContainer = $('#ragbooks_collections');
     const emptyState = $('#ragbooks_empty_state');
 
-    if (!settings.sources || Object.keys(settings.sources).length === 0) {
+    // Get scoped sources (includes global + character + chat for current context)
+    let scopedSources = getScopedSources();
+
+    // Get filter state (default: 'all')
+    const ragState = ensureRagState();
+    const scopeFilter = ragState.scopeFilter || 'all';
+
+    // Apply scope filter if not 'all'
+    if (scopeFilter !== 'all') {
+        const metadata = ragState.collectionMetadata || {};
+        scopedSources = Object.fromEntries(
+            Object.entries(scopedSources).filter(([collectionId]) => {
+                const scope = metadata[collectionId]?.scope || 'global';
+                return scope === scopeFilter;
+            })
+        );
+    }
+
+    if (!scopedSources || Object.keys(scopedSources).length === 0) {
         emptyState.show();
         collectionsContainer.find('.ragbooks-source-card').remove();
         return;
@@ -5959,7 +6439,7 @@ function renderCollections() {
     collectionsContainer.find('.ragbooks-source-card').remove();
 
     // Render each collection
-    for (const [collectionId, sourceData] of Object.entries(settings.sources)) {
+    for (const [collectionId, sourceData] of Object.entries(scopedSources)) {
         const card = createCollectionCard(collectionId, sourceData);
         collectionsContainer.append(card);
     }
@@ -5992,21 +6472,69 @@ function createCollectionCard(collectionId, sourceData) {
     const metadata = ragState.collectionMetadata?.[collectionId] || {};
     const triggers = metadata.keywords || [];
     const alwaysActive = metadata.alwaysActive || false;
+    const conditions = metadata.conditions || null;
+
+    // Get scope information
+    const scope = metadata.scope || 'global';
+    const scopeIcons = {
+        global: '🌍',
+        character: '👤',
+        chat: '💬'
+    };
+    const scopeLabels = {
+        global: 'Global',
+        character: 'Character',
+        chat: 'Chat'
+    };
+    const scopeIcon = scopeIcons[scope] || '🌍';
+    const scopeLabel = scopeLabels[scope] || 'Global';
+
+    // Determine activation mode and display
+    const hasConditions = conditions && conditions.enabled && conditions.rules && conditions.rules.length > 0;
 
     // Format triggers display
-    const triggersDisplay = alwaysActive
-        ? '<span class="ragbooks-always-active-badge"><i class="fa-solid fa-check"></i> Always Active</span>'
-        : (triggers.length > 0
-            ? triggers.slice(0, 3).map(t => `<span class="ragbooks-trigger-badge">${t}</span>`).join('') +
-              (triggers.length > 3 ? `<span class="ragbooks-trigger-more">+${triggers.length - 3}</span>` : '')
-            : '<span class="ragbooks-no-triggers">No triggers (won\'t activate)</span>');
+    let triggersDisplay;
+    if (hasConditions) {
+        // Show conditional activation badge
+        const conditionCount = conditions.rules.length;
+        const conditionText = conditionCount === 1 ? '1 condition' : `${conditionCount} conditions`;
+        triggersDisplay = `<span class="ragbooks-conditional-badge"><i class="fa-solid fa-filter" style="font-size: 0.85em; opacity: 0.7; margin-right: 4px;"></i>Conditional (${conditionText})</span>`;
+    } else if (alwaysActive) {
+        triggersDisplay = '<span class="ragbooks-always-active-badge"><i class="fa-solid fa-infinity"></i> Always Active</span>';
+    } else if (triggers.length > 0) {
+        triggersDisplay = triggers.slice(0, 3).map(t => `<span class="ragbooks-trigger-badge"><i class="fa-solid fa-key" style="font-size: 0.85em; opacity: 0.7; margin-right: 4px;"></i>${t}</span>`).join('') +
+            (triggers.length > 3 ? `<span class="ragbooks-trigger-more">+${triggers.length - 3} more</span>` : '');
+    } else {
+        triggersDisplay = '<span class="ragbooks-no-triggers"><i class="fa-solid fa-triangle-exclamation"></i> No triggers (won\'t activate)</span>';
+    }
 
     const card = $(`
         <div class="ragbooks-source-card" data-collection-id="${collectionId}">
             <div class="ragbooks-source-header">
                 <span class="ragbooks-source-icon">${typeIcon}</span>
                 <span class="ragbooks-source-name">${sourceData.name}</span>
-                <span class="ragbooks-type-badge ${sourceData.type}">${typeLabel}</span>
+                <div class="ragbooks-badges-container">
+                    <span class="ragbooks-type-badge ${sourceData.type}">${typeLabel}</span>
+                    <div class="ragbooks-scope-dropdown">
+                        <span class="ragbooks-scope-badge ${scope}" title="Click to change scope">
+                            ${scopeIcon} ${scopeLabel} <i class="fa-solid fa-caret-down" style="margin-left: 4px; font-size: 0.85em;"></i>
+                        </span>
+                        <div class="ragbooks-scope-dropdown-menu">
+                            <div class="ragbooks-scope-option" data-scope="global">
+                                <span class="ragbooks-scope-badge global">🌍 Global</span>
+                                <span class="ragbooks-scope-description">Available everywhere</span>
+                            </div>
+                            <div class="ragbooks-scope-option" data-scope="character">
+                                <span class="ragbooks-scope-badge character">👤 Character</span>
+                                <span class="ragbooks-scope-description">Only for this character</span>
+                            </div>
+                            <div class="ragbooks-scope-option" data-scope="chat">
+                                <span class="ragbooks-scope-badge chat">💬 Chat</span>
+                                <span class="ragbooks-scope-description">Only for this chat</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="ragbooks-source-meta">
                 <span><i class="fa-solid fa-cubes"></i> ${chunkCount} chunks</span>
@@ -6028,7 +6556,16 @@ function createCollectionCard(collectionId, sourceData) {
                 <div class="ragbooks-triggers-display">
                     ${triggersDisplay}
                 </div>
-                <small class="ragbooks-triggers-help">Triggers determine IF this collection activates. Chunk keywords determine scoring AFTER activation.</small>
+                <div class="ragbooks-triggers-help">
+                    <i class="fa-solid fa-info-circle" style="opacity: 0.6; margin-right: 4px;"></i>
+                    ${hasConditions
+                        ? 'This collection activates when its conditions are met. Click "Edit" to view/modify conditions.'
+                        : (alwaysActive
+                            ? 'This collection searches on every message.'
+                            : (triggers.length > 0
+                                ? 'Collection activates when these keywords appear in recent messages.'
+                                : '<strong style="color: var(--SmartThemeQuoteColor);">⚠️ No triggers set - collection will not activate!</strong>'))}
+                </div>
             </div>
             <div class="ragbooks-source-actions">
                 <button class="ragbooks-toggle-btn ${sourceData.active ? 'active' : ''}" title="${sourceData.active ? 'Pause' : 'Activate'} Collection">
@@ -6052,11 +6589,55 @@ function createCollectionCard(collectionId, sourceData) {
     `);
 
     // Bind button handlers
-    card.find('.ragbooks-toggle-btn').on('click', () => toggleCollection(collectionId));
-    card.find('.ragbooks-preview-btn').on('click', () => previewCollection(collectionId));
-    card.find('.ragbooks-revectorize-btn').on('click', () => revectorizeCollection(collectionId, sourceData));
-    card.find('.ragbooks-delete-btn').on('click', () => deleteCollection(collectionId));
-    card.find('.ragbooks-edit-triggers-btn').on('click', () => editCollectionTriggers(collectionId));
+    // Bind button handlers with touch support for mobile
+    card.find('.ragbooks-toggle-btn').on('click touchend', function(e) {
+        e.preventDefault();
+        toggleCollection(collectionId);
+    });
+    card.find('.ragbooks-preview-btn').on('click touchend', function(e) {
+        e.preventDefault();
+        previewCollection(collectionId);
+    });
+    card.find('.ragbooks-revectorize-btn').on('click touchend', function(e) {
+        e.preventDefault();
+        revectorizeCollection(collectionId, sourceData);
+    });
+    card.find('.ragbooks-delete-btn').on('click touchend', function(e) {
+        e.preventDefault();
+        deleteCollection(collectionId);
+    });
+    card.find('.ragbooks-edit-triggers-btn').on('click touchend', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        editCollectionTriggers(collectionId);
+    });
+
+    // Bind scope badge click handler (toggle dropdown)
+    card.find('.ragbooks-scope-badge').on('click', function(e) {
+        e.stopPropagation();
+        const dropdown = $(this).closest('.ragbooks-scope-dropdown');
+        const menu = dropdown.find('.ragbooks-scope-dropdown-menu');
+
+        // Close all other dropdowns
+        $('.ragbooks-scope-dropdown-menu').not(menu).removeClass('show');
+
+        // Toggle this dropdown
+        menu.toggleClass('show');
+    });
+
+    // Bind scope option click handler
+    card.find('.ragbooks-scope-option').on('click', function(e) {
+        e.stopPropagation();
+        const newScope = $(this).data('scope');
+        const dropdown = $(this).closest('.ragbooks-scope-dropdown');
+        const menu = dropdown.find('.ragbooks-scope-dropdown-menu');
+
+        // Close dropdown
+        menu.removeClass('show');
+
+        // Change scope
+        changeScopeForCollection(collectionId, sourceData, newScope);
+    });
 
     return card;
 }
@@ -6091,6 +6672,36 @@ function editCollectionTriggers(collectionId) {
                             <div class="ragbooks-help-text">If enabled, this collection will always be queried regardless of triggers</div>
                         </div>
 
+                        <!-- Conditionals Section (Advanced) -->
+                        <div class="ragbooks-setting-item" style="margin-bottom: 16px;">
+                            <label class="ragbooks-toggle">
+                                <input type="checkbox" id="ragbooks-conditionals-enabled" ${metadata.conditions?.enabled ? 'checked' : ''}>
+                                <span class="ragbooks-toggle-slider"></span>
+                                <span class="ragbooks-toggle-label">Use Conditional Activation (Advanced)</span>
+                            </label>
+                            <div class="ragbooks-help-text">Use advanced conditions instead of simple keyword triggers</div>
+                        </div>
+
+                        <div id="ragbooks-conditionals-section" style="display: ${metadata.conditions?.enabled ? 'block' : 'none'}; margin-bottom: 16px; padding: 12px; background: var(--black20a); border-radius: 8px; border: 1px solid var(--SmartThemeBorderColor);">
+                            <div style="margin-bottom: 12px;">
+                                <label style="display: block; margin-bottom: 6px;"><strong>Condition Logic</strong></label>
+                                <select id="ragbooks-condition-mode" class="text_pole" style="width: 100%;">
+                                    <option value="AND" ${metadata.conditions?.mode === 'AND' ? 'selected' : ''}>Match ALL conditions (AND)</option>
+                                    <option value="OR" ${metadata.conditions?.mode === 'OR' ? 'selected' : ''}>Match ANY condition (OR)</option>
+                                </select>
+                            </div>
+
+                            <div style="margin-bottom: 12px;">
+                                <label style="display: block; margin-bottom: 6px;"><strong>Conditions</strong></label>
+                                <div id="ragbooks-conditions-list" style="display: flex; flex-direction: column; gap: 8px;">
+                                    <!-- Conditions will be rendered here -->
+                                </div>
+                                <button id="ragbooks-add-condition" class="menu_button" style="margin-top: 8px; width: 100%;">
+                                    <i class="fa-solid fa-plus"></i> Add Condition
+                                </button>
+                            </div>
+                        </div>
+
                         <div class="ragbooks-setting-item">
                             <label><strong>Activation Triggers</strong></label>
                             <select id="ragbooks-triggers-input" class="text_pole" multiple="multiple" style="width: 100%; margin-top: 8px;"></select>
@@ -6102,9 +6713,11 @@ function editCollectionTriggers(collectionId) {
                         <div style="padding: 12px; background: var(--black30a, rgba(0, 0, 0, 0.3)); border-radius: 6px; border-left: 3px solid rgba(99, 102, 241, 0.8); margin-top: 16px;">
                             <strong style="display: block; margin-bottom: 6px;">📌 How This Works:</strong>
                             <ul style="margin: 0; padding-left: 20px; font-size: 0.9em;">
-                                <li style="margin-bottom: 4px;"><strong>Activation Triggers</strong> = WHEN collection activates (like lorebook)</li>
+                                <li style="margin-bottom: 4px;"><strong>Always Active</strong> = Collection queries on every message (simple, best for chat)</li>
+                                <li style="margin-bottom: 4px;"><strong>Activation Triggers</strong> = Simple keyword matching (WHEN collection activates)</li>
+                                <li style="margin-bottom: 4px;"><strong>Conditional Activation</strong> = Advanced conditions (speaker, emotion, time, etc.)</li>
                                 <li style="margin-bottom: 4px;"><strong>Chunk Keywords</strong> = HOW chunks are scored/ranked (weighted)</li>
-                                <li>Both systems work together for best results!</li>
+                                <li>All systems work together for best results!</li>
                             </ul>
                         </div>
                     </div>
@@ -6130,13 +6743,120 @@ function editCollectionTriggers(collectionId) {
         tokenSeparators: [','],
         placeholder: 'e.g., character name, lorebook name, topic keywords',
         width: '100%',
-        dropdownParent: overlay.find('.ragbooks-modal-dialog')
+        dropdownParent: overlay.find('.ragbooks-modal-dialog'),
+        // Mobile-specific enhancements
+        closeOnSelect: false,
+        allowClear: true,
+        dropdownAutoWidth: true,
+        templateResult: function(item) {
+            if (item.loading) return item.text;
+            const $result = $('<span>').text(item.text);
+            $result.css('touch-action', 'manipulation');
+            return $result;
+        }
     });
+
+    // Add mobile-specific event handling and styling
+    if ('ontouchstart' in window) {
+        overlay.find('.select2-selection').css('touch-action', 'manipulation');
+    }
 
     // Set initial values from currentKeywords array
     if (metadata.keywords && metadata.keywords.length > 0) {
         triggersInput.val(metadata.keywords).trigger('change');
     }
+
+    // Initialize conditions
+    const conditions = metadata.conditions || { enabled: false, mode: 'AND', rules: [] };
+
+    // Render existing conditions
+    function renderConditions() {
+        const conditionsList = overlay.find('#ragbooks-conditions-list');
+        conditionsList.empty();
+
+        if (!conditions.rules || conditions.rules.length === 0) {
+            conditionsList.html('<div style="padding: 8px; text-align: center; opacity: 0.6;">No conditions added yet. Click "Add Condition" to create one.</div>');
+            return;
+        }
+
+        conditions.rules.forEach((rule, index) => {
+            const conditionCard = $(`
+                <div class="ragbooks-condition-card" style="padding: 8px; background: var(--black30a); border-radius: 6px; border: 1px solid var(--SmartThemeBorderColor);">
+                    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+                        <select class="ragbooks-condition-type text_pole" data-index="${index}" style="flex: 1;">
+                            <option value="keyword" ${rule.type === 'keyword' ? 'selected' : ''}>Keyword Present</option>
+                            <option value="speaker" ${rule.type === 'speaker' ? 'selected' : ''}>Last Speaker</option>
+                            <option value="messageCount" ${rule.type === 'messageCount' ? 'selected' : ''}>Message Count</option>
+                            <option value="chunkActive" ${rule.type === 'chunkActive' ? 'selected' : ''}>Chunk Active</option>
+                            <option value="timeOfDay" ${rule.type === 'timeOfDay' ? 'selected' : ''}>Time of Day</option>
+                            <option value="emotion" ${rule.type === 'emotion' ? 'selected' : ''}>Detected Emotion</option>
+                            <option value="location" ${rule.type === 'location' ? 'selected' : ''}>Location</option>
+                            <option value="characterPresent" ${rule.type === 'characterPresent' ? 'selected' : ''}>Character Present</option>
+                            <option value="storyBeat" ${rule.type === 'storyBeat' ? 'selected' : ''}>Story Beat</option>
+                            <option value="randomChance" ${rule.type === 'randomChance' ? 'selected' : ''}>Random Chance</option>
+                        </select>
+                        <button class="ragbooks-remove-condition menu_button" data-index="${index}" style="padding: 6px 12px;" title="Remove condition">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <label style="display: flex; align-items: center; gap: 4px; font-size: 0.9em;">
+                            <input type="checkbox" class="ragbooks-condition-negated" data-index="${index}" ${rule.negated ? 'checked' : ''}>
+                            <span>Negate (NOT)</span>
+                        </label>
+                        <input type="text" class="ragbooks-condition-value text_pole" data-index="${index}" value="${rule.value || ''}" placeholder="Value..." style="flex: 1;">
+                    </div>
+                </div>
+            `);
+            conditionsList.append(conditionCard);
+        });
+
+        // Bind condition change handlers
+        conditionsList.find('.ragbooks-condition-type').on('change', function() {
+            const index = $(this).data('index');
+            conditions.rules[index].type = $(this).val();
+        });
+
+        conditionsList.find('.ragbooks-condition-value').on('input', function() {
+            const index = $(this).data('index');
+            conditions.rules[index].value = $(this).val();
+        });
+
+        conditionsList.find('.ragbooks-condition-negated').on('change', function() {
+            const index = $(this).data('index');
+            conditions.rules[index].negated = $(this).is(':checked');
+        });
+
+        conditionsList.find('.ragbooks-remove-condition').on('click', function() {
+            const index = $(this).data('index');
+            conditions.rules.splice(index, 1);
+            renderConditions();
+        });
+    }
+
+    renderConditions();
+
+    // Toggle conditionals section
+    overlay.find('#ragbooks-conditionals-enabled').on('change', function() {
+        const enabled = $(this).is(':checked');
+        overlay.find('#ragbooks-conditionals-section').toggle(enabled);
+        conditions.enabled = enabled;
+    });
+
+    // Add condition button
+    overlay.find('#ragbooks-add-condition').on('click', function() {
+        conditions.rules.push({
+            type: 'keyword',
+            value: '',
+            negated: false
+        });
+        renderConditions();
+    });
+
+    // Condition mode change
+    overlay.find('#ragbooks-condition-mode').on('change', function() {
+        conditions.mode = $(this).val();
+    });
 
     // Bind events
     overlay.find('#ragbooks-save-triggers').on('click', function() {
@@ -6155,6 +6875,7 @@ function editCollectionTriggers(collectionId) {
 
         ragState.collectionMetadata[collectionId].keywords = newKeywords;
         ragState.collectionMetadata[collectionId].alwaysActive = alwaysActive;
+        ragState.collectionMetadata[collectionId].conditions = conditions;
         ragState.collectionMetadata[collectionId].lastModified = Date.now();
 
         saveSettingsDebounced();
@@ -6179,17 +6900,49 @@ function editCollectionTriggers(collectionId) {
 }
 
 /**
- * Toggle collection active/paused state
+ * Toggle collection active/paused state (scope-aware)
  */
 function toggleCollection(collectionId) {
     const ragState = ensureRagState();
-    if (!ragState.sources || !ragState.sources[collectionId]) return;
+    const metadata = ragState.collectionMetadata?.[collectionId];
 
-    ragState.sources[collectionId].active = !ragState.sources[collectionId].active;
+    if (!metadata) return;
+
+    const scope = metadata.scope || 'global';
+    const scopeIdentifier = metadata.scopeIdentifier;
+
+    // Get source from appropriate scope
+    let sourceData = null;
+    if (scope === 'character' && scopeIdentifier) {
+        sourceData = ragState.scopedSources?.character?.[scopeIdentifier]?.[collectionId];
+    } else if (scope === 'chat' && scopeIdentifier) {
+        sourceData = ragState.scopedSources?.chat?.[scopeIdentifier]?.[collectionId];
+    } else {
+        sourceData = ragState.scopedSources?.global?.[collectionId];
+    }
+
+    // Fallback to flat sources if not found in scoped
+    if (!sourceData && ragState.sources?.[collectionId]) {
+        sourceData = ragState.sources[collectionId];
+    }
+
+    if (!sourceData) return;
+
+    // Toggle active state
+    sourceData.active = !sourceData.active;
+
+    // Save back to scoped sources
+    saveScopedSource(collectionId, sourceData);
+
+    // Also update flat sources for backward compatibility
+    if (ragState.sources?.[collectionId]) {
+        ragState.sources[collectionId].active = sourceData.active;
+    }
+
     saveSettingsDebounced();
     renderCollections();
 
-    const status = ragState.sources[collectionId].active ? 'activated' : 'paused';
+    const status = sourceData.active ? 'activated' : 'paused';
     toastr.success(`Collection ${status}`);
 }
 
@@ -6221,16 +6974,27 @@ function escapeHtml(text) {
  */
 function previewCollection(collectionId) {
     try {
+        console.log('[Visualizer] Opening collection:', collectionId);
         const chunks = getChunksFromLibrary(collectionId);
-        if (!chunks || Object.keys(chunks).length === 0) {
-            toastr.warning('No chunks found for this collection');
+
+        if (!chunks) {
+            console.error('[Visualizer] Collection not found in any scope');
+            toastr.warning('Collection not found. It may have been deleted or moved.');
+            return;
+        }
+
+        const chunkCount = Object.keys(chunks).length;
+        console.log('[Visualizer] Loaded chunks:', chunkCount);
+
+        if (chunkCount === 0) {
+            toastr.warning('No chunks found in this collection. Try re-vectorizing.');
             return;
         }
 
         openChunkViewer(collectionId, chunks);
     } catch (error) {
-        console.error('Failed to preview collection:', error);
-        toastr.error('Failed to preview collection');
+        console.error('[Visualizer] Failed to preview collection:', error);
+        toastr.error('Failed to open visualizer: ' + error.message);
     }
 }
 
@@ -6250,15 +7014,24 @@ function openChunkViewer(collectionId, chunks) {
     $('#ragbooks_modal_title').html(`<i class="fa-solid fa-cube"></i> ${sourceData.name}`);
     $('#ragbooks_modal_subtitle').text(`${Object.keys(chunks).length} chunks`);
 
-    // Check if this is a chat collection - show tabs if so
-    const isChatCollection = sourceData.sourceType === 'chat' || collectionId.includes('_chat_');
+    // Show tabs for all collections (Chunks + Groups universal, Scenes chat-only)
+    const isChatCollection = sourceData.type === 'chat' || collectionId.includes('_chat_');
+    $('#ragbooks_viewer_tabs').show();
+
     if (isChatCollection) {
-        $('#ragbooks_viewer_tabs').show();
+        // Chat collections: Show all 3 tabs (Chunks, Scenes, Groups)
+        $('.ragbooks-viewer-tab[data-tab="scenes"]').show();
         renderSceneCards(); // Populate scenes tab
     } else {
-        $('#ragbooks_viewer_tabs').hide();
+        // Non-chat collections: Show Chunks + Groups, hide Scenes
+        $('.ragbooks-viewer-tab[data-tab="scenes"]').hide();
         $('#ragbooks_scenes_container').hide();
+
+        // Ensure we start on chunks tab for non-chat
+        $('.ragbooks-viewer-tab').removeClass('active');
+        $('.ragbooks-viewer-tab[data-tab="chunks"]').addClass('active');
         $('#ragbooks_chunks_container').show();
+        $('#ragbooks_groups_container').hide();
     }
 
     renderChunkCards(currentViewingChunks);
@@ -6295,8 +7068,65 @@ async function saveChunkViewerChanges() {
     }
 
     try {
+        // Log chunks before save for debugging
+        console.log('[Chunk Save] Preparing to save chunks:', Object.keys(currentViewingChunks).length);
+        const sampleChunk = Object.values(currentViewingChunks)[0];
+        if (sampleChunk) {
+            console.log('[Chunk Save] Sample chunk before:', {
+                hash: sampleChunk.hash,
+                name: sampleChunk.name,
+                keywordCount: sampleChunk.keywords?.length || 0
+            });
+        }
+
+        // Bidirectional sync: Update scene objects from chunk changes
+        const scenes = getScenes();
+        if (scenes && scenes.length > 0) {
+            let scenesSynced = 0;
+            Object.values(currentViewingChunks).forEach(chunk => {
+                if (chunk.metadata?.sceneIndex !== undefined) {
+                    const scene = scenes[chunk.metadata.sceneIndex];
+                    if (scene) {
+                        // Sync summary
+                        if (chunk.summary !== scene.summary) {
+                            scene.summary = chunk.summary || '';
+                            scenesSynced++;
+                        }
+                        // Sync keywords
+                        const chunkKeywords = chunk.keywords || [];
+                        const sceneKeywords = scene.keywords || [];
+                        if (JSON.stringify(chunkKeywords) !== JSON.stringify(sceneKeywords)) {
+                            scene.keywords = [...chunkKeywords];
+                            scenesSynced++;
+                        }
+                    }
+                }
+            });
+
+            if (scenesSynced > 0) {
+                saveScenes();
+                console.log(`🔄 Synced ${scenesSynced} chunk changes back to scene objects`);
+            }
+        }
+
         await updateChunksInLibrary(currentViewingCollection, currentViewingChunks);
         hasUnsavedChunkChanges = false;
+
+        // Verify save was successful
+        const library = getContextualLibrary();
+        const savedChunks = library[currentViewingCollection];
+        if (savedChunks) {
+            const sampleHash = Object.keys(currentViewingChunks)[0];
+            const verified = savedChunks[sampleHash];
+            console.log('[Chunk Save] Verification - chunk saved:', {
+                hash: sampleHash,
+                name: verified?.name,
+                keywordCount: verified?.keywords?.length || 0
+            });
+        } else {
+            console.error('[Chunk Save] Verification FAILED - collection not found in library!');
+        }
+
         toastr.success('Chunks saved successfully');
     } catch (error) {
         console.error('Failed to save chunks:', error);
@@ -6349,11 +7179,9 @@ function renderChunkCards(chunks, searchTerm = '') {
     const html = filtered.map(chunk => renderChunkCard(chunk)).join('');
     container.html(html);
 
-    // Eager initialization: Initialize select2 for all chunks immediately
-    filtered.forEach(chunk => {
-        initializeKeywordSelect(chunk);
-        initializeSummaryVectorsSelect(chunk);
-    });
+    // REMOVED: Eager initialization caused race conditions with lazy initialization
+    // Select2 will be initialized lazily when chunk cards are expanded (see chunk card click handler)
+    // This prevents keyword loss when cards are collapsed/expanded or when search filters change
 }
 
 // Helper functions for condition rendering
@@ -6478,6 +7306,12 @@ function renderChunkCard(chunk) {
     const sceneTitle = chunk.metadata?.sceneTitle || chunk.section;
     const sceneIndex = chunk.metadata?.sceneIndex;
 
+    // Check if this is an orphaned scene chunk (scene deleted from chat_metadata)
+    const isOrphanedScene = isSceneChunk && sceneIndex !== undefined && (() => {
+        const scenes = getScenes();
+        return !scenes || !scenes[sceneIndex];
+    })();
+
     // Show top 5 keywords in collapsed header
     const topKeywords = keywords.slice(0, 5);
     const remainingCount = Math.max(0, keywords.length - 5);
@@ -6510,11 +7344,12 @@ function renderChunkCard(chunk) {
                                 <div class="WIEntryTitleAndStatus flex-container flex1 alignitemscenter">
                                     <div class="flex-container flex1 alignitemscenter">
                                         ${isSceneChunk ? `<span class="ragbooks-scene-badge" title="Scene Chunk" style="margin-right: 6px;"><i class="fa-solid fa-clapperboard"></i></span>` : ''}
+                                        ${isOrphanedScene ? `<span class="ragbooks-orphan-badge" title="Scene has been deleted" style="margin-right: 6px; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; background: rgba(231, 76, 60, 0.2); color: #e74c3c; white-space: nowrap;"><i class="fa-solid fa-exclamation-triangle"></i> Scene Deleted</span>` : ''}
                                         <input type="text"
                                                class="text_pole ragbooks-chunk-name margin0"
                                                data-hash="${hash}"
-                                               value="${escapeHtml(chunk.name || chunk.section || 'Chunk')}"
-                                               placeholder="Chunk name..."
+                                               value="${escapeHtml(chunk.name || '')}"
+                                               placeholder="Auto-generated if empty"
                                                style="flex: 1; min-width: 100px;">
                                         ${isSceneChunk ? `<small class="ragbooks-scene-range" title="Scene messages" style="margin-left: 8px; white-space: nowrap;">📍 #${sceneStart} - #${sceneEnd}</small>` : ''}
                                     </div>
@@ -6571,10 +7406,10 @@ function renderChunkCard(chunk) {
                             </div>
                             ` : ''}
 
-                            <!-- Summary Vectors (Searchable, Vectorized) -->
+                            <!-- Summary Vectors (Searchable, Vectorized) - Universal Feature -->
                             <div class="ragbooks-setting-item ragbooks-summary-vectors-section"
                                  data-hash="${hash}"
-                                 style="margin-bottom: 12px; display: ${isSceneChunk ? (chunk.summaryVector !== false ? 'block' : 'none') : 'block'};">
+                                 style="margin-bottom: 12px;">
                                 <label style="display: block; margin-bottom: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; opacity: 0.7;">
                                     <i class="fa-solid fa-vector-square"></i> Summary Vectors (Searchable)
                                 </label>
@@ -6710,13 +7545,22 @@ function renderChunkCard(chunk) {
                                     <i class="fa-solid fa-wand-magic-sparkles"></i> Advanced Processing
                                 </label>
 
-                                <label style="display: flex; align-items: center; gap: 4px; margin-bottom: 6px; font-size: 12px;">
-                                    <input type="checkbox"
-                                           class="ragbooks-enable-chunk-summary"
-                                           data-hash="${hash}"
-                                           ${chunk.metadata?.enableSummary ? 'checked' : ''}>
-                                    <span>Enable Summarization (when re-vectorizing)</span>
-                                </label>
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                    <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; margin: 0;">
+                                        <input type="checkbox"
+                                               class="ragbooks-enable-chunk-summary"
+                                               data-hash="${hash}"
+                                               ${chunk.metadata?.enableSummary ? 'checked' : ''}>
+                                        <span>Enable Summarization</span>
+                                    </label>
+                                    <button type="button"
+                                            class="menu_button ragbooks-generate-summary-now"
+                                            data-hash="${hash}"
+                                            style="padding: 4px 8px; font-size: 11px;"
+                                            title="Generate AI summary for this chunk now">
+                                        <i class="fa-solid fa-wand-magic-sparkles"></i> Generate Now
+                                    </button>
+                                </div>
 
                                 <div class="ragbooks-summary-style-section" data-hash="${hash}" style="display: ${chunk.metadata?.enableSummary ? 'block' : 'none'}; margin-left: 20px; margin-bottom: 6px;">
                                     <label style="font-size: 11px; opacity: 0.7;">Summary Style</label>
@@ -6828,6 +7672,17 @@ function renderSceneCards() {
         return div.innerHTML;
     };
 
+    // Helper to check if scene has been vectorized
+    const isSceneVectorized = (sceneIndex) => {
+        if (!currentViewingCollection) return false;
+        const library = getContextualLibrary();
+        if (!library[currentViewingCollection]) return false;
+
+        return Object.values(library[currentViewingCollection]).some(chunk =>
+            chunk.metadata?.sceneIndex === sceneIndex
+        );
+    };
+
     // Helper to get scene text preview
     const getScenePreview = (scene) => {
         if (scene.end === null) return '(Open scene - no preview)';
@@ -6837,7 +7692,9 @@ function renderSceneCards() {
         return text.substring(0, 150) + (text.length > 150 ? '...' : '');
     };
 
-    const html = scenes.map((scene, idx) => `
+    const html = scenes.map((scene, idx) => {
+        const vectorized = isSceneVectorized(idx);
+        return `
         <div class="ragbooks-scene-card" data-scene-idx="${idx}">
             <!-- Scene Header (Collapsible) -->
             <div class="ragbooks-scene-card__header ragbooks-scene-card__header-collapsible">
@@ -6846,6 +7703,10 @@ function renderSceneCards() {
                     <strong>Scene ${idx + 1}</strong>
                     <span class="ragbooks-scene-card__range">
                         (#${scene.start} - ${scene.end !== null ? '#' + scene.end : 'open'})
+                    </span>
+                    <span class="ragbooks-scene-status-badge ${vectorized ? 'vectorized' : 'not-vectorized'}"
+                          style="margin-left: 8px; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; ${vectorized ? 'background: rgba(46, 204, 113, 0.2); color: #2ecc71;' : 'background: rgba(230, 126, 34, 0.2); color: #e67e22;'}">
+                        ${vectorized ? '<i class="fa-solid fa-check"></i> Vectorized' : '<i class="fa-solid fa-exclamation-triangle"></i> Not Vectorized'}
                     </span>
                 </div>
                 <div class="ragbooks-scene-card__actions" style="margin-left: auto;">
@@ -6873,15 +7734,16 @@ function renderSceneCards() {
                 <div class="ragbooks-help-text">Short descriptive title for this scene</div>
             </div>
 
-            <!-- Summary Display (Read-Only) -->
+            <!-- Summary Editor -->
             <div class="ragbooks-setting-item" style="margin-bottom: 10px;">
                 <label>
                     <i class="fa-solid fa-file-lines"></i> Summary
                 </label>
-                <div style="padding: 8px; background: rgba(0,0,0,0.1); border-radius: 6px; border: 1px solid var(--SmartThemeBorderColor); min-height: 60px; font-size: 13px; line-height: 1.5;">
-                    ${scene.summary ? escapeHtml(scene.summary) : '<span style="opacity: 0.5; font-style: italic;">No summary (edit in Chunks tab for vectorization)</span>'}
-                </div>
-                <div class="ragbooks-help-text">Scene summary is read-only here. Edit and vectorize in the Chunks tab.</div>
+                <textarea class="text_pole ragbooks-scene-summary"
+                          data-scene-idx="${idx}"
+                          placeholder="Enter scene summary..."
+                          style="width: 100%; min-height: 80px; resize: vertical;">${scene.summary || ''}</textarea>
+                <div class="ragbooks-help-text">Scene summary. Save changes to update the scene metadata.</div>
             </div>
 
             <!-- Scene Preview -->
@@ -6897,7 +7759,8 @@ function renderSceneCards() {
             ` : ''}
             </div><!-- End Scene Body -->
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     container.html(html);
 
@@ -6925,7 +7788,7 @@ function bindSceneCardEvents() {
         }
     });
 
-    // Save scene title on input change (summary and keywords removed - now in Chunks tab)
+    // Save scene title on input change
     $('.ragbooks-scene-title').off('input').on('input', function() {
         const idx = parseInt($(this).data('scene-idx'));
         const scene = scenes[idx];
@@ -6936,7 +7799,7 @@ function bindSceneCardEvents() {
         saveScenes();
 
         // Also update the chunk name in the library if this scene has been vectorized
-        const library = getLibrary();
+        const library = getContextualLibrary();
         const currentCollection = getCurrentCollectionName();
         if (library[currentCollection]) {
             Object.values(library[currentCollection]).forEach(chunk => {
@@ -6948,16 +7811,122 @@ function bindSceneCardEvents() {
         }
     });
 
-    // Delete scene
-    $('.ragbooks-scene-delete').off('click').on('click', function() {
+    // Save scene summary on input change
+    $('.ragbooks-scene-summary').off('input').on('input', function() {
         const idx = parseInt($(this).data('scene-idx'));
-        if (confirm(`Delete Scene ${idx + 1}? This cannot be undone.`)) {
-            scenes.splice(idx, 1);
-            saveScenes();
-            updateAllSceneStates();
-            renderSceneCards(); // Refresh
-            toastr.success('Scene deleted');
+        const scene = scenes[idx];
+        if (!scene) return;
+
+        const newSummary = $(this).val().trim();
+        scene.summary = newSummary;
+        saveScenes();
+
+        // Also update the summary in the library if this scene has been vectorized
+        const library = getContextualLibrary();
+        const currentCollection = getCurrentCollectionName();
+        if (library[currentCollection]) {
+            Object.values(library[currentCollection]).forEach(chunk => {
+                if (chunk.metadata?.sceneIndex === idx) {
+                    chunk.summary = newSummary;
+                }
+            });
+            saveLibrary();
         }
+    });
+
+    // Delete scene
+    $('.ragbooks-scene-delete').off('click').on('click', async function() {
+        const idx = parseInt($(this).data('scene-idx'));
+        const scene = scenes[idx];
+
+        // Check if this scene has been vectorized
+        const library = getContextualLibrary();
+        const collectionId = currentViewingCollection;
+        const hasVectorizedChunks = collectionId && library[collectionId] &&
+            Object.values(library[collectionId]).some(chunk => chunk.metadata?.sceneIndex === idx);
+
+        if (hasVectorizedChunks) {
+            // Scene has chunks - offer options
+            const response = await callGenericPopup(
+                `<div style="text-align: left;">
+                    <h3>Delete Scene ${idx + 1}?</h3>
+                    <p><strong>This scene has been vectorized and has associated chunks.</strong></p>
+                    <p>What would you like to do?</p>
+                </div>`,
+                POPUP_TYPE.CONFIRM,
+                '',
+                {
+                    okButton: 'Delete Scene + Chunks',
+                    cancelButton: 'Delete Scene Only',
+                    customButtons: [{ text: 'Cancel', result: 'cancel' }]
+                }
+            );
+
+            if (response === 'cancel') return;
+
+            if (response === POPUP_RESULT.AFFIRMATIVE) {
+                // Delete scene AND chunks
+                const chunksToDelete = [];
+                Object.entries(library[collectionId]).forEach(([hash, chunk]) => {
+                    if (chunk.metadata?.sceneIndex === idx) {
+                        chunksToDelete.push({ hash, chunk });
+                    }
+                });
+
+                // Delete from library
+                chunksToDelete.forEach(({hash}) => {
+                    delete library[collectionId][hash];
+                    if (currentViewingChunks[hash]) {
+                        delete currentViewingChunks[hash];
+                    }
+                });
+
+                // Delete from vector DB
+                if (chunksToDelete.length > 0) {
+                    try {
+                        await apiDeleteVectorItems(collectionId, chunksToDelete.map(c => c.hash));
+                        toastr.success(`Deleted scene and ${chunksToDelete.length} associated chunk(s)`);
+                    } catch (error) {
+                        console.error('Failed to delete vectors:', error);
+                        toastr.warning('Scene deleted but some vectors may remain');
+                    }
+                }
+
+                saveSettingsDebounced();
+            } else {
+                // Delete scene only - chunks become orphaned
+                toastr.info('Scene deleted. Chunks are now orphaned.');
+            }
+        } else {
+            // No chunks - simple confirmation
+            if (!confirm(`Delete Scene ${idx + 1}? This cannot be undone.`)) {
+                return;
+            }
+        }
+
+        // Delete scene from metadata
+        scenes.splice(idx, 1);
+        saveScenes();
+
+        // Smart re-indexing: Update sceneIndex for all chunks with higher indices
+        if (collectionId && library[collectionId]) {
+            let reindexedCount = 0;
+            Object.values(library[collectionId]).forEach(chunk => {
+                if (chunk.metadata?.sceneIndex !== undefined && chunk.metadata.sceneIndex > idx) {
+                    chunk.metadata.sceneIndex--;
+                    reindexedCount++;
+                }
+            });
+
+            if (reindexedCount > 0) {
+                console.log(`🔄 Re-indexed ${reindexedCount} chunks after scene deletion`);
+                saveSettingsDebounced();
+            }
+        }
+
+        updateAllSceneStates();
+        renderSceneCards(); // Refresh scenes tab
+        renderChunkCards(currentViewingChunks); // Refresh chunks tab to show orphan badges
     });
 
     // Jump to scene in chat
@@ -7163,19 +8132,26 @@ function initializeKeywordSelect(chunk) {
         });
         $select.trigger('change');
 
-        // Handle keyword changes
+        // Handle keyword changes (debounced to prevent rapid-fire updates)
+        let keywordChangeTimeout;
         $select.on('change', function() {
-            const selectedKeywords = $(this).val() || [];
-            chunk.keywords = selectedKeywords;
+            clearTimeout(keywordChangeTimeout);
+            keywordChangeTimeout = setTimeout(() => {
+                const selectedKeywords = $(this).val() || [];
 
-            selectedKeywords.forEach(kw => {
-                if (!chunk.customKeywords) chunk.customKeywords = [];
-                if (!keywords.includes(kw) && !chunk.customKeywords.includes(kw)) {
-                    chunk.customKeywords.push(kw);
-                }
-            });
+                // Preserve keywords in chunk object
+                chunk.keywords = selectedKeywords;
 
-            hasUnsavedChunkChanges = true;
+                selectedKeywords.forEach(kw => {
+                    if (!chunk.customKeywords) chunk.customKeywords = [];
+                    if (!keywords.includes(kw) && !chunk.customKeywords.includes(kw)) {
+                        chunk.customKeywords.push(kw);
+                    }
+                });
+
+                hasUnsavedChunkChanges = true;
+                console.log('[Keywords] Updated for chunk:', hash, 'keywords:', selectedKeywords.length);
+            }, 100);
         });
     } else {
         // PLAINTEXT MODE: Show textarea with keyword:weight format
@@ -7314,6 +8290,82 @@ function initializeSummaryVectorsSelect(chunk) {
     });
 }
 
+/**
+ * Create a new empty chunk in the current collection
+ */
+function createNewChunk() {
+    if (!currentViewingCollection) {
+        console.error('[RAGBooks] No collection is currently open');
+        toastr.error('No collection is currently open', 'RAGBooks');
+        return;
+    }
+
+    // Generate a unique hash for the new chunk
+    const newHash = `chunk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Create a new chunk object with default values
+    const newChunk = {
+        hash: newHash,
+        text: '',
+        name: '',
+        keywords: [],
+        systemKeywords: [],
+        customKeywords: [],
+        customWeights: {},
+        disabledKeywords: [],
+        summaryVectors: [],
+        chunkLinks: [],
+        disabled: false,
+        importance: 100,
+        conditionalActivation: false,
+        activationRules: [],
+        chunkGroup: {
+            name: '',
+            groupKeywords: [],
+            requiresGroupMember: false
+        },
+        inclusionPrioritize: false,
+        metadata: {
+            source: 'manual',
+            enableSummary: false,
+            summaryStyle: 'concise',
+            enableMetadata: false
+        },
+        _expanded: true // Auto-expand new chunk
+    };
+
+    // Add to currentViewingChunks
+    currentViewingChunks[newHash] = newChunk;
+
+    // Render the new chunk and prepend it to the list
+    const chunkHtml = renderChunkCard(newChunk);
+    $('#ragbooks_chunks_container').prepend(chunkHtml);
+
+    // Mark as having unsaved changes
+    hasUnsavedChunkChanges = true;
+
+    // Scroll to the new chunk
+    const $newChunk = $(`.world_entry[data-hash="${newHash}"]`);
+    $newChunk[0]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    // Focus on the name input
+    setTimeout(() => {
+        $newChunk.find('.ragbooks-chunk-name').focus();
+    }, 300);
+
+    // Update chunk count in modal subtitle
+    $('#ragbooks_modal_subtitle').text(`${Object.keys(currentViewingChunks).length} chunks`);
+
+    // Initialize select2 for the new chunk after DOM is ready
+    setTimeout(() => {
+        initializeKeywordSelect(newChunk);
+        initializeSummaryVectorsSelect(newChunk);
+    }, 100);
+
+    console.log('[RAGBooks] Created new chunk:', newHash);
+    toastr.success('New chunk created. Don\'t forget to save!', 'RAGBooks');
+}
+
 function bindChunkViewerEvents() {
     const container = $('#ragbooks_chunks_container');
 
@@ -7322,6 +8374,9 @@ function bindChunkViewerEvents() {
 
     // Save button
     $('#ragbooks_modal_save').off('click').on('click', saveChunkViewerChanges);
+
+    // Create New Chunk button
+    $('#ragbooks_create_chunk').off('click').on('click', createNewChunk);
 
     // Tab switching
     $('.ragbooks-viewer-tab').off('click').on('click', function() {
@@ -7415,22 +8470,32 @@ function bindChunkViewerEvents() {
         }
     });
 
-    // Use native inline-drawer expansion (no custom handler needed for performance)
-    // The inline-drawer CSS handles expand/collapse automatically
-    // We only need to lazy-initialize select2 when a chunk is expanded
-    container.off('inline-drawer-toggle', '.inline-drawer').on('inline-drawer-toggle', '.inline-drawer', function() {
-        const $drawer = $(this);
+    // Handle inline-drawer toggle clicks to lazy-initialize select2
+    container.off('click', '.inline-drawer-toggle').on('click', '.inline-drawer-toggle', function(e) {
+        const $toggle = $(this);
+        const $drawer = $toggle.closest('.inline-drawer');
         const $entry = $drawer.closest('.world_entry');
         const hash = $entry.data('hash');
         const chunk = currentViewingChunks[hash];
 
-        if (chunk && $drawer.find('.inline-drawer-content').is(':visible')) {
-            // Chunk was just expanded - lazy initialize select2 if not already done
-            const $select = $drawer.find(`.ragbooks-chunk-keywords[data-hash="${hash}"]`);
-            if ($select.length && !$select.data('select2')) {
-                initializeKeywordSelect(chunk);
+        if (!chunk) return;
+
+        // Wait for CSS animation to complete, then check if expanded
+        setTimeout(() => {
+            if ($drawer.find('.inline-drawer-content').is(':visible')) {
+                // Chunk was just expanded - lazy initialize select2 if not already done
+                const $select = $drawer.find(`.ragbooks-chunk-keywords[data-hash="${hash}"]`);
+                if ($select.length && !$select.data('select2')) {
+                    initializeKeywordSelect(chunk);
+                }
+
+                // Also initialize summary vectors select2
+                const $summarySelect = $drawer.find(`.ragbooks-summary-vectors-select[data-hash="${hash}"]`);
+                if ($summarySelect.length && !$summarySelect.data('select2')) {
+                    initializeSummaryVectorsSelect(chunk);
+                }
             }
-        }
+        }, 50);
     });
 
     // Toggle chunk enabled/disabled - optimized with targeted DOM update
@@ -7589,6 +8654,97 @@ async function revectorizeCollection(collectionId, sourceData) {
 }
 
 /**
+ * Change a collection's scope to a specific scope
+ */
+function changeScopeForCollection(collectionId, sourceData, newScope) {
+    const ragState = ensureRagState();
+    const metadata = ragState.collectionMetadata?.[collectionId] || {};
+
+    // Get current scope (default to global)
+    const currentScope = metadata.scope || 'global';
+    const currentScopeIdentifier = metadata.scopeIdentifier;
+
+    // Don't do anything if already at target scope
+    if (currentScope === newScope) {
+        toastr.info(`Already in ${newScope} scope`);
+        return;
+    }
+
+    // Fetch the actual sourceData from the current scope before we delete it
+    let actualSourceData = null;
+    if (currentScope === 'character' && currentScopeIdentifier) {
+        actualSourceData = ragState.scopedSources?.character?.[currentScopeIdentifier]?.[collectionId];
+    } else if (currentScope === 'chat' && currentScopeIdentifier) {
+        actualSourceData = ragState.scopedSources?.chat?.[currentScopeIdentifier]?.[collectionId];
+    } else {
+        actualSourceData = ragState.scopedSources?.global?.[collectionId];
+    }
+
+    // Fallback to flat sources or passed sourceData if not found in scoped
+    if (!actualSourceData) {
+        actualSourceData = ragState.sources?.[collectionId] || sourceData;
+    }
+
+    if (!actualSourceData) {
+        toastr.error('Collection data not found - cannot move');
+        console.error(`Cannot find sourceData for collection ${collectionId}`);
+        return;
+    }
+
+    // Determine new scope identifier
+    let newScopeIdentifier = null;
+    const context = getContext();
+
+    if (newScope === 'character') {
+        const activeCharacter = context?.characters?.[context.characterId];
+        const characterName = activeCharacter?.name || context?.character?.name || null;
+        if (!characterName) {
+            toastr.warning('No active character - cannot move to character scope');
+            return;
+        }
+        newScopeIdentifier = characterName;
+    } else if (newScope === 'chat') {
+        const chatId = context?.chatId;
+        if (!chatId) {
+            toastr.warning('No active chat - cannot move to chat scope');
+            return;
+        }
+        newScopeIdentifier = chatId;
+    }
+
+    console.log(`📚 [Scope Change] Moving collection "${collectionId}" from ${currentScope} → ${newScope}`);
+
+    // Delete from old scope (uses current metadata)
+    deleteScopedSource(collectionId);
+
+    // Update metadata to new scope
+    metadata.scope = newScope;
+    metadata.scopeIdentifier = newScopeIdentifier;
+
+    if (!ragState.collectionMetadata) {
+        ragState.collectionMetadata = {};
+    }
+    ragState.collectionMetadata[collectionId] = metadata;
+
+    // Save to new scope (uses updated metadata and actual sourceData)
+    saveScopedSource(collectionId, actualSourceData);
+
+    // Save settings
+    saveSettingsDebounced();
+
+    // Re-render collections
+    renderCollections();
+
+    // Toast notification
+    const scopeLabels = {
+        global: 'Global',
+        character: 'Character',
+        chat: 'Chat'
+    };
+    toastr.success(`Collection moved to ${scopeLabels[newScope]} scope`);
+}
+
+/**
  * Delete a collection
  */
 async function deleteCollection(collectionId) {
@@ -7611,8 +8767,13 @@ async function deleteCollection(collectionId) {
         // Delete from local library (extension_settings.ragbooks.rag.library)
         await deleteChunksFromLibrary(collectionId);
 
-        // Delete source metadata (extension_settings.ragbooks.rag.sources)
-        delete ragState.sources[collectionId];
+        // Delete from scoped sources (NEW: scope-aware deletion)
+        deleteScopedSource(collectionId);
+
+        // Also delete from flat sources for backward compatibility
+        if (ragState.sources && ragState.sources[collectionId]) {
+            delete ragState.sources[collectionId];
+        }
 
         // Delete collection metadata (extension_settings.ragbooks.rag.collectionMetadata)
         if (ragState.collectionMetadata && ragState.collectionMetadata[collectionId]) {
@@ -7757,8 +8918,8 @@ function bindChunkViewerEventHandlers() {
 
     // Regex patterns input handler removed - keywords Select2 now handles both keywords and regexes
 
-    // Chunk name input
-    container.off('input', '.ragbooks-chunk-name').on('input', '.ragbooks-chunk-name', function() {
+    // Chunk name input (use 'change' instead of 'input' to avoid overwriting during typing)
+    container.off('change', '.ragbooks-chunk-name').on('change', '.ragbooks-chunk-name', function() {
         const hash = $(this).data('hash');
         const name = $(this).val().trim();
         const chunk = currentViewingChunks[hash];
@@ -7791,6 +8952,45 @@ function bindChunkViewerEventHandlers() {
 
             // Toggle Summary Vectors section visibility
             $(`.ragbooks-summary-vectors-section[data-hash="${hash}"]`).toggle(isEnabled);
+
+            // If disabled, clean up any existing summary chunks
+            if (!isEnabled && currentViewingCollection) {
+                const library = getContextualLibrary();
+                const collection = library[currentViewingCollection];
+                if (collection) {
+                    const summaryChunksToDelete = [];
+
+                    // Find summary chunks that reference this chunk as parent
+                    Object.entries(collection).forEach(([summaryHash, summaryChunk]) => {
+                        if (summaryChunk.isSummaryChunk && summaryChunk.parentHash === hash) {
+                            summaryChunksToDelete.push(summaryHash);
+                        }
+                    });
+
+                    // Delete summary chunks from library
+                    if (summaryChunksToDelete.length > 0) {
+                        summaryChunksToDelete.forEach(summaryHash => {
+                            delete collection[summaryHash];
+                            if (currentViewingChunks[summaryHash]) {
+                                delete currentViewingChunks[summaryHash];
+                            }
+                        });
+
+                        console.log(`🧹 Cleaned up ${summaryChunksToDelete.length} summary chunk(s)`);
+
+                        // Delete from vector DB
+                        apiDeleteVectorItems(currentViewingCollection, summaryChunksToDelete)
+                            .then(() => {
+                                toastr.info(`Removed ${summaryChunksToDelete.length} summary vector(s)`);
+                                saveSettingsDebounced();
+                            })
+                            .catch(error => {
+                                console.error('Failed to delete summary vectors:', error);
+                                toastr.warning('Summary disabled but vectors may still exist');
+                            });
+                    }
+                }
+            }
 
             // Also update the scene object in chat_metadata if this is a scene chunk
             if (chunk.metadata?.sceneIndex !== undefined) {
@@ -8025,6 +9225,70 @@ function bindChunkViewerEventHandlers() {
         }
     });
 
+    // Generate Summary Now button
+    container.off('click', '.ragbooks-generate-summary-now').on('click', '.ragbooks-generate-summary-now', async function() {
+        const $button = $(this);
+        const hash = $button.data('hash');
+        const chunk = currentViewingChunks[hash];
+
+        if (!chunk) {
+            toastr.error('Chunk not found', 'RAGBooks');
+            return;
+        }
+
+        if (!chunk.text || chunk.text.trim().length === 0) {
+            toastr.warning('Cannot generate summary for empty chunk', 'RAGBooks');
+            return;
+        }
+
+        // Get the selected summary style
+        const style = $(`.ragbooks-summary-style[data-hash="${hash}"]`).val() || 'concise';
+
+        // Disable button and show loading state
+        $button.prop('disabled', true);
+        const originalHTML = $button.html();
+        $button.html('<i class="fa-solid fa-spinner fa-spin"></i> Generating...');
+
+        try {
+            console.log(`[RAGBooks] Generating ${style} summary for chunk ${hash}...`);
+
+            // Import and call the summarization function
+            const { generateSummaryForChunk } = await import('./summarization.js');
+            const summary = await generateSummaryForChunk(chunk.text, style);
+
+            if (summary) {
+                // Store the summary
+                chunk.summary = summary;
+                chunk.summaryVector = true; // Enable dual-vector search
+
+                // Update the summary vectors section with the new summary
+                const $summarySelect = $(`.ragbooks-summary-vectors-select[data-hash="${hash}"]`);
+                if ($summarySelect.length) {
+                    // Add as a new option if not already present
+                    if (!chunk.summaryVectors) chunk.summaryVectors = [];
+                    if (!chunk.summaryVectors.includes(summary)) {
+                        chunk.summaryVectors.push(summary);
+                        const option = new Option(summary, summary, true, true);
+                        $summarySelect.append(option).trigger('change');
+                    }
+                }
+
+                hasUnsavedChunkChanges = true;
+                toastr.success(`Summary generated: "${summary.substring(0, 50)}..."`, 'RAGBooks');
+                console.log(`[RAGBooks] Summary generated:`, summary);
+            } else {
+                toastr.error('Failed to generate summary', 'RAGBooks');
+            }
+        } catch (error) {
+            console.error('[RAGBooks] Error generating summary:', error);
+            toastr.error(`Error: ${error.message}`, 'RAGBooks');
+        } finally {
+            // Restore button state
+            $button.prop('disabled', false);
+            $button.html(originalHTML);
+        }
+    });
+
     // Summary style
     container.off('change', '.ragbooks-summary-style').on('change', '.ragbooks-summary-style', function() {
         const hash = $(this).data('hash');
@@ -8161,6 +9425,45 @@ function getInlineConfigForm(sourceType) {
                         </div>
                         <div class="ragbooks-slider-hint">How much chunks overlap (helps preserve context across boundaries)</div>
                         <input type="range" id="ragbooks_lorebook_chunk_overlap" class="ragbooks-slider" min="0" max="200" step="10" value="50">
+                    </div>
+                </div>
+
+                <!-- Text Cleaning Settings -->
+                <div class="ragbooks-setting-item">
+                    <label class="ragbooks-label">
+                        <span class="ragbooks-label-text">🧹 Text Cleaning Mode</span>
+                    </label>
+                    <select id="ragbooks_lorebook_cleaning_mode" class="ragbooks-select">
+                        <option value="none">None (Keep Original)</option>
+                        <option value="basic">Basic (Remove Scripts/Styles)</option>
+                        <option value="balanced" selected>Balanced (Remove All HTML)</option>
+                        <option value="aggressive">Aggressive (Pure Text Only)</option>
+                    </select>
+                    <div class="ragbooks-help-text">
+                        <strong>None:</strong> No cleaning<br>
+                        <strong>Basic:</strong> Remove scripts, styles, hidden elements<br>
+                        <strong>Balanced:</strong> Remove all HTML tags and code blocks<br>
+                        <strong>Aggressive:</strong> Strip all markup, formatting, URLs
+                    </div>
+                </div>
+
+                <div id="ragbooks_lorebook_cleaning_patterns" style="display: none;">
+                    <div class="ragbooks-setting-item">
+                        <label class="ragbooks-label">
+                            <span class="ragbooks-label-text">Custom Cleaning Patterns</span>
+                        </label>
+                        <select id="ragbooks_lorebook_custom_patterns" class="ragbooks-select" multiple="multiple">
+                            <!-- Populated dynamically from ragState.textCleaning -->
+                        </select>
+                        <div class="ragbooks-help-text">Add custom regex patterns to supplement the cleaning mode</div>
+                    </div>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button type="button" class="menu_button ragbooks-add-pattern" data-source="lorebook" style="flex: 1;">
+                            <i class="fa-solid fa-plus"></i> Add Pattern
+                        </button>
+                        <button type="button" class="menu_button ragbooks-view-patterns" data-source="lorebook" style="flex: 1;">
+                            <i class="fa-solid fa-eye"></i> View All
+                        </button>
                     </div>
                 </div>
 
@@ -8338,6 +9641,45 @@ function getInlineConfigForm(sourceType) {
                     </div>
                 </div>
 
+                <!-- Text Cleaning Settings -->
+                <div class="ragbooks-setting-item">
+                    <label class="ragbooks-label">
+                        <span class="ragbooks-label-text">🧹 Text Cleaning Mode</span>
+                    </label>
+                    <select id="ragbooks_character_cleaning_mode" class="ragbooks-select">
+                        <option value="none">None (Keep Original)</option>
+                        <option value="basic">Basic (Remove Scripts/Styles)</option>
+                        <option value="balanced" selected>Balanced (Remove All HTML)</option>
+                        <option value="aggressive">Aggressive (Pure Text Only)</option>
+                    </select>
+                    <div class="ragbooks-help-text">
+                        <strong>None:</strong> No cleaning<br>
+                        <strong>Basic:</strong> Remove scripts, styles, hidden elements<br>
+                        <strong>Balanced:</strong> Remove all HTML tags and code blocks<br>
+                        <strong>Aggressive:</strong> Strip all markup, formatting, URLs
+                    </div>
+                </div>
+
+                <div id="ragbooks_character_cleaning_patterns" style="display: none;">
+                    <div class="ragbooks-setting-item">
+                        <label class="ragbooks-label">
+                            <span class="ragbooks-label-text">Custom Cleaning Patterns</span>
+                        </label>
+                        <select id="ragbooks_character_custom_patterns" class="ragbooks-select" multiple="multiple">
+                            <!-- Populated dynamically from ragState.textCleaning -->
+                        </select>
+                        <div class="ragbooks-help-text">Add custom regex patterns to supplement the cleaning mode</div>
+                    </div>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button type="button" class="menu_button ragbooks-add-pattern" data-source="character" style="flex: 1;">
+                            <i class="fa-solid fa-plus"></i> Add Pattern
+                        </button>
+                        <button type="button" class="menu_button ragbooks-view-patterns" data-source="character" style="flex: 1;">
+                            <i class="fa-solid fa-eye"></i> View All
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Summarization Settings -->
                 <div class="ragbooks-setting-item">
                     <label class="ragbooks-toggle">
@@ -8443,6 +9785,45 @@ function getInlineConfigForm(sourceType) {
                         </div>
                         <div class="ragbooks-slider-hint">How much chunks overlap (helps preserve context across boundaries)</div>
                         <input type="range" id="ragbooks_url_chunk_overlap" class="ragbooks-slider" min="0" max="200" step="10" value="50">
+                    </div>
+                </div>
+
+                <!-- Text Cleaning Settings -->
+                <div class="ragbooks-setting-item">
+                    <label class="ragbooks-label">
+                        <span class="ragbooks-label-text">🧹 Text Cleaning Mode</span>
+                    </label>
+                    <select id="ragbooks_url_cleaning_mode" class="ragbooks-select">
+                        <option value="none">None (Keep Original)</option>
+                        <option value="basic">Basic (Remove Scripts/Styles)</option>
+                        <option value="balanced" selected>Balanced (Remove All HTML)</option>
+                        <option value="aggressive">Aggressive (Pure Text Only)</option>
+                    </select>
+                    <div class="ragbooks-help-text">
+                        <strong>None:</strong> No cleaning<br>
+                        <strong>Basic:</strong> Remove scripts, styles, hidden elements<br>
+                        <strong>Balanced:</strong> Remove all HTML tags and code blocks<br>
+                        <strong>Aggressive:</strong> Strip all markup, formatting, URLs
+                    </div>
+                </div>
+
+                <div id="ragbooks_url_cleaning_patterns" style="display: none;">
+                    <div class="ragbooks-setting-item">
+                        <label class="ragbooks-label">
+                            <span class="ragbooks-label-text">Custom Cleaning Patterns</span>
+                        </label>
+                        <select id="ragbooks_url_custom_patterns" class="ragbooks-select" multiple="multiple">
+                            <!-- Populated dynamically from ragState.textCleaning -->
+                        </select>
+                        <div class="ragbooks-help-text">Add custom regex patterns to supplement the cleaning mode</div>
+                    </div>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button type="button" class="menu_button ragbooks-add-pattern" data-source="url" style="flex: 1;">
+                            <i class="fa-solid fa-plus"></i> Add Pattern
+                        </button>
+                        <button type="button" class="menu_button ragbooks-view-patterns" data-source="url" style="flex: 1;">
+                            <i class="fa-solid fa-eye"></i> View All
+                        </button>
                     </div>
                 </div>
 
@@ -8627,6 +10008,45 @@ function getInlineConfigForm(sourceType) {
                             </label>
                         </div>
                         <div class="ragbooks-help-text">Filter which message types to include in vectorization</div>
+                    </div>
+
+                    <!-- Text Cleaning Settings -->
+                    <div class="ragbooks-setting-item">
+                        <label class="ragbooks-label">
+                            <span class="ragbooks-label-text">🧹 Text Cleaning Mode</span>
+                        </label>
+                        <select id="ragbooks_chat_cleaning_mode" class="ragbooks-select">
+                            <option value="none">None (Keep Original)</option>
+                            <option value="basic" selected>Basic (Remove Scripts/Styles)</option>
+                            <option value="balanced">Balanced (Remove All HTML)</option>
+                            <option value="aggressive">Aggressive (Pure Text Only)</option>
+                        </select>
+                        <div class="ragbooks-help-text">
+                            <strong>None:</strong> No cleaning<br>
+                            <strong>Basic:</strong> Remove scripts, styles, hidden elements<br>
+                            <strong>Balanced:</strong> Remove all HTML tags and code blocks<br>
+                            <strong>Aggressive:</strong> Strip all markup, formatting, URLs
+                        </div>
+                    </div>
+
+                    <div id="ragbooks_chat_cleaning_patterns" style="display: none;">
+                        <div class="ragbooks-setting-item">
+                            <label class="ragbooks-label">
+                                <span class="ragbooks-label-text">Custom Cleaning Patterns</span>
+                            </label>
+                            <select id="ragbooks_chat_custom_patterns" class="ragbooks-select" multiple="multiple">
+                                <!-- Populated dynamically from ragState.textCleaning -->
+                            </select>
+                            <div class="ragbooks-help-text">Add custom regex patterns to supplement the cleaning mode</div>
+                        </div>
+                        <div style="display: flex; gap: 8px; margin-top: 8px;">
+                            <button type="button" class="menu_button ragbooks-add-pattern" data-source="chat" style="flex: 1;">
+                                <i class="fa-solid fa-plus"></i> Add Pattern
+                            </button>
+                            <button type="button" class="menu_button ragbooks-view-patterns" data-source="chat" style="flex: 1;">
+                                <i class="fa-solid fa-eye"></i> View All
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Summarization Settings -->
@@ -8890,6 +10310,45 @@ function getInlineConfigForm(sourceType) {
                         </div>
                         <div class="ragbooks-slider-hint">How much chunks overlap (helps preserve context across boundaries)</div>
                         <input type="range" id="ragbooks_custom_chunk_overlap" class="ragbooks-slider" min="0" max="200" step="10" value="50">
+                    </div>
+                </div>
+
+                <!-- Text Cleaning Settings -->
+                <div class="ragbooks-setting-item">
+                    <label class="ragbooks-label">
+                        <span class="ragbooks-label-text">🧹 Text Cleaning Mode</span>
+                    </label>
+                    <select id="ragbooks_custom_cleaning_mode" class="ragbooks-select">
+                        <option value="none">None (Keep Original)</option>
+                        <option value="basic">Basic (Remove Scripts/Styles)</option>
+                        <option value="balanced" selected>Balanced (Remove All HTML)</option>
+                        <option value="aggressive">Aggressive (Pure Text Only)</option>
+                    </select>
+                    <div class="ragbooks-help-text">
+                        <strong>None:</strong> No cleaning<br>
+                        <strong>Basic:</strong> Remove scripts, styles, hidden elements<br>
+                        <strong>Balanced:</strong> Remove all HTML tags and code blocks<br>
+                        <strong>Aggressive:</strong> Strip all markup, formatting, URLs
+                    </div>
+                </div>
+
+                <div id="ragbooks_custom_cleaning_patterns" style="display: none;">
+                    <div class="ragbooks-setting-item">
+                        <label class="ragbooks-label">
+                            <span class="ragbooks-label-text">Custom Cleaning Patterns</span>
+                        </label>
+                        <select id="ragbooks_custom_custom_patterns" class="ragbooks-select" multiple="multiple">
+                            <!-- Populated dynamically from ragState.textCleaning -->
+                        </select>
+                        <div class="ragbooks-help-text">Add custom regex patterns to supplement the cleaning mode</div>
+                    </div>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button type="button" class="menu_button ragbooks-add-pattern" data-source="custom" style="flex: 1;">
+                            <i class="fa-solid fa-plus"></i> Add Pattern
+                        </button>
+                        <button type="button" class="menu_button ragbooks-view-patterns" data-source="custom" style="flex: 1;">
+                            <i class="fa-solid fa-eye"></i> View All
+                        </button>
                     </div>
                 </div>
 
@@ -9313,6 +10772,9 @@ async function handleInlineVectorization() {
                     includeDisabled: $('#ragbooks_include_disabled').prop('checked'),
                     chunkSize: parseInt($('#ragbooks_lorebook_chunk_size').val()) || 400,
                     chunkOverlap: parseInt($('#ragbooks_lorebook_chunk_overlap').val()) || 50,
+                    // Text cleaning settings
+                    cleaningMode: $('#ragbooks_lorebook_cleaning_mode').val() || 'balanced',
+                    customPatterns: getCustomPatterns('lorebook'),
                     // Summarization settings
                     summarizeChunks: $('#ragbooks_lorebook_summarize_chunks').is(':checked'),
                     summaryStyle: $('#ragbooks_lorebook_summary_style').val() || 'concise',
@@ -9342,6 +10804,9 @@ async function handleInlineVectorization() {
                     chunkingStrategy: $('#ragbooks_chunking_strategy').val(),
                     chunkSize: parseInt($('#ragbooks_character_chunk_size').val()) || 400,
                     chunkOverlap: parseInt($('#ragbooks_character_chunk_overlap').val()) || 50,
+                    // Text cleaning settings
+                    cleaningMode: $('#ragbooks_character_cleaning_mode').val() || 'balanced',
+                    customPatterns: getCustomPatterns('character'),
                     // Summarization settings
                     summarizeChunks: $('#ragbooks_character_summarize_chunks').is(':checked'),
                     summaryStyle: $('#ragbooks_character_summary_style').val() || 'concise',
@@ -9372,6 +10837,9 @@ async function handleInlineVectorization() {
                         sourceUrl: urlInput,
                         chunkSize: parseInt($('#ragbooks_url_chunk_size').val()) || 400,
                         chunkOverlap: parseInt($('#ragbooks_url_chunk_overlap').val()) || 50,
+                        // Text cleaning settings
+                        cleaningMode: $('#ragbooks_url_cleaning_mode').val() || 'balanced',
+                        customPatterns: getCustomPatterns('url'),
                         // Summarization settings
                         summarizeChunks: $('#ragbooks_url_summarize_chunks').is(':checked'),
                         summaryStyle: $('#ragbooks_url_summary_style').val() || 'concise',
@@ -9388,7 +10856,16 @@ async function handleInlineVectorization() {
                 break;
 
             case 'chat':
-                sourceName = 'Current Chat';
+                // Get actual chat name instead of generic "Current Chat"
+                const context = getContext();
+                const chatId = context?.chatId;
+                if (chatId) {
+                    // Parse chat filename to get a readable name
+                    // Format is usually: "CharacterName - 2025-01-15@14h30m" or similar
+                    sourceName = chatId.replace(/@\d+h\d+m.*$/, '').trim() || chatId;
+                } else {
+                    sourceName = 'Current Chat';
+                }
 
                 // Collect all chat-specific settings from the form
                 const messageTypes = [];
@@ -9413,6 +10890,10 @@ async function handleInlineVectorization() {
                     includeChar: messageTypes.includes('char'),
                     includeSystem: messageTypes.includes('system'),
                     includeNarrator: messageTypes.includes('narrator'),
+
+                    // Text cleaning settings
+                    cleaningMode: $('#ragbooks_chat_cleaning_mode').val() || 'basic',
+                    customPatterns: getCustomPatterns('chat'),
 
                     // Summarization
                     summarizeChunks: $('#ragbooks_summarize_chunks').is(':checked'),
@@ -9579,6 +11060,9 @@ async function handleInlineVectorization() {
                     inputMethod: inputMethod,
                     chunkSize: parseInt($('#ragbooks_custom_chunk_size').val()) || 400,
                     chunkOverlap: parseInt($('#ragbooks_custom_chunk_overlap').val()) || 50,
+                    // Text cleaning settings
+                    cleaningMode: $('#ragbooks_custom_cleaning_mode').val() || 'balanced',
+                    customPatterns: getCustomPatterns('custom'),
                     // Summarization settings
                     summarizeChunks: $('#ragbooks_custom_summarize_chunks').is(':checked'),
                     summaryStyle: $('#ragbooks_custom_summary_style').val() || 'concise',
@@ -9914,9 +11398,31 @@ async function toggleSceneEnd(messageId) {
         }
     }
 
+    // Check if this scene has been vectorized
+    const sceneIndex = scenes.indexOf(openScene);
+    const hasVectorizedChunks = (() => {
+        const settings = getRAGSettings();
+        const library = settings?.rag?.library;
+        if (!library) return false;
+
+        for (const collection of Object.values(library)) {
+            const hasChunk = Object.values(collection).some(chunk =>
+                chunk.metadata?.sceneIndex === sceneIndex
+            );
+            if (hasChunk) return true;
+        }
+        return false;
+    })();
+
     // Close the scene
+    const oldEnd = openScene.end;
     openScene.end = messageId;
     console.log(`📚 [RAGBooks] Closed scene ${openScene.start}-${messageId}`);
+
+    // Warn if vectorized and boundaries changed
+    if (hasVectorizedChunks && oldEnd !== messageId) {
+        toastr.warning('Scene boundaries changed. Re-vectorize chat to update search index.', { timeOut: 5000 });
+    }
 
     saveScenes();
     updateAllSceneStates();
@@ -10160,6 +11666,177 @@ jQuery(async function () {
 
     console.log('📚 RAGBooks extension initializing...');
 
+    // Migrate flat sources to scoped structure (one-time operation)
+    // ========================================================================
+    // TEXT CLEANING HELPER FUNCTIONS
+    // ========================================================================
+
+    /**
+     * Get custom patterns from ragState for a specific source type
+     * @param {string} sourceType - lorebook, character, url, chat, or custom
+     * @returns {Array} Array of custom pattern objects
+     */
+    function getCustomPatterns(sourceType) {
+        ensureRagState();
+        const customPatterns = ragState.textCleaning?.customPatterns || [];
+
+        // Return all custom patterns (they apply universally)
+        return customPatterns.filter(p => p.enabled !== false);
+    }
+
+    /**
+     * Open pattern editor modal
+     * @param {Object|null} existingPattern - Pattern to edit, or null for new
+     * @param {string} sourceType - Source type context
+     */
+    function openPatternEditor(existingPattern = null, sourceType = 'all') {
+        const $modal = $('#ragbooks_pattern_editor_modal');
+
+        // Populate fields
+        if (existingPattern) {
+            $('#ragbooks_pattern_name').val(existingPattern.name);
+            $('#ragbooks_pattern_regex').val(existingPattern.pattern);
+            $('#ragbooks_pattern_flags').val(existingPattern.flags || 'g');
+            $('#ragbooks_pattern_replacement').val(existingPattern.replacement || '');
+            $modal.data('editingIndex', existingPattern.index);
+        } else {
+            $('#ragbooks_pattern_name').val('');
+            $('#ragbooks_pattern_regex').val('');
+            $('#ragbooks_pattern_flags').val('g');
+            $('#ragbooks_pattern_replacement').val('');
+            $modal.removeData('editingIndex');
+        }
+
+        // Clear test results
+        $('#ragbooks_pattern_test_input').val('');
+        $('#ragbooks_pattern_test_output').val('');
+
+        $modal.data('sourceType', sourceType);
+        $modal.show();
+    }
+
+    /**
+     * Save pattern from editor modal
+     */
+    function saveCleaningPattern() {
+        const $modal = $('#ragbooks_pattern_editor_modal');
+
+        const name = $('#ragbooks_pattern_name').val().trim();
+        const pattern = $('#ragbooks_pattern_regex').val().trim();
+        const flags = $('#ragbooks_pattern_flags').val().trim();
+        const replacement = $('#ragbooks_pattern_replacement').val();
+
+        // Validate
+        if (!name) {
+            toastr.warning('Pattern name is required');
+            return;
+        }
+
+        if (!pattern) {
+            toastr.warning('Regex pattern is required');
+            return;
+        }
+
+        // Validate regex
+        const validation = validatePattern(pattern, flags);
+        if (!validation.valid) {
+            toastr.error(`Invalid regex: ${validation.error}`);
+            return;
+        }
+
+        // Ensure ragState structure exists
+        ensureRagState();
+        if (!ragState.textCleaning) {
+            ragState.textCleaning = { customPatterns: [] };
+        }
+        if (!ragState.textCleaning.customPatterns) {
+            ragState.textCleaning.customPatterns = [];
+        }
+
+        // Create pattern object
+        const newPattern = {
+            name: name,
+            pattern: pattern,
+            flags: flags,
+            replacement: replacement,
+            enabled: true
+        };
+
+        const editingIndex = $modal.data('editingIndex');
+
+        if (editingIndex !== undefined) {
+            // Edit existing
+            ragState.textCleaning.customPatterns[editingIndex] = newPattern;
+            toastr.success('Pattern updated');
+        } else {
+            // Add new
+            ragState.textCleaning.customPatterns.push(newPattern);
+            toastr.success('Pattern added');
+        }
+
+        saveSettingsDebounced();
+        $modal.hide();
+    }
+
+    /**
+     * Test pattern in the modal
+     */
+    function testCleaningPattern() {
+        const pattern = $('#ragbooks_pattern_regex').val().trim();
+        const flags = $('#ragbooks_pattern_flags').val().trim();
+        const replacement = $('#ragbooks_pattern_replacement').val();
+        const testInput = $('#ragbooks_pattern_test_input').val();
+
+        if (!pattern || !testInput) {
+            toastr.warning('Enter both pattern and test input');
+            return;
+        }
+
+        try {
+            const regex = new RegExp(pattern, flags);
+            const result = testInput.replace(regex, replacement);
+            $('#ragbooks_pattern_test_output').val(result);
+            toastr.success('Test completed');
+        } catch (error) {
+            $('#ragbooks_pattern_test_output').val(`Error: ${error.message}`);
+            toastr.error(`Regex error: ${error.message}`);
+        }
+    }
+
+    /**
+     * View all cleaning patterns for a specific mode
+     * @param {string} mode - Cleaning mode (none, basic, balanced, aggressive)
+     */
+    function viewCleaningPatterns(mode) {
+        const presetPatterns = CLEANING_PATTERNS[mode] || [];
+        ensureRagState();
+        const customPatterns = ragState.textCleaning?.customPatterns || [];
+
+        let message = `<strong>Cleaning Mode: ${mode}</strong><br><br>`;
+
+        message += `<strong>Preset Patterns (${presetPatterns.length}):</strong><br>`;
+        presetPatterns.forEach((p, i) => {
+            message += `${i + 1}. ${p.name}: <code>/${p.pattern}/${p.flags}</code><br>`;
+        });
+
+        message += `<br><strong>Custom Patterns (${customPatterns.length}):</strong><br>`;
+        if (customPatterns.length === 0) {
+            message += '<em>No custom patterns defined</em>';
+        } else {
+            customPatterns.forEach((p, i) => {
+                const status = p.enabled !== false ? '✓' : '✗';
+                message += `${status} ${i + 1}. ${p.name}: <code>/${p.pattern}/${p.flags}</code><br>`;
+            });
+        }
+
+        toastr.info(message, 'Text Cleaning Patterns', { timeOut: 10000, escapeHtml: false });
+    }
+
+    const migrationResult = migrateFlatSourcesToScoped();
+    if (migrationResult.migrated > 0) {
+        console.log(`✅ Migrated ${migrationResult.migrated} collections to scoped storage`);
+    }
+
     // Load settings HTML
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
     $('#extensions_settings2').append(settingsHtml);
@@ -10173,6 +11850,65 @@ jQuery(async function () {
         ragState.enabled = $(this).prop('checked');
         saveSettingsDebounced();
         console.log('📚 [RAGBooks] Enabled:', ragState.enabled);
+    });
+
+    // Scope filter buttons
+    $(document).on('click', '.ragbooks-scope-filter-btn', function() {
+        const scope = $(this).data('scope');
+
+        // Skip if it's the recovery button
+        if ($(this).attr('id') === 'ragbooks_recover_btn') {
+            return;
+        }
+
+        const ragState = ensureRagState();
+        ragState.scopeFilter = scope;
+
+        // Update button states
+        $('.ragbooks-scope-filter-btn').removeClass('active');
+        $(this).addClass('active');
+
+        // Re-render collections with filter
+        renderCollections();
+
+        console.log('📚 [RAGBooks] Scope filter:', scope);
+    });
+
+    // Close dropdown when clicking outside
+    $(document).on('click', function(e) {
+        if (!$(e.target).closest('.ragbooks-scope-dropdown').length) {
+            $('.ragbooks-scope-dropdown-menu').removeClass('show');
+        }
+    });
+
+    // Recover lost collections button
+    $(document).on('click', '#ragbooks_recover_btn', function() {
+        console.log('🔧 [RAGBooks] Starting collection recovery...');
+        toastr.info('Scanning for lost collections...');
+
+        const result = recoverOrphanedCollections();
+
+        if (result.success) {
+            if (result.recovered.length > 0) {
+                const message = `Recovered ${result.recovered.length} collection(s):\n` +
+                    result.recovered.map(c => `• ${c.name} (${c.chunks} chunks)`).join('\n');
+                console.log('✅ [Recovery Success]', message);
+                toastr.success(`Recovered ${result.recovered.length} collection(s)! Check console for details.`);
+
+                // Re-render to show recovered collections
+                renderCollections();
+            } else {
+                toastr.info('No lost collections found - all collections are properly registered');
+            }
+
+            if (result.skipped.length > 0) {
+                const skippedMessage = `Found ${result.skipped.length} orphaned chunk collection(s) without metadata (cannot recover)`;
+                console.warn('⚠️ [Recovery Warning]', skippedMessage);
+                toastr.warning(skippedMessage);
+            }
+        } else {
+            toastr.error('Recovery failed - found orphaned chunks but missing source metadata');
+        }
     });
 
     $('#ragbooks_orange_mode').on('change', function () {
@@ -10392,6 +12128,50 @@ jQuery(async function () {
     $(document).on('click', '#ragbooks_vectorize_btn', handleInlineVectorization);
     $(document).on('click', '#ragbooks_cancel_btn', cancelInlineForm);
 
+    // ========================================================================
+    // TEXT CLEANING EVENT HANDLERS
+    // ========================================================================
+
+    // Cleaning mode dropdown change handlers - show/hide custom patterns section
+    $(document).on('change', '#ragbooks_lorebook_cleaning_mode, #ragbooks_character_cleaning_mode, #ragbooks_url_cleaning_mode, #ragbooks_chat_cleaning_mode, #ragbooks_custom_cleaning_mode', function() {
+        const $select = $(this);
+        const mode = $select.val();
+        const sourceType = $select.attr('id').replace('ragbooks_', '').replace('_cleaning_mode', '');
+        const $patternsSection = $(`#ragbooks_${sourceType}_cleaning_patterns`);
+
+        // Show custom patterns section for non-none modes
+        if (mode !== 'none') {
+            $patternsSection.show();
+        } else {
+            $patternsSection.hide();
+        }
+    });
+
+    // Add Pattern button handlers
+    $(document).on('click', '.ragbooks-add-pattern', function() {
+        const sourceType = $(this).data('source');
+        openPatternEditor(null, sourceType);
+    });
+
+    // View Patterns button handlers
+    $(document).on('click', '.ragbooks-view-patterns', function() {
+        const sourceType = $(this).data('source');
+        const mode = $(`#ragbooks_${sourceType}_cleaning_mode`).val();
+        viewCleaningPatterns(mode);
+    });
+
+    // Pattern editor modal handlers
+    $(document).on('click', '#ragbooks_pattern_editor_close, #ragbooks_pattern_cancel', function() {
+        $('#ragbooks_pattern_editor_modal').hide();
+    });
+
+    $(document).on('click', '#ragbooks_pattern_save', function() {
+        saveCleaningPattern();
+    });
+
+    $(document).on('click', '#ragbooks_pattern_test', function() {
+        testCleaningPattern();
+    });
 
     // ========================================================================
     // FILE UPLOAD HANDLERS - Modern drag & drop functionality

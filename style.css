@@ -1648,11 +1648,24 @@ input[type="file"]#ragbooks_doc_file {
     display: flex;
     align-items: center;
     gap: 4px;
+    /* Mobile touch support */
+    min-height: 44px;
+    min-width: 44px;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(99, 102, 241, 0.3);
 }
 
 .ragbooks-edit-triggers-btn:hover {
     background: var(--black40a);
     border-color: rgba(99, 102, 241, 0.6);
+}
+
+.ragbooks-edit-triggers-btn:active,
+.ragbooks-edit-triggers-btn:focus {
+    background: var(--black40a);
+    border-color: rgba(99, 102, 241, 0.6);
+    outline: 2px solid rgba(99, 102, 241, 0.4);
+    outline-offset: 2px;
 }
 
 .ragbooks-triggers-display {
@@ -1696,17 +1709,236 @@ input[type="file"]#ragbooks_doc_file {
     font-weight: 600;
 }
 
-.ragbooks-no-triggers {
+.ragbooks-conditional-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: rgba(168, 85, 247, 0.2);
+    color: rgba(168, 85, 247, 1);
+    border: 1px solid rgba(168, 85, 247, 0.4);
+    border-radius: 12px;
     font-size: 0.85em;
-    opacity: 0.6;
+    font-weight: 600;
+}
+
+.ragbooks-no-triggers {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85em;
+    padding: 4px 12px;
+    background: rgba(230, 126, 34, 0.15);
+    color: rgba(230, 126, 34, 1);
+    border: 1px solid rgba(230, 126, 34, 0.3);
+    border-radius: 12px;
     font-style: italic;
 }
 
 .ragbooks-triggers-help {
+    font-size: 0.85em;
+    opacity: 0.8;
+    margin-top: 8px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    background: rgba(99, 102, 241, 0.08);
+    border-left: 3px solid rgba(99, 102, 241, 0.4);
+    border-radius: 4px;
+    line-height: 1.4;
+}
+
+/* Scope Badges */
+.ragbooks-badges-container {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.ragbooks-scope-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
     font-size: 0.8em;
-    opacity: 0.6;
-    margin-top: 4px;
+    font-weight: 600;
+    border-radius: 12px;
+    border: 1px solid;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    user-select: none;
+}
+
+.ragbooks-scope-badge.global {
+    background: rgba(34, 197, 94, 0.15);
+    color: rgba(34, 197, 94, 1);
+    border-color: rgba(34, 197, 94, 0.4);
+}
+
+.ragbooks-scope-badge.global:hover {
+    background: rgba(34, 197, 94, 0.25);
+    border-color: rgba(34, 197, 94, 0.6);
+    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+}
+
+.ragbooks-scope-badge.character {
+    background: rgba(59, 130, 246, 0.15);
+    color: rgba(59, 130, 246, 1);
+    border-color: rgba(59, 130, 246, 0.4);
+}
+
+.ragbooks-scope-badge.character:hover {
+    background: rgba(59, 130, 246, 0.25);
+    border-color: rgba(59, 130, 246, 0.6);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.ragbooks-scope-badge.chat {
+    background: rgba(168, 85, 247, 0.15);
+    color: rgba(168, 85, 247, 1);
+    border-color: rgba(168, 85, 247, 0.4);
+}
+
+.ragbooks-scope-badge.chat:hover {
+    background: rgba(168, 85, 247, 0.25);
+    border-color: rgba(168, 85, 247, 0.6);
+    box-shadow: 0 2px 8px rgba(168, 85, 247, 0.3);
+}
+
+.ragbooks-scope-badge:hover {
+    transform: translateY(-1px);
+}
+
+/* Scope Dropdown */
+.ragbooks-scope-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.ragbooks-scope-dropdown-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    min-width: 200px;
+    background: var(--black70a);
+    border: 2px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    padding: 8px;
+    z-index: 1000;
+    display: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+}
+
+.ragbooks-scope-dropdown-menu.show {
     display: block;
+    animation: dropdownFadeIn 0.15s ease-out;
+}
+
+@keyframes dropdownFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.ragbooks-scope-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-bottom: 4px;
+}
+
+.ragbooks-scope-option:last-child {
+    margin-bottom: 0;
+}
+
+.ragbooks-scope-option:hover {
+    background: var(--black30a);
+    transform: translateX(2px);
+}
+
+.ragbooks-scope-option .ragbooks-scope-badge {
+    cursor: pointer;
+    margin: 0;
+}
+
+.ragbooks-scope-description {
+    font-size: 0.75em;
+    opacity: 0.6;
+    white-space: nowrap;
+}
+
+/* Scope Filter Buttons */
+.ragbooks-scope-filter {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 8px;
+    background: var(--black10a);
+    border-radius: 8px;
+}
+
+.ragbooks-scope-filter-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--black20a);
+    border: 2px solid transparent;
+    border-radius: 6px;
+    color: var(--SmartThemeBodyColor);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    opacity: 0.7;
+}
+
+.ragbooks-scope-filter-btn:hover {
+    opacity: 1;
+    background: var(--black30a);
+    transform: translateY(-1px);
+}
+
+.ragbooks-scope-filter-btn.active {
+    opacity: 1;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2));
+    border-color: rgba(99, 102, 241, 0.5);
+    color: rgba(99, 102, 241, 1);
+}
+
+.ragbooks-scope-filter-btn.active i {
+    color: rgba(99, 102, 241, 1);
+}
+
+.ragbooks-scope-filter-btn[data-scope="global"].active {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(22, 163, 74, 0.2));
+    border-color: rgba(34, 197, 94, 0.5);
+    color: rgba(34, 197, 94, 1);
+}
+
+.ragbooks-scope-filter-btn[data-scope="character"].active {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.2));
+    border-color: rgba(59, 130, 246, 0.5);
+    color: rgba(59, 130, 246, 1);
+}
+
+.ragbooks-scope-filter-btn[data-scope="chat"].active {
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(147, 51, 234, 0.2));
+    border-color: rgba(168, 85, 247, 0.5);
+    color: rgba(168, 85, 247, 1);
 }
 
 /* Modal Overlay for Triggers Editor - Enhanced */
@@ -1723,6 +1955,8 @@ input[type="file"]#ragbooks_doc_file {
     z-index: 10000;
     backdrop-filter: blur(8px);
     animation: fadeIn 0.3s ease;
+    /* Mobile touch support - prevent scroll-through */
+    touch-action: none;
 }
 
 @keyframes fadeIn {
@@ -1750,6 +1984,11 @@ input[type="file"]#ragbooks_doc_file {
     animation: modalSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
     position: relative;
+    /* Mobile touch support - allow interaction within dialog */
+    touch-action: auto;
+    -webkit-overflow-scrolling: touch;
+    max-height: 90vh;
+    overflow-y: auto;
 }
 
 .ragbooks-modal-dialog::before {

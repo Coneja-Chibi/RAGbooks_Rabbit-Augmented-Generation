@@ -226,6 +226,25 @@
                 </div>
                 <div class="ragbooks-card-body">
 
+                    <!-- Scope Filter Buttons -->
+                    <div id="ragbooks_scope_filter" class="ragbooks-scope-filter" style="display: flex; gap: 8px; margin-bottom: 16px; padding: 8px; background: var(--black10a); border-radius: 8px;">
+                        <button class="ragbooks-scope-filter-btn active" data-scope="all" title="Show all collections">
+                            <i class="fa-solid fa-layer-group"></i> All
+                        </button>
+                        <button class="ragbooks-scope-filter-btn" data-scope="global" title="Show only global collections">
+                            <i class="fa-solid fa-globe"></i> Global
+                        </button>
+                        <button class="ragbooks-scope-filter-btn" data-scope="character" title="Show only character collections">
+                            <i class="fa-solid fa-user"></i> Character
+                        </button>
+                        <button class="ragbooks-scope-filter-btn" data-scope="chat" title="Show only chat collections">
+                            <i class="fa-solid fa-comments"></i> Chat
+                        </button>
+                        <button id="ragbooks_recover_btn" class="ragbooks-scope-filter-btn" style="margin-left: auto; background: rgba(139, 92, 246, 0.2); border-color: rgba(139, 92, 246, 0.5);" title="Recover collections that disappeared from the UI but still have their data">
+                            <i class="fa-solid fa-life-ring"></i> Recover Lost Collections
+                        </button>
+                    </div>
+
                     <!-- Existing Collections Display -->
                     <div id="ragbooks_collections_container">
                         <div id="ragbooks_empty_state" class="ragbooks-empty-state" style="display: none;">
@@ -341,6 +360,10 @@
 
             <div class="chunk-modal__toolbar flex-container alignitemscenter">
                 <input type="text" id="ragbooks_chunk_search" class="text_pole textarea_compact chunk-search-input" placeholder="Search chunks...">
+                <button id="ragbooks_create_chunk" class="menu_button" type="button" title="Create a new empty chunk">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>New Chunk</span>
+                </button>
                 <button id="ragbooks_format_toggle" class="menu_button chunk-format-toggle" type="button" title="Toggle formatted text display">
                     <i class="fa-solid fa-align-left"></i>
                     <span class="chunk-format-label">Plain</span>
@@ -365,6 +388,87 @@
                         <i class="fa-solid fa-save"></i> Save Changes
                     </button>
                     <button id="ragbooks_modal_cancel" class="ragbooks-btn-secondary chunk-footer__button" type="button">
+                        Cancel
+                    </button>
+                </div>
+            </footer>
+        </section>
+    </div>
+
+    <!-- Text Cleaning Pattern Editor Modal -->
+    <div id="ragbooks_pattern_editor_modal" class="ragbooks-overlay" style="display: none;">
+        <section class="drawer-content chunk-modal" role="dialog" aria-modal="true" aria-labelledby="ragbooks_pattern_editor_title">
+            <header class="chunk-modal__header flex-container alignitemscenter spaceBetween">
+                <div class="chunk-modal__title flex-container flexFlowColumn">
+                    <h2 id="ragbooks_pattern_editor_title" class="chunk-modal__heading">
+                        <i class="fa-solid fa-code"></i> Custom Cleaning Pattern
+                    </h2>
+                </div>
+                <button id="ragbooks_pattern_editor_close" class="menu_button chunk-modal__close" type="button" aria-label="Close pattern editor">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </header>
+
+            <div class="chunk-modal__body" style="padding: 20px;">
+                <div class="ragbooks-setting-item">
+                    <label class="ragbooks-label">
+                        <span class="ragbooks-label-text">Pattern Name</span>
+                    </label>
+                    <input type="text" id="ragbooks_pattern_name" class="text_pole" placeholder="My Custom Pattern" style="width: 100%;">
+                </div>
+
+                <div class="ragbooks-setting-item">
+                    <label class="ragbooks-label">
+                        <span class="ragbooks-label-text">Regex Pattern</span>
+                    </label>
+                    <input type="text" id="ragbooks_pattern_regex" class="text_pole" placeholder="<tag>.*?</tag>" style="width: 100%; font-family: monospace;">
+                    <div class="ragbooks-help-text">JavaScript regex (without delimiters)</div>
+                </div>
+
+                <div class="ragbooks-setting-item">
+                    <label class="ragbooks-label">
+                        <span class="ragbooks-label-text">Flags</span>
+                    </label>
+                    <input type="text" id="ragbooks_pattern_flags" class="text_pole" placeholder="gi" value="gi" style="width: 100%; font-family: monospace;">
+                    <div class="ragbooks-help-text">Regex flags (g=global, i=case-insensitive, m=multiline, s=dotall)</div>
+                </div>
+
+                <div class="ragbooks-setting-item">
+                    <label class="ragbooks-label">
+                        <span class="ragbooks-label-text">Replacement</span>
+                    </label>
+                    <input type="text" id="ragbooks_pattern_replacement" class="text_pole" placeholder="" style="width: 100%; font-family: monospace;">
+                    <div class="ragbooks-help-text">Text to replace matches with (leave empty to remove)</div>
+                </div>
+
+                <div class="ragbooks-setting-item">
+                    <label class="ragbooks-label">
+                        <span class="ragbooks-label-text">Test Text</span>
+                    </label>
+                    <textarea id="ragbooks_pattern_test_input" class="text_pole" placeholder="Paste sample text to test your pattern..." style="width: 100%; height: 100px; font-family: monospace; font-size: 12px; resize: vertical;"></textarea>
+                </div>
+
+                <div class="ragbooks-setting-item">
+                    <button type="button" class="menu_button" id="ragbooks_pattern_test_btn">
+                        <i class="fa-solid fa-flask"></i> Test Pattern
+                    </button>
+                </div>
+
+                <div id="ragbooks_pattern_test_result" class="ragbooks-setting-item" style="display: none;">
+                    <label class="ragbooks-label">
+                        <span class="ragbooks-label-text">Result</span>
+                    </label>
+                    <textarea id="ragbooks_pattern_test_output" class="text_pole" readonly style="width: 100%; height: 100px; font-family: monospace; font-size: 12px; background: var(--black30a); resize: vertical;"></textarea>
+                </div>
+            </div>
+
+            <footer class="chunk-modal__footer flex-container alignitemscenter spaceBetween">
+                <div></div>
+                <div class="chunk-footer__actions flex-container alignitemscenter">
+                    <button id="ragbooks_pattern_save" class="menu_button menu_button_icon chunk-footer__button" type="button">
+                        <i class="fa-solid fa-save"></i> Save Pattern
+                    </button>
+                    <button id="ragbooks_pattern_cancel" class="menu_button chunk-footer__button" type="button">
                         Cancel
                     </button>
                 </div>

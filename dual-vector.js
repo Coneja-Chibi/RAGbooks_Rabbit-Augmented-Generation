@@ -91,11 +91,19 @@ export function filterChunksBySearchMode(chunks, searchMode) {
  */
 export function processScenesToChunks(messages, scenes, config) {
     const chunks = [];
+    let skippedOpen = 0;
+    let skippedInvalid = 0;
 
     scenes.forEach((scene, idx) => {
         // Skip open scenes or invalid scenes
-        if (scene.end === null || scene.start > scene.end) {
-            console.warn(`📚 [DualVector] Skipping invalid scene ${idx + 1}: ${scene.start}-${scene.end}`);
+        if (scene.end === null) {
+            skippedOpen++;
+            console.warn(`⚠️ [DualVector] Skipping scene ${idx + 1}: Still open (no end marker)`);
+            return;
+        }
+        if (scene.start > scene.end) {
+            skippedInvalid++;
+            console.warn(`⚠️ [DualVector] Skipping scene ${idx + 1}: Invalid range (start ${scene.start} > end ${scene.end})`);
             return;
         }
 
@@ -144,7 +152,15 @@ export function processScenesToChunks(messages, scenes, config) {
         chunks.push(sceneChunk);
     });
 
-    console.log(`📚 [DualVector] Created ${chunks.length} scene chunks`);
+    const totalScenes = scenes.length;
+    const processedScenes = chunks.length;
+    console.log(`📚 [DualVector] Processed ${processedScenes}/${totalScenes} scenes into chunks`);
+    if (skippedOpen > 0) {
+        console.log(`   ⚠️ Skipped ${skippedOpen} open scene(s) (not yet closed)`);
+    }
+    if (skippedInvalid > 0) {
+        console.log(`   ⚠️ Skipped ${skippedInvalid} invalid scene(s) (start > end)`);
+    }
 
     // Create summary chunks for scenes that have summaries
     const allChunks = createSummaryChunks(chunks);

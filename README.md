@@ -6,7 +6,7 @@
 > _Universal RAG system for vectorizing and intelligently injecting any text content—lorebooks, character cards, chat history, or custom documents._
 
 ---
-# ✨📚 RAGBooks, A Full Vectorization Overhaul 📚✨
+# ✨📚 RAGBooks: A Full Vectorization Overhaul 📚✨
 ## What It Does
 
 **Complete and total vectorization/databank overhaul.** RAGBooks uses semantic search to find and inject **only the relevant chunks** based on your conversation. Vectorize anything. Lorebooks, character cards, past conversations, web pages, wikis. Let RAG handle smart context injection.

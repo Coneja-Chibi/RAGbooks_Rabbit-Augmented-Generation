@@ -1,12 +1,12 @@
 # 📚 RAGBooks
 
-[![Very Experimental](https://img.shields.io/badge/Status-Active%20Development-orange.svg)](https://github.com/your-repo/CarrotKernel)
-[![SillyTavern](https://img.shields.io/badge/SillyTavern-Extension-blue.svg)](https://docs.sillytavern.app/)
+![Active Development](https://img.shields.io/badge/status-active-success)
+![SillyTavern Extension](https://img.shields.io/badge/SillyTavern-extension-blue)
 
 > _Universal RAG system for vectorizing and intelligently injecting any text content—lorebooks, character cards, chat history, or custom documents._
 
 ---
-# ✨📚 RAGBooks: A Full Vectorization Overhaul 📚✨
+
 ## What It Does
 
 **Complete and total vectorization/databank overhaul.** RAGBooks uses semantic search to find and inject **only the relevant chunks** based on your conversation. Vectorize anything. Lorebooks, character cards, past conversations, web pages, wikis. Let RAG handle smart context injection.
@@ -246,4 +246,4 @@ Other extensions: [BunnyMo](https://github.com/Coneja-Chibi/BunnyMo) • [Carrot
 
 ---
 
-**Questions?** Open an issue or ask in [AI Preset Discord](https://discord.gg/aipresets)
+**Questions?** Open an issue or ask in [AI Preset Discord](https://discord.gg/sillytavern)

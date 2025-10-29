@@ -1,7 +1,7 @@
 # 📚 RAGBooks
 
-![Active Development](https://img.shields.io/badge/status-active-success)
-![SillyTavern Extension](https://img.shields.io/badge/SillyTavern-extension-blue)
+[![Very Experimental](https://img.shields.io/badge/Status-Active%20Development-orange.svg)](https://github.com/your-repo/CarrotKernel)
+[![SillyTavern](https://img.shields.io/badge/SillyTavern-Extension-blue.svg)](https://docs.sillytavern.app/)
 
 > _Universal RAG system for vectorizing and intelligently injecting any text content—lorebooks, character cards, chat history, or custom documents._
 

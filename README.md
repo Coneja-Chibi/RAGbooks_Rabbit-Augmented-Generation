@@ -246,4 +246,4 @@ Other extensions: [BunnyMo](https://github.com/Coneja-Chibi/BunnyMo) • [Carrot
 
 ---
 
-**Questions?** Open an issue or ask in [AI Preset Discord](https://discord.gg/sillytavern)
+**Questions?** Open an issue or ask in [AI Preset Discord](https://discord.gg/aipresets)

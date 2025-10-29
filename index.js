@@ -62,10 +62,14 @@ if (typeof window !== 'undefined') {
 // CONSTANTS
 // ============================================================================
 const EXTENSION_NAME = 'ragbooks';
-const MODULE_NAME = 'ragbooks';
+
+// Dynamically get the actual folder name from the script URL
+// This works regardless of whether users name it 'RAGBooks', 'ragbooks', etc.
+const actualFolderName = new URL(import.meta.url).pathname.split('/').slice(-2, -1)[0];
+const MODULE_NAME = actualFolderName;
 
 // Standard SillyTavern extension variables
-const extensionName = MODULE_NAME;
+const extensionName = EXTENSION_NAME;  // Use lowercase for settings key
 const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
 
 // Collection ID prefix for RAGBooks collections

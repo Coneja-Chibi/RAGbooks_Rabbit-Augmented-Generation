@@ -1,0 +1,375 @@
+<div id="ragbooks_settings" class="ragbooks-extension-settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>📚 RAGBooks</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+
+            <!-- Global RAG Settings Card -->
+            <div class="ragbooks-card">
+                <div class="ragbooks-card-header">
+                    <h3>⚙️ Global RAG Settings</h3>
+                    <p class="ragbooks-card-subtitle">Configure retrieval and injection behavior</p>
+                </div>
+                <div class="ragbooks-card-body">
+                    <div class="ragbooks-settings-grid">
+
+                        <!-- Master Enable -->
+                        <div class="ragbooks-setting-item">
+                            <label class="ragbooks-toggle">
+                                <input type="checkbox" id="ragbooks_enabled" checked>
+                                <span class="ragbooks-toggle-slider"></span>
+                                <span class="ragbooks-toggle-label">Enable RAGBooks</span>
+                            </label>
+                            <div class="ragbooks-help-text">Master toggle for all RAG-based context injection</div>
+                        </div>
+
+                        <!-- Orange Accent Mode -->
+                        <div class="ragbooks-setting-item">
+                            <label class="ragbooks-toggle">
+                                <input type="checkbox" id="ragbooks_orange_mode" checked>
+                                <span class="ragbooks-toggle-slider"></span>
+                                <span class="ragbooks-toggle-label">🍊 Orange Accent Mode</span>
+                            </label>
+                            <div class="ragbooks-help-text">Use vibrant orange accents (unchecked = follow your theme colors)</div>
+                        </div>
+
+                        <!-- Top-K Results -->
+                        <div class="ragbooks-setting-item ragbooks-slider-container">
+                            <div class="ragbooks-slider-header">
+                                <span class="ragbooks-slider-icon">🎯</span>
+                                <span class="ragbooks-slider-title">Top-K results: <span id="ragbooks_topk_value">3</span></span>
+                            </div>
+                            <div class="ragbooks-slider-hint">How many relevant chunks to inject per message (3-5 recommended)</div>
+                            <input type="range" id="ragbooks_topk" class="ragbooks-slider" min="1" max="10" value="3">
+                        </div>
+
+                        <!-- Relevance Threshold -->
+                        <div class="ragbooks-setting-item ragbooks-slider-container">
+                            <div class="ragbooks-slider-header">
+                                <span class="ragbooks-slider-icon">📊</span>
+                                <span class="ragbooks-slider-title">Relevance threshold: <span id="ragbooks_threshold_value">0.15</span></span>
+                            </div>
+                            <div class="ragbooks-slider-hint">Minimum similarity score for chunk inclusion (lower = more permissive)</div>
+                            <input type="range" id="ragbooks_threshold" class="ragbooks-slider" min="0" max="100" value="15" step="5">
+                        </div>
+
+                        <!-- Injection Depth -->
+                        <div class="ragbooks-setting-item ragbooks-slider-container">
+                            <div class="ragbooks-slider-header">
+                                <span class="ragbooks-slider-icon">💉</span>
+                                <span class="ragbooks-slider-title">Injection depth: <span id="ragbooks_depth_value">4</span></span>
+                            </div>
+                            <div class="ragbooks-slider-hint">Where in AI context to inject chunks (4 = standard, higher = deeper in memory)</div>
+                            <input type="range" id="ragbooks_depth" class="ragbooks-slider" min="1" max="10" value="4">
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Advanced Search Features Card -->
+            <div class="ragbooks-card">
+                <div class="ragbooks-card-header">
+                    <h3>🔬 Advanced Search Features</h3>
+                    <p class="ragbooks-card-subtitle">Enhanced chunk selection and ranking</p>
+                </div>
+                <div class="ragbooks-card-body">
+                    <div class="ragbooks-settings-grid">
+
+                        <!-- Summary Search Mode -->
+                        <div class="ragbooks-setting-item">
+                            <label class="ragbooks-label">
+                                <span class="ragbooks-label-text">📝 Summary Search Mode</span>
+                            </label>
+                            <select id="ragbooks_summary_search_mode" class="ragbooks-select">
+                                <option value="both">Both (summary + full text)</option>
+                                <option value="summary">Summary only</option>
+                                <option value="full">Full text only</option>
+                            </select>
+                            <div class="ragbooks-help-text">How to search chunks with summaries - "Both" uses dual-vector search for best results</div>
+                        </div>
+
+                        <!-- Importance Weighting (Merged) -->
+                        <div class="ragbooks-setting-item">
+                            <label class="ragbooks-toggle">
+                                <input type="checkbox" id="ragbooks_enable_importance" checked>
+                                <span class="ragbooks-toggle-slider"></span>
+                                <span class="ragbooks-toggle-label">⚖️ Importance Weighting</span>
+                            </label>
+                            <div class="ragbooks-help-text">Allow chunks to boost/reduce their relevance scores (0-200%) - set per chunk in viewer</div>
+
+                            <!-- Display Mode (shown when enabled) -->
+                            <div id="ragbooks_importance_display_mode" style="margin-top: 10px; margin-left: 20px; display: block;">
+                                <label style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">Display Mode</label>
+                                <select id="ragbooks_importance_mode" class="text_pole" style="width: 100%; max-width: 300px;">
+                                    <option value="continuous">Continuous Scoring (by relevance)</option>
+                                    <option value="tiers">Priority Tiers (Critical/High/Normal/Low)</option>
+                                </select>
+                                <div class="ragbooks-help-text" style="margin-top: 4px;">Continuous: Sort by score. Tiers: Group by importance ranges.</div>
+                            </div>
+                        </div>
+
+                        <!-- Conditional Activation -->
+                        <div class="ragbooks-setting-item">
+                            <label class="ragbooks-toggle">
+                                <input type="checkbox" id="ragbooks_enable_conditions" checked>
+                                <span class="ragbooks-toggle-slider"></span>
+                                <span class="ragbooks-toggle-label">🎯 Conditional Activation</span>
+                            </label>
+                            <div class="ragbooks-help-text">Allow chunks to only activate when specific conditions are met - set per chunk in viewer</div>
+                        </div>
+
+                        <!-- Chunk Groups -->
+                        <div class="ragbooks-setting-item">
+                            <label class="ragbooks-toggle">
+                                <input type="checkbox" id="ragbooks_enable_groups" checked>
+                                <span class="ragbooks-toggle-slider"></span>
+                                <span class="ragbooks-toggle-label">📦 Chunk Groups</span>
+                            </label>
+                            <div class="ragbooks-help-text">Enable group keyword matching and required group enforcement - set per chunk in viewer</div>
+                        </div>
+
+                        <!-- Group Boost Multiplier -->
+                        <div class="ragbooks-setting-item ragbooks-slider-container">
+                            <div class="ragbooks-slider-header">
+                                <span class="ragbooks-slider-icon">⚡</span>
+                                <span class="ragbooks-slider-title">Group boost: <span id="ragbooks_group_boost_value">1.3x</span></span>
+                            </div>
+                            <div class="ragbooks-slider-hint">Score multiplier when group keywords match (1.0 = no boost, 2.0 = double)</div>
+                            <input type="range" id="ragbooks_group_boost_multiplier" class="ragbooks-slider" min="100" max="300" value="130" step="10">
+                        </div>
+
+                        <!-- Context Window -->
+                        <div class="ragbooks-setting-item ragbooks-slider-container">
+                            <div class="ragbooks-slider-header">
+                                <span class="ragbooks-slider-icon">🪟</span>
+                                <span class="ragbooks-slider-title">Context window: <span id="ragbooks_context_window_value">10</span> messages</span>
+                            </div>
+                            <div class="ragbooks-slider-hint">Recent messages to consider for conditional activation</div>
+                            <input type="range" id="ragbooks_context_window" class="ragbooks-slider" min="5" max="50" value="10" step="5">
+                        </div>
+
+                        <!-- Temporal Decay (OFF by default) -->
+                        <div class="ragbooks-setting-item">
+                            <label class="ragbooks-toggle">
+                                <input type="checkbox" id="ragbooks_enable_temporal_decay">
+                                <span class="ragbooks-toggle-slider"></span>
+                                <span class="ragbooks-toggle-label">⏳ Temporal Decay (Chat Only)</span>
+                            </label>
+                            <div class="ragbooks-help-text">Reduce relevance of older chat chunks over time (OFF by default - only enable if you want to prioritize recent context)</div>
+                        </div>
+
+                        <!-- Temporal Decay Settings (shown when enabled) -->
+                        <div id="ragbooks_decay_settings" style="display: none; margin-left: 20px; border-left: 3px solid var(--SmartThemeBorderColor); padding-left: 15px;">
+
+                            <!-- Decay Mode -->
+                            <div class="ragbooks-setting-item">
+                                <label class="ragbooks-label">
+                                    <span class="ragbooks-label-text">Decay Mode</span>
+                                </label>
+                                <select id="ragbooks_decay_mode" class="ragbooks-select">
+                                    <option value="exponential">Exponential (natural decay curve)</option>
+                                    <option value="linear">Linear (steady decline)</option>
+                                </select>
+                            </div>
+
+                            <!-- Half-Life (exponential) -->
+                            <div class="ragbooks-setting-item ragbooks-slider-container" id="ragbooks_half_life_container">
+                                <div class="ragbooks-slider-header">
+                                    <span class="ragbooks-slider-title">Half-life: <span id="ragbooks_half_life_value">50</span> messages</span>
+                                </div>
+                                <div class="ragbooks-slider-hint">Messages until relevance drops to 50%</div>
+                                <input type="range" id="ragbooks_half_life" class="ragbooks-slider" min="10" max="200" value="50" step="10">
+                            </div>
+
+                            <!-- Linear Rate (linear) -->
+                            <div class="ragbooks-setting-item ragbooks-slider-container" id="ragbooks_linear_rate_container" style="display: none;">
+                                <div class="ragbooks-slider-header">
+                                    <span class="ragbooks-slider-title">Linear rate: <span id="ragbooks_linear_rate_value">1</span>% per message</span>
+                                </div>
+                                <div class="ragbooks-slider-hint">Percentage decay per message</div>
+                                <input type="range" id="ragbooks_linear_rate" class="ragbooks-slider" min="1" max="10" value="1" step="1">
+                            </div>
+
+                            <!-- Minimum Relevance -->
+                            <div class="ragbooks-setting-item ragbooks-slider-container">
+                                <div class="ragbooks-slider-header">
+                                    <span class="ragbooks-slider-title">Minimum relevance: <span id="ragbooks_min_relevance_value">30</span>%</span>
+                                </div>
+                                <div class="ragbooks-slider-hint">Never decay below this percentage</div>
+                                <input type="range" id="ragbooks_min_relevance" class="ragbooks-slider" min="0" max="100" value="30" step="5">
+                            </div>
+
+                            <!-- Scene-Aware Decay -->
+                            <div class="ragbooks-setting-item">
+                                <label class="ragbooks-toggle">
+                                    <input type="checkbox" id="ragbooks_scene_aware_decay">
+                                    <span class="ragbooks-toggle-slider"></span>
+                                    <span class="ragbooks-toggle-label">🎬 Scene-Aware Decay</span>
+                                </label>
+                                <div class="ragbooks-help-text">Reset decay at scene boundaries</div>
+                            </div>
+
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Content Sources Card -->
+            <div class="ragbooks-card">
+                <div class="ragbooks-card-header">
+                    <h3>📂 Content Sources</h3>
+                    <p class="ragbooks-card-subtitle">Manage vectorized collections for smart context injection</p>
+                </div>
+                <div class="ragbooks-card-body">
+
+                    <!-- Existing Collections Display -->
+                    <div id="ragbooks_collections_container">
+                        <div id="ragbooks_empty_state" class="ragbooks-empty-state" style="display: none;">
+                            <i class="fa-solid fa-books"></i>
+                            <p>No content sources yet</p>
+                            <p>Add a lorebook, character, or custom document below to get started</p>
+                        </div>
+                        <div id="ragbooks_collections"></div>
+                    </div>
+
+                    <!-- Add Source Section -->
+                    <div class="ragbooks-add-source-section">
+                        <div class="ragbooks-setting-item">
+                            <label class="ragbooks-label">
+                                <span class="ragbooks-label-text">Add New Source</span>
+                            </label>
+                            <select id="ragbooks_source_type_select" class="ragbooks-select">
+                                <option value="">Choose content type...</option>
+                                <option value="lorebook">📚 Lorebook / World Info</option>
+                                <option value="character">👤 Character Card</option>
+                                <option value="chat">💬 Chat History</option>
+                                <option value="url">🌐 URL / Webpage</option>
+                                <option value="custom">📄 Custom Document</option>
+                            </select>
+                            <div class="ragbooks-help-text">Select the type of content you want to vectorize and search</div>
+                        </div>
+
+                        <!-- Configuration Area (appears when source type selected) -->
+                        <div id="ragbooks_inline_config"></div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- How It Works Card -->
+            <div class="ragbooks-card">
+                <div class="ragbooks-card-header">
+                    <h3>💡 How RAGBooks Works</h3>
+                </div>
+                <div class="ragbooks-card-body">
+                    <div class="ragbooks-tutorial-content">
+                        <h4>What is RAGBooks?</h4>
+                        <p>
+                            RAGBooks vectorizes your lorebooks, character cards, and custom documents, then intelligently
+                            injects only the most relevant sections based on your conversation. This saves 80-90% of context!
+                        </p>
+
+                        <h4>Content Sources:</h4>
+                        <ul>
+                            <li><strong>📚 Lorebooks:</strong> Vectorize world info entries - inject only relevant lore</li>
+                            <li><strong>👤 Character Cards:</strong> Split descriptions/personality into searchable chunks</li>
+                            <li><strong>💬 Chat History:</strong> Make past conversations searchable and retrievable</li>
+                            <li><strong>📄 Custom Docs:</strong> Support for multiple input methods:</li>
+                        </ul>
+
+                        <h4>Custom Document Input Methods:</h4>
+                        <div style="margin-left: 20px; margin-bottom: 15px;">
+                            <p><strong>📝 Paste Text:</strong> Directly paste any text content for vectorization</p>
+                            <p><strong>🌐 Fetch from URL:</strong> Scrape and vectorize any web page using SillyTavern's Readability integration</p>
+                            <p><strong>📖 Scrape Wiki:</strong> Extract content from Fandom or MediaWiki pages (requires <a href="https://github.com/SillyTavern/SillyTavern-Fandom-Scraper" target="_blank" style="color: var(--SmartThemeQuoteColor);">server plugin</a>)</p>
+                            <p><strong>📺 YouTube Transcript:</strong> Fetch video transcripts with optional language selection</p>
+                            <p><strong>📦 GitHub Repository:</strong> Download README or specific files from any GitHub repo using glob patterns</p>
+                            <p><strong>📎 Upload Files:</strong> Batch upload multiple files (.txt, .md, .json, .yaml, .html)</p>
+                        </div>
+
+                        <h4>Quick Start:</h4>
+                        <ol>
+                            <li>Select a content type from "Add New Source" dropdown</li>
+                            <li>Choose your input method and provide the content</li>
+                            <li>Configure chunking strategy (recommended: Semantic Recursive for most content)</li>
+                            <li>Click "Vectorize" and wait for processing</li>
+                            <li>Chat normally - relevant chunks auto-inject based on your messages!</li>
+                        </ol>
+
+                        <p style="margin-bottom: 0;">
+                            <strong>Example:</strong> If you mention "dragons" in chat and your lorebook has a dragon entry,
+                            RAGBooks finds and injects it automatically. Works with any vectorized content!
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Chunk Viewer Modal -->
+    <div id="ragbooks_chunk_viewer_modal" class="ragbooks-overlay">
+        <section class="drawer-content chunk-modal" role="dialog" aria-modal="true" aria-labelledby="ragbooks_modal_title">
+            <header class="chunk-modal__header flex-container alignitemscenter spaceBetween">
+                <div class="chunk-modal__title flex-container flexFlowColumn">
+                    <h2 id="ragbooks_modal_title" class="chunk-modal__heading">
+                        <i class="fa-solid fa-cube"></i> Chunk Viewer
+                    </h2>
+                    <p id="ragbooks_modal_subtitle" class="chunk-modal__subtitle"></p>
+                </div>
+                <button id="ragbooks_modal_close" class="menu_button chunk-modal__close" type="button" aria-label="Close chunk viewer">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </header>
+
+            <!-- Tab Navigation (shown only for chat collections) -->
+            <div id="ragbooks_viewer_tabs" class="ragbooks-viewer-tabs" style="display: none;">
+                <button class="ragbooks-viewer-tab active" data-tab="chunks">
+                    <i class="fa-solid fa-cube"></i> Chunks
+                </button>
+                <button class="ragbooks-viewer-tab" data-tab="scenes">
+                    <i class="fa-solid fa-bookmark"></i> Scenes
+                </button>
+                <button class="ragbooks-viewer-tab" data-tab="groups">
+                    <i class="fa-solid fa-layer-group"></i> Groups
+                </button>
+            </div>
+
+            <div class="chunk-modal__toolbar flex-container alignitemscenter">
+                <input type="text" id="ragbooks_chunk_search" class="text_pole textarea_compact chunk-search-input" placeholder="Search chunks...">
+                <button id="ragbooks_format_toggle" class="menu_button chunk-format-toggle" type="button" title="Toggle formatted text display">
+                    <i class="fa-solid fa-align-left"></i>
+                    <span class="chunk-format-label">Plain</span>
+                </button>
+                <div id="ragbooks_chunk_stats" class="chunk-stat-list flex-container alignitemscenter" aria-live="polite"></div>
+            </div>
+            <div id="ragbooks_chunks_container" class="chunk-list">
+                <!-- Chunks populated dynamically -->
+            </div>
+            <div id="ragbooks_scenes_container" class="chunk-list" style="display: none;">
+                <!-- Scenes populated dynamically -->
+            </div>
+            <div id="ragbooks_groups_container" class="chunk-list" style="display: none;">
+                <!-- Groups populated dynamically -->
+            </div>
+            <footer class="chunk-modal__footer flex-container alignitemscenter spaceBetween">
+                <div class="chunk-footer__info">
+                    <i class="fa-solid fa-info-circle"></i> Click any chunk to edit keywords and weights
+                </div>
+                <div class="chunk-footer__actions flex-container alignitemscenter">
+                    <button id="ragbooks_modal_save" class="ragbooks-btn-primary chunk-footer__button" type="button">
+                        <i class="fa-solid fa-save"></i> Save Changes
+                    </button>
+                    <button id="ragbooks_modal_cancel" class="ragbooks-btn-secondary chunk-footer__button" type="button">
+                        Cancel
+                    </button>
+                </div>
+            </footer>
+        </section>
+    </div>
+
+</div>

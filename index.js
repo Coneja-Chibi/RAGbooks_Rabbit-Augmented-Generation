@@ -3624,6 +3624,7 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
     // Extract settings with defaults
     const summarizeChunks = options.summarizeChunks || false;
     const summaryStyle = options.summaryStyle || 'concise';
+    const perChunkSummaryControl = options.perChunkSummaryControl || false;
 
     // Text cleaning settings
     const cleaningMode = options.cleaningMode || 'basic'; // Chat defaults to basic cleaning
@@ -3670,7 +3671,9 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
                         source: CONTENT_SOURCES.CHAT,
                         speaker: currentSpeaker,
                         messageCount: currentGroup.length,
-                        chatId: config.chatId || 'current'
+                        chatId: config.chatId || 'current',
+                        enableSummary: perChunkSummaryControl ? true : summarizeChunks,
+                        summaryStyle: summaryStyle
                     },
                     section: `${currentSpeaker}'s Messages`,
                     topic: title,
@@ -3697,7 +3700,9 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
                     source: CONTENT_SOURCES.CHAT,
                     speaker: currentSpeaker,
                     messageCount: currentGroup.length,
-                    chatId: config.chatId || 'current'
+                    chatId: config.chatId || 'current',
+                    enableSummary: perChunkSummaryControl ? true : summarizeChunks,
+                    summaryStyle: summaryStyle
                 },
                 section: `${currentSpeaker}'s Messages`,
                 topic: title,
@@ -3732,7 +3737,7 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
         }
 
         console.log(`💬 Processing ${closedScenes.length} closed scene(s) into chunks...`);
-        const sceneChunks = processScenesToChunks(chat, closedScenes, config);
+        const sceneChunks = processScenesToChunks(chat, closedScenes, config, { summarizeChunks, summaryStyle, perChunkSummaryControl });
         chunks.push(...sceneChunks);
 
         if (sceneChunks.length === 0) {
@@ -3779,7 +3784,9 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
                 text: chunkText,
                 metadata: {
                     source: CONTENT_SOURCES.CHAT,
-                    chatId: config.chatId || 'current'
+                    chatId: config.chatId || 'current',
+                    enableSummary: perChunkSummaryControl ? true : summarizeChunks,
+                    summaryStyle: summaryStyle
                 },
                 section: 'Chat History',
                 topic: title,

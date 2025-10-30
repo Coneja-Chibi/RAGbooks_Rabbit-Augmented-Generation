@@ -87,12 +87,16 @@ export function filterChunksBySearchMode(chunks, searchMode) {
  * @param {Array} messages - Chat messages
  * @param {Array} scenes - Scene metadata from chat_metadata.ragbooks_scenes
  * @param {Object} config - Chat vectorization config
+ * @param {Object} summaryOptions - Summarization settings { summarizeChunks, summaryStyle, perChunkSummaryControl }
  * @returns {Array} Scene chunks (and summary chunks if enabled)
  */
-export function processScenesToChunks(messages, scenes, config) {
+export function processScenesToChunks(messages, scenes, config, summaryOptions = {}) {
     const chunks = [];
     let skippedOpen = 0;
     let skippedInvalid = 0;
+
+    // Extract summarization settings
+    const { summarizeChunks = false, summaryStyle = 'concise', perChunkSummaryControl = false } = summaryOptions;
 
     scenes.forEach((scene, idx) => {
         // Skip open scenes or invalid scenes
@@ -126,7 +130,9 @@ export function processScenesToChunks(messages, scenes, config) {
                 sceneStart: scene.start,
                 sceneEnd: scene.end,
                 sceneTitle: scene.title || `Scene ${idx + 1}`,
-                messageCount: sceneMessages.length
+                messageCount: sceneMessages.length,
+                enableSummary: perChunkSummaryControl ? true : summarizeChunks,
+                summaryStyle: summaryStyle
             },
             section: scene.title || `Scene ${idx + 1}`,
             topic: `Messages ${scene.start}-${scene.end}`,

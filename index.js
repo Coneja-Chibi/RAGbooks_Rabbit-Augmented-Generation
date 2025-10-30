@@ -2900,7 +2900,7 @@ async function parseLorebook(lorebookName, options = {}) {
 
             paragraphs.forEach((para, idx) => {
                 const chunkText = para.trim();
-                const keywords = extractKeywords(chunkText, entryName, '');
+                // Use parent entry's keys instead of extracting from chunk
                 chunks.push({
                     text: chunkText,
                     metadata: {
@@ -2916,8 +2916,8 @@ async function parseLorebook(lorebookName, options = {}) {
                     },
                     section: entryName,
                     topic: `Paragraph ${idx + 1}`,
-                    keywords: keywords,
-                    systemKeywords: keywords
+                    keywords: keys, // Use parent entry's keywords
+                    systemKeywords: keys // Use parent entry's keywords
                 });
             });
         } else if (chunkingStrategy === 'natural') {
@@ -2928,7 +2928,7 @@ async function parseLorebook(lorebookName, options = {}) {
             });
 
             naturalChunks.forEach((chunkText, idx) => {
-                const keywords = extractKeywords(chunkText, entryName, '');
+                // Use parent entry's keys instead of extracting from chunk
                 chunks.push({
                     text: chunkText,
                     metadata: {
@@ -2944,8 +2944,8 @@ async function parseLorebook(lorebookName, options = {}) {
                     },
                     section: entryName,
                     topic: `Chunk ${idx + 1}`,
-                    keywords: keywords,
-                    systemKeywords: keywords
+                    keywords: keys, // Use parent entry's keywords
+                    systemKeywords: keys // Use parent entry's keywords
                 });
             });
         } else if (chunkingStrategy === 'size') {
@@ -2956,7 +2956,7 @@ async function parseLorebook(lorebookName, options = {}) {
             });
 
             sizedChunks.forEach((chunkText, idx) => {
-                const keywords = extractKeywords(chunkText, entryName, '');
+                // Use parent entry's keys instead of extracting from chunk
                 chunks.push({
                     text: chunkText,
                     metadata: {
@@ -2972,13 +2972,13 @@ async function parseLorebook(lorebookName, options = {}) {
                     },
                     section: entryName,
                     topic: `Chunk ${idx + 1}`,
-                    keywords: keywords,
-                    systemKeywords: keywords
+                    keywords: keys, // Use parent entry's keywords
+                    systemKeywords: keys // Use parent entry's keywords
                 });
             });
         } else {
             // Default: per_entry (one chunk per entry)
-            const keywords = extractKeywords(entry.content, entryName, '');
+            // Use parent entry's keys instead of extracting
             chunks.push({
                 text: entry.content,
                 metadata: {
@@ -2993,8 +2993,8 @@ async function parseLorebook(lorebookName, options = {}) {
                 },
                 section: entryName,
                 topic: '',
-                keywords: keywords,
-                systemKeywords: keywords
+                keywords: keys, // Use parent entry's keywords
+                systemKeywords: keys // Use parent entry's keywords
             });
         }
     }
@@ -3070,7 +3070,7 @@ async function parseCharacterCard(characterId, options = {}) {
         for (const fieldName of config.fields) {
             const field = fieldMap[fieldName];
             if (field && field.text && field.text.trim().length > 0) {
-                const keywords = extractKeywords(field.text, field.label, character.name);
+                // No keyword extraction for character cards - semantic search handles it
                 chunks.push({
                     text: field.text,
                     metadata: {
@@ -3086,8 +3086,8 @@ async function parseCharacterCard(characterId, options = {}) {
                     },
                     section: field.label,
                     topic: character.name,
-                    keywords: keywords,
-                    systemKeywords: keywords
+                    keywords: [], // No keywords for natural character content
+                    systemKeywords: [] // No keywords for natural character content
                 });
             }
         }
@@ -3099,7 +3099,7 @@ async function parseCharacterCard(characterId, options = {}) {
                 const paragraphs = field.text.split(/\n\n+/).filter(p => p.trim().length > 0);
                 paragraphs.forEach((para, idx) => {
                     const chunkText = para.trim();
-                    const keywords = extractKeywords(chunkText, field.label, character.name);
+                    // No keyword extraction for character cards - semantic search handles it
                     chunks.push({
                         text: chunkText,
                         metadata: {
@@ -3116,8 +3116,8 @@ async function parseCharacterCard(characterId, options = {}) {
                         },
                         section: field.label,
                         topic: `Paragraph ${idx + 1}`,
-                        keywords: keywords,
-                        systemKeywords: keywords
+                        keywords: [], // No keywords for natural character content
+                        systemKeywords: [] // No keywords for natural character content
                     });
                 });
             }
@@ -3132,7 +3132,7 @@ async function parseCharacterCard(characterId, options = {}) {
                     chunkOverlap: options.chunkOverlap || 50
                 });
                 naturalChunks.forEach((chunkText, idx) => {
-                    const keywords = extractKeywords(chunkText, field.label, character.name);
+                    // No keyword extraction for character cards - semantic search handles it
                     chunks.push({
                         text: chunkText,
                         metadata: {
@@ -3149,8 +3149,8 @@ async function parseCharacterCard(characterId, options = {}) {
                         },
                         section: field.label,
                         topic: `Chunk ${idx + 1}`,
-                        keywords: keywords,
-                        systemKeywords: keywords
+                        keywords: [], // No keywords for natural character content
+                        systemKeywords: [] // No keywords for natural character content
                     });
                 });
             }
@@ -3169,7 +3169,7 @@ async function parseCharacterCard(characterId, options = {}) {
             .join('\n\n');
 
         if (combinedText.length > 0) {
-            const keywords = extractKeywords(combinedText, 'Character Card', character.name);
+            // No keyword extraction for character cards - semantic search handles it
             chunks.push({
                 text: combinedText,
                 metadata: {
@@ -3185,8 +3185,8 @@ async function parseCharacterCard(characterId, options = {}) {
                 },
                 section: 'Character Card',
                 topic: character.name,
-                keywords: keywords,
-                systemKeywords: keywords
+                keywords: [], // No keywords for natural character content
+                systemKeywords: [] // No keywords for natural character content
             });
         }
     }
@@ -3275,7 +3275,7 @@ async function parseChatHistory(options = {}) {
             if (speaker !== currentSpeaker && currentGroup.length > 0) {
                 // Save previous group
                 const chunkText = currentGroup.join('\n\n');
-                const keywords = extractKeywords(chunkText, currentSpeaker, 'Chat');
+                // No keyword extraction for chat - semantic search handles it
                 chunks.push({
                     text: chunkText,
                     metadata: {
@@ -3286,8 +3286,8 @@ async function parseChatHistory(options = {}) {
                     },
                     section: `${currentSpeaker}'s Messages`,
                     topic: 'Chat History',
-                    keywords: keywords,
-                    systemKeywords: keywords,
+                    keywords: [], // No keywords for natural chat content
+                    systemKeywords: [], // No keywords for natural chat content
                     conditions: { enabled: false } // Chat chunks default to always active
                 });
                 currentGroup = [];
@@ -3300,7 +3300,7 @@ async function parseChatHistory(options = {}) {
         // Save final group
         if (currentGroup.length > 0) {
             const chunkText = currentGroup.join('\n\n');
-            const keywords = extractKeywords(chunkText, currentSpeaker, 'Chat');
+            // No keyword extraction for chat - semantic search handles it
             chunks.push({
                 text: chunkText,
                 metadata: {
@@ -3311,8 +3311,8 @@ async function parseChatHistory(options = {}) {
                 },
                 section: `${currentSpeaker}'s Messages`,
                 topic: 'Chat History',
-                keywords: keywords,
-                systemKeywords: keywords,
+                keywords: [], // No keywords for natural chat content
+                systemKeywords: [], // No keywords for natural chat content
                 conditions: { enabled: false } // Chat chunks default to always active
             });
         }
@@ -3362,7 +3362,7 @@ async function parseChatHistory(options = {}) {
             if (currentLength + textLength > config.chunkSize && currentChunk.length > 0) {
                 // Save current chunk
                 const chunkText = currentChunk.join('\n\n');
-                const keywords = extractKeywords(chunkText, 'Chat', '');
+                // No keyword extraction for chat - semantic search handles it
                 chunks.push({
                     text: chunkText,
                     metadata: {
@@ -3372,8 +3372,8 @@ async function parseChatHistory(options = {}) {
                     },
                     section: 'Chat History',
                     topic: `Chunk ${chunks.length + 1}`,
-                    keywords: keywords,
-                    systemKeywords: keywords,
+                    keywords: [], // No keywords for natural chat content
+                    systemKeywords: [], // No keywords for natural chat content
                     conditions: { enabled: false } // Chat chunks default to always active
                 });
 
@@ -3390,7 +3390,7 @@ async function parseChatHistory(options = {}) {
         // Save final chunk
         if (currentChunk.length > 0) {
             const chunkText = currentChunk.join('\n\n');
-            const keywords = extractKeywords(chunkText, 'Chat', '');
+            // No keyword extraction for chat - semantic search handles it
             chunks.push({
                 text: chunkText,
                 metadata: {
@@ -3400,8 +3400,8 @@ async function parseChatHistory(options = {}) {
                 },
                 section: 'Chat History',
                 topic: `Chunk ${chunks.length + 1}`,
-                keywords: keywords,
-                systemKeywords: keywords,
+                keywords: [], // No keywords for natural chat content
+                systemKeywords: [], // No keywords for natural chat content
                 conditions: { enabled: false } // Chat chunks default to always active
             });
         }
@@ -3515,7 +3515,7 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
         }
 
         sections.forEach((section, idx) => {
-            const keywords = extractKeywords(section.text, section.header || 'Section', baseMetadata.documentName);
+            // No keyword extraction for URL/custom content - semantic search handles it
             chunks.push({
                 text: section.text,
                 metadata: {
@@ -3525,8 +3525,8 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
                 },
                 section: section.header || `Section ${idx + 1}`,
                 topic: baseMetadata.documentName,
-                keywords: keywords,
-                systemKeywords: keywords
+                keywords: [], // No keywords for natural URL/custom content
+                systemKeywords: [] // No keywords for natural URL/custom content
             });
         });
     } else if (config.chunkingStrategy === CHUNKING_STRATEGIES.PARAGRAPH) {
@@ -3535,7 +3535,7 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
 
         paragraphs.forEach((para, idx) => {
             const chunkText = para.trim();
-            const keywords = extractKeywords(chunkText, baseMetadata.documentName, '');
+            // No keyword extraction for URL/custom content - semantic search handles it
             chunks.push({
                 text: chunkText,
                 metadata: {
@@ -3544,8 +3544,8 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
                 },
                 section: baseMetadata.documentName,
                 topic: `Paragraph ${idx + 1}`,
-                keywords: keywords,
-                systemKeywords: keywords
+                keywords: [], // No keywords for natural URL/custom content
+                systemKeywords: [] // No keywords for natural URL/custom content
             });
         });
     } else if (config.chunkingStrategy === CHUNKING_STRATEGIES.SIZE_BASED) {
@@ -3560,7 +3560,7 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
         for (const word of words) {
             if (currentLength + word.length > config.chunkSize && currentChunk.length > 0) {
                 const chunkText = currentChunk.join(' ');
-                const keywords = extractKeywords(chunkText, baseMetadata.documentName, '');
+                // No keyword extraction for URL/custom content - semantic search handles it
                 chunks.push({
                     text: chunkText,
                     metadata: {
@@ -3569,8 +3569,8 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
                     },
                     section: baseMetadata.documentName,
                     topic: `Chunk ${chunks.length + 1}`,
-                    keywords: keywords,
-                    systemKeywords: keywords
+                    keywords: [], // No keywords for natural URL/custom content
+                    systemKeywords: [] // No keywords for natural URL/custom content
                 });
 
                 // Keep last N words for overlap
@@ -3585,7 +3585,7 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
         // Save final chunk
         if (currentChunk.length > 0) {
             const chunkText = currentChunk.join(' ');
-            const keywords = extractKeywords(chunkText, baseMetadata.documentName, '');
+            // No keyword extraction for URL/custom content - semantic search handles it
             chunks.push({
                 text: chunkText,
                 metadata: {
@@ -3594,8 +3594,8 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
                 },
                 section: baseMetadata.documentName,
                 topic: `Chunk ${chunks.length + 1}`,
-                keywords: keywords,
-                systemKeywords: keywords
+                keywords: [], // No keywords for natural URL/custom content
+                systemKeywords: [] // No keywords for natural URL/custom content
             });
         }
     }
@@ -8033,6 +8033,16 @@ function initializeKeywordSelect(chunk) {
     const $switchBtn = $(`.switch_input_type_icon[data-hash="${hash}"]`);
     if (!$select.length) return;
 
+    // IMPORTANT: Destroy existing select2 to prevent duplication when switching modes
+    if ($select.data('select2')) {
+        $select.select2('destroy');
+    }
+
+    // Remove all existing event handlers to prevent duplication
+    $select.off();
+    $textarea.off();
+    $switchBtn.off();
+
     const keywords = chunk.keywords || [];
     const customKeywords = chunk.customKeywords || [];
     const disabledKeywords = chunk.disabledKeywords || [];
@@ -8169,29 +8179,20 @@ function initializeKeywordSelect(chunk) {
             const newKeywords = [];
             const newWeights = {};
 
-            // Parse comma-separated entries
+            // Parse comma-separated entries (CarrotKernel-style simple split)
             text.split(',').forEach(entry => {
                 const trimmed = entry.trim();
                 if (!trimmed) return;
 
-                // Check if entry has weight format (keyword:weight)
-                const colonIndex = trimmed.lastIndexOf(':');
-                if (colonIndex > 0) {
-                    const keyword = trimmed.substring(0, colonIndex).trim();
-                    const weightStr = trimmed.substring(colonIndex + 1).trim();
-                    const weight = parseInt(weightStr);
+                // Simple split on colon - works for both plain keywords and regexes
+                const parts = trimmed.split(':');
+                const keyword = parts[0].trim();
+                const weight = parts[1] ? parseInt(parts[1].trim()) : 100;
 
-                    if (keyword && !isNaN(weight)) {
-                        newKeywords.push(keyword);
-                        newWeights[keyword] = Math.max(1, Math.min(200, weight));
-                    } else if (keyword) {
-                        // Has colon but invalid weight, use keyword only with default weight
-                        newKeywords.push(keyword);
-                    }
-                } else {
-                    // No colon, just keyword with default weight of 20
-                    newKeywords.push(trimmed);
-                    newWeights[trimmed] = 20;
+                if (keyword) {
+                    newKeywords.push(keyword);
+                    // Save weight (default 100 if not provided or invalid)
+                    newWeights[keyword] = !isNaN(weight) ? Math.max(1, Math.min(200, weight)) : 100;
                 }
             });
 
@@ -8212,27 +8213,20 @@ function initializeKeywordSelect(chunk) {
             const newKeywords = [];
             const newWeights = {};
 
+            // Parse comma-separated entries (CarrotKernel-style simple split)
             text.split(',').forEach(entry => {
                 const trimmed = entry.trim();
                 if (!trimmed) return;
 
-                const colonIndex = trimmed.lastIndexOf(':');
-                if (colonIndex > 0) {
-                    const keyword = trimmed.substring(0, colonIndex).trim();
-                    const weightStr = trimmed.substring(colonIndex + 1).trim();
-                    const weight = parseInt(weightStr);
+                // Simple split on colon - works for both plain keywords and regexes
+                const parts = trimmed.split(':');
+                const keyword = parts[0].trim();
+                const weight = parts[1] ? parseInt(parts[1].trim()) : 100;
 
-                    if (keyword && !isNaN(weight)) {
-                        newKeywords.push(keyword);
-                        newWeights[keyword] = Math.max(1, Math.min(200, weight));
-                    } else if (keyword) {
-                        newKeywords.push(keyword);
-                        newWeights[keyword] = 20; // Default weight
-                    }
-                } else {
-                    // No colon, use default weight of 20
-                    newKeywords.push(trimmed);
-                    newWeights[trimmed] = 20;
+                if (keyword) {
+                    newKeywords.push(keyword);
+                    // Save weight (default 100 if not provided or invalid)
+                    newWeights[keyword] = !isNaN(weight) ? Math.max(1, Math.min(200, weight)) : 100;
                 }
             });
 
@@ -10826,7 +10820,7 @@ async function handleInlineVectorization() {
 
                 sourceName = $('#ragbooks_url_name').val() || extractDomainFromUrl(urlInput);
 
-                toastr.info('Fetching URL...', { timeOut: 0 });
+                toastr.info('Fetching URL...', 'RAGBooks', { timeOut: 0 });
                 try {
                     const text = await fetchTextFromUrl(urlInput);
                     toastr.clear();
@@ -10938,7 +10932,7 @@ async function handleInlineVectorization() {
                             toastr.warning('Please enter a URL');
                             return;
                         }
-                        toastr.info('Fetching URL...', { timeOut: 0 });
+                        toastr.info('Fetching URL...', 'RAGBooks', { timeOut: 0 });
                         try {
                             text = await fetchTextFromUrl(url);
                             toastr.clear();
@@ -10971,7 +10965,7 @@ async function handleInlineVectorization() {
                             return;
                         }
 
-                        toastr.info('Scraping wiki...', { timeOut: 0 });
+                        toastr.info('Scraping wiki...', 'RAGBooks', { timeOut: 0 });
                         try {
                             text = await scrapeWikiPage(wikiType, wikiUrl, wikiFilter);
                             toastr.clear();
@@ -10992,7 +10986,7 @@ async function handleInlineVectorization() {
                             return;
                         }
 
-                        toastr.info('Fetching YouTube transcript...', { timeOut: 0 });
+                        toastr.info('Fetching YouTube transcript...', 'RAGBooks', { timeOut: 0 });
                         try {
                             text = await fetchYouTubeTranscript(youtubeUrl, youtubeLang);
                             toastr.clear();
@@ -11015,7 +11009,7 @@ async function handleInlineVectorization() {
                             return;
                         }
 
-                        toastr.info('Fetching from GitHub...', { timeOut: 0 });
+                        toastr.info('Fetching from GitHub...', 'RAGBooks', { timeOut: 0 });
                         try {
                             text = await fetchGitHubRepo(githubUrl, githubFilter, githubBranch);
                             toastr.clear();
@@ -11084,7 +11078,9 @@ async function handleInlineVectorization() {
 
         toastr.info('Vectorizing...');
 
-        const result = await vectorizeContentSource(sourceType, sourceName, sourceConfig);
+        // Map 'url' to 'custom' since URL content is already fetched and in sourceConfig.text
+        const actualSourceType = sourceType === 'url' ? CONTENT_SOURCES.CUSTOM : sourceType;
+        const result = await vectorizeContentSource(actualSourceType, sourceName, sourceConfig);
 
         toastr.success(`Vectorized: ${result.chunkCount} chunks created`);
         renderCollections();
@@ -11659,6 +11655,19 @@ function initChatObserver() {
 // Scene management is now integrated into the Visualizer's Scenes tab
 // Standalone modal has been removed
 
+/**
+ * Get custom patterns from ragState for a specific source type
+ * @param {string} sourceType - lorebook, character, url, chat, or custom
+ * @returns {Array} Array of custom pattern objects
+ */
+function getCustomPatterns(sourceType) {
+    const ragState = ensureRagState();
+    const customPatterns = ragState.textCleaning?.customPatterns || [];
+
+    // Return all custom patterns (they apply universally)
+    return customPatterns.filter(p => p.enabled !== false);
+}
+
 jQuery(async function () {
     // Initialize settings synchronously before any async operations
     // This ensures settings structure exists before tests or UI interactions
@@ -11670,19 +11679,6 @@ jQuery(async function () {
     // ========================================================================
     // TEXT CLEANING HELPER FUNCTIONS
     // ========================================================================
-
-    /**
-     * Get custom patterns from ragState for a specific source type
-     * @param {string} sourceType - lorebook, character, url, chat, or custom
-     * @returns {Array} Array of custom pattern objects
-     */
-    function getCustomPatterns(sourceType) {
-        ensureRagState();
-        const customPatterns = ragState.textCleaning?.customPatterns || [];
-
-        // Return all custom patterns (they apply universally)
-        return customPatterns.filter(p => p.enabled !== false);
-    }
 
     /**
      * Open pattern editor modal

@@ -61,7 +61,8 @@ export async function generateSummaryForChunk(chunkText, style = 'concise', opti
         // Call SillyTavern's raw generation API (like qvink_memory does)
         const summary = await generateRaw({
             prompt: prompt,
-            trimNames: false
+            quietPrompt: true,  // Mark as internal/quiet to prevent extension interference
+            type: 'summary'     // Explicitly mark as summary generation
         });
 
         // Validate and clean response

@@ -31,8 +31,8 @@
 
 /* Progress Modal */
 .ragbooks-progress-modal {
-    background: color-mix(in srgb, var(--SmartThemeBodyColor) 90%, black) !important;
-    border: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 20%, transparent) !important;
+    background: rgba(20, 20, 20, 0.95) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
     border-radius: 12px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8),
                 0 0 0 1px rgba(255, 255, 255, 0.03),

@@ -3617,7 +3617,7 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
         ? chat.slice(-config.messageRange)
         : chat;
 
-    const chunks = [];
+    let chunks = [];
     const characterName = context.name2; // Bot name
     const userName = context.name1; // User name
 

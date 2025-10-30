@@ -15,19 +15,20 @@ let progressState = {
         chunks: 0,
         summaries: 0,
         total: 0
-    }
+    },
+    cancelHandler: null // Store cancel handler reference for cleanup
 };
 
 // Step configuration
 const PROGRESS_STEPS = {
     parsing: {
         icon: '📚',
-        label: 'Parsing content',
+        label: 'Parsing & chunking',
         order: 1
     },
     chunking: {
         icon: '✂️',
-        label: 'Creating chunks',
+        label: 'Chunks created',
         order: 2
     },
     cleaning: {
@@ -120,12 +121,20 @@ export function showProgressModal(title, subtitle = '', options = {}) {
 
     // Add cancel handler
     if (options.cancelable !== false && options.onCancel) {
-        document.getElementById('ragbooks-progress-cancel')?.addEventListener('click', () => {
+        // Create handler and store reference for later cleanup
+        const cancelHandler = () => {
             if (confirm('Are you sure you want to cancel this operation?')) {
                 options.onCancel();
                 hideProgressModal();
             }
-        });
+        };
+
+        progressState.cancelHandler = cancelHandler;
+
+        const cancelBtn = document.getElementById('ragbooks-progress-cancel');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', cancelHandler);
+        }
     }
 }
 
@@ -229,6 +238,12 @@ export function showProgressError(errorMessage) {
     // Change cancel button to close
     const cancelBtn = document.getElementById('ragbooks-progress-cancel');
     if (cancelBtn) {
+        // Remove the addEventListener cancel handler before setting onclick
+        if (progressState.cancelHandler) {
+            cancelBtn.removeEventListener('click', progressState.cancelHandler);
+            progressState.cancelHandler = null;
+        }
+
         cancelBtn.textContent = 'Close';
         cancelBtn.onclick = () => hideProgressModal();
     }
@@ -278,6 +293,12 @@ export function showProgressSuccess(message, autoCloseDuration = 2000) {
         // Change cancel button to close
         const cancelBtn = document.getElementById('ragbooks-progress-cancel');
         if (cancelBtn) {
+            // Remove the addEventListener cancel handler before setting onclick
+            if (progressState.cancelHandler) {
+                cancelBtn.removeEventListener('click', progressState.cancelHandler);
+                progressState.cancelHandler = null;
+            }
+
             cancelBtn.textContent = 'Close';
             cancelBtn.onclick = () => hideProgressModal();
         }
@@ -304,6 +325,7 @@ export function hideProgressModal() {
     progressState.currentStep = null;
     progressState.steps = {};
     progressState.stats = { chunks: 0, summaries: 0, total: 0 };
+    progressState.cancelHandler = null;
 }
 
 /**

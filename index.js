@@ -823,7 +823,9 @@ async function apiGetSavedHashes(collectionId) {
 async function apiInsertVectorItems(collectionId, items) {
     ensureVectorConfig();
 
-    // Final safety check: filter out any items with empty text
+    // LAYER 2 VALIDATION: Final client-side check before network request
+    // This is a safety net in case chunks were modified after initial filtering
+    // Prevents unnecessary server round-trips for invalid data
     const validItems = items.filter(item => item.text && item.text.trim().length > 0);
 
     if (validItems.length === 0) {
@@ -848,6 +850,9 @@ async function apiInsertVectorItems(collectionId, items) {
     };
     debugLog('[API] apiInsertVectorItems request body:', body); // ADDED
 
+    // LAYER 3 VALIDATION: Server-side safety net (vectors.js:465-476)
+    // The server will apply its own filtering as a final protection layer
+    // This ensures consistency across all extensions using /api/vector/insert
     const response = await fetch('/api/vector/insert', {
         method: 'POST',
         headers: getRequestHeaders(),
@@ -3612,10 +3617,17 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
         return [];
     }
 
-    // Apply message range filter
-    const messages = config.messageRange
+    // Apply message range filter and exclude system messages/empty messages (like official ST vector extension)
+    const messages = (config.messageRange
         ? chat.slice(-config.messageRange)
-        : chat;
+        : chat).filter(x => !x.is_system);
+
+    // Diagnostic logging
+    console.log(`💬 Chat Processing:`);
+    console.log(`   Total messages in chat: ${chat.length}`);
+    console.log(`   After filters (range + system): ${messages.length}`);
+    console.log(`   Cleaning mode: ${cleaningMode}`);
+    console.log(`   Chunking strategy: ${config.chunkingStrategy}`);
 
     let chunks = [];
     const characterName = context.name2; // Bot name
@@ -3627,7 +3639,7 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
     const perChunkSummaryControl = options.perChunkSummaryControl || false;
 
     // Text cleaning settings
-    const cleaningMode = options.cleaningMode || 'basic'; // Chat defaults to basic cleaning
+    const cleaningMode = options.cleaningMode || 'none'; // Chat defaults to no cleaning (plain text conversations)
     const customPatterns = options.customPatterns || [];
 
     // Determine name format based on settings
@@ -3651,11 +3663,20 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
                 progressCallback(messageIndex, totalMessages);
             }
             const speaker = msg.is_user ? getUserName() : getCharName();
-            // Clean the message text
-            const cleanedMessage = cleanText(msg.mes || '', cleaningMode, customPatterns);
+            // Clean the message text (with safe string conversion like base ST extension)
+            const messageText = String(substituteParams(msg.mes || ''));
+            const cleanedMessage = cleanText(messageText, cleaningMode, customPatterns);
 
             // Skip messages that are empty after cleaning (image-only, deleted, etc.)
             if (!cleanedMessage || cleanedMessage.trim().length === 0) {
+                if (messageIndex <= 3) {
+                    console.log(`   ⚠️ Skipped message ${messageIndex}:`, {
+                        original_length: String(msg.mes || '').length,
+                        after_cleaning_length: cleanedMessage.length,
+                        speaker: speaker,
+                        preview: String(msg.mes || '').substring(0, 50)
+                    });
+                }
                 continue;
             }
 
@@ -3737,7 +3758,13 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
         }
 
         console.log(`💬 Processing ${closedScenes.length} closed scene(s) into chunks...`);
-        const sceneChunks = processScenesToChunks(chat, closedScenes, config, { summarizeChunks, summaryStyle, perChunkSummaryControl });
+        const sceneChunks = processScenesToChunks(
+            chat,
+            closedScenes,
+            config,
+            { summarizeChunks, summaryStyle, perChunkSummaryControl },
+            { cleaningMode, customPatterns }
+        );
         chunks.push(...sceneChunks);
 
         if (sceneChunks.length === 0) {
@@ -3757,7 +3784,8 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
             }
 
             const speaker = msg.is_user ? getUserName() : getCharName();
-            const cleanedMessage = cleanText(msg.mes || '', cleaningMode, customPatterns);
+            const messageText = String(substituteParams(msg.mes || ''));
+            const cleanedMessage = cleanText(messageText, cleaningMode, customPatterns);
 
             // Skip messages that are empty after cleaning
             if (!cleanedMessage || cleanedMessage.trim().length === 0) {
@@ -3807,7 +3835,18 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
     }
 
     if (chunks.length === 0) {
-        throw new Error('All chat messages were filtered out (empty text after cleaning). Try adjusting your text cleaning settings or check if chat contains valid content.');
+        throw new Error(`All chat messages were filtered out (empty text after cleaning).
+
+📊 Debug Info:
+• Cleaning Mode: ${cleaningMode}
+• Total Messages: ${totalMessages}
+• Messages After Filtering: 0 / ${originalCount} chunks created
+
+💡 Try:
+• Set Text Cleaning Mode to "None" in the vectorization form
+• Check if chat contains actual text content (not just images/system messages)
+• Verify cleaning mode is appropriate for your chat format
+• If chat has HTML/formatting, use "None" or "Basic" mode`);
     }
 
     console.log(`💬 Final chunk count after filtering: ${chunks.length}`);
@@ -6137,13 +6176,13 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {},
 
         // Mark parsing and chunking as completed
         updateProgressStep('parsing', 'completed', '');
+        updateProgressStats({ chunks: chunks.length });
         updateProgressStep('chunking', 'active', `${chunks.length} chunks`);
 
         // Brief pause to show chunking step (since it happens inside parse functions)
         await new Promise(resolve => setTimeout(resolve, 300));
 
         updateProgressStep('chunking', 'completed', `${chunks.length} chunks`);
-        updateProgressStats({ chunks: chunks.length });
 
         // Validate that chunks were created
         if (!chunks || chunks.length === 0) {
@@ -6184,7 +6223,9 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {},
 
         const collectionId = `${COLLECTION_PREFIX}${sourceType}_${sourceName.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
-        // Filter out chunks with empty/invalid text before creating items
+        // LAYER 1 VALIDATION: Filter empty chunks after parsing/cleaning
+        // This catches issues from aggressive text cleaning or empty source content
+        // before we create vector items, allowing for more specific error messages
         const validChunks = chunks.filter(chunk => chunk.text && chunk.text.trim().length > 0);
 
         if (validChunks.length === 0) {
@@ -7026,6 +7067,30 @@ function createCollectionCard(collectionId, sourceData) {
     const scopeIcon = scopeIcons[scope] || '🌍';
     const scopeLabel = scopeLabels[scope] || 'Global';
 
+    // Resolve context name for character/chat scoped collections
+    let contextIndicator = '';
+    const scopeIdentifier = metadata.scopeIdentifier;
+
+    if (scope === 'character' && scopeIdentifier !== null && scopeIdentifier !== undefined) {
+        const context = getContext();
+        const character = context.characters?.[scopeIdentifier];
+        if (character) {
+            contextIndicator = `<span class="ragbooks-context-indicator character" title="Bound to character: ${character.name}">
+                <i class="fa-solid fa-link" style="font-size: 0.85em; opacity: 0.7; margin-right: 4px;"></i>${character.name}
+            </span>`;
+        } else {
+            contextIndicator = `<span class="ragbooks-context-indicator missing" title="Character not found (ID: ${scopeIdentifier})">
+                <i class="fa-solid fa-link-slash" style="font-size: 0.85em; opacity: 0.7; margin-right: 4px;"></i>Unknown
+            </span>`;
+        }
+    } else if (scope === 'chat' && scopeIdentifier) {
+        // Parse chat filename to get readable name
+        const chatName = scopeIdentifier.replace(/@\d+h\d+m.*$/, '').trim() || scopeIdentifier;
+        contextIndicator = `<span class="ragbooks-context-indicator chat" title="Bound to chat: ${chatName}">
+            <i class="fa-solid fa-link" style="font-size: 0.85em; opacity: 0.7; margin-right: 4px;"></i>${chatName}
+        </span>`;
+    }
+
     // Determine activation mode and display
     const hasConditions = conditions && conditions.enabled && conditions.rules && conditions.rules.length > 0;
 
@@ -7071,6 +7136,7 @@ function createCollectionCard(collectionId, sourceData) {
                             </div>
                         </div>
                     </div>
+                    ${contextIndicator}
                 </div>
             </div>
             <div class="ragbooks-source-meta">
@@ -9299,13 +9365,12 @@ function changeScopeForCollection(collectionId, sourceData, newScope) {
     const context = getContext();
 
     if (newScope === 'character') {
-        const activeCharacter = context?.characters?.[context.characterId];
-        const characterName = activeCharacter?.name || context?.character?.name || null;
-        if (!characterName) {
+        const characterId = context?.characterId;
+        if (characterId === null || characterId === undefined) {
             toastr.warning('No active character - cannot move to character scope');
             return;
         }
-        newScopeIdentifier = characterName;
+        newScopeIdentifier = characterId;
     } else if (newScope === 'chat') {
         const chatId = context?.chatId;
         if (!chatId) {
@@ -9334,6 +9399,17 @@ function changeScopeForCollection(collectionId, sourceData, newScope) {
 
     // Save settings
     saveSettingsDebounced();
+
+    // Smart scope filter update: If user has a filter active that doesn't match new scope,
+    // update it so the moved collection is immediately visible
+    if (ragState.scopeFilter && ragState.scopeFilter !== 'all' && ragState.scopeFilter !== newScope) {
+        console.log(`📚 [Scope Change] Updating filter from "${ragState.scopeFilter}" to "${newScope}" to show moved collection`);
+        ragState.scopeFilter = newScope;
+
+        // Update UI filter buttons
+        $('.ragbooks-scope-filter-btn').removeClass('active');
+        $(`.ragbooks-scope-filter-btn[data-scope="${newScope}"]`).addClass('active');
+    }
 
     // Re-render collections
     renderCollections();
@@ -10653,10 +10729,10 @@ function getInlineConfigForm(sourceType) {
                             <span class="ragbooks-label-text">🧹 Text Cleaning Mode</span>
                         </label>
                         <select id="ragbooks_chat_cleaning_mode" class="ragbooks-select">
-                            <option value="none">None (Keep Original)</option>
-                            <option value="basic" selected>Basic (Remove Scripts/Styles)</option>
-                            <option value="balanced">Balanced (Remove All HTML)</option>
-                            <option value="aggressive">Aggressive (Pure Text Only)</option>
+                            <option value="none" ${chatVectorSettings.cleaningMode === 'none' ? 'selected' : ''}>None (Keep Original)</option>
+                            <option value="basic" ${!chatVectorSettings.cleaningMode || chatVectorSettings.cleaningMode === 'basic' ? 'selected' : ''}>Basic (Remove Scripts/Styles)</option>
+                            <option value="balanced" ${chatVectorSettings.cleaningMode === 'balanced' ? 'selected' : ''}>Balanced (Remove All HTML)</option>
+                            <option value="aggressive" ${chatVectorSettings.cleaningMode === 'aggressive' ? 'selected' : ''}>Aggressive (Pure Text Only)</option>
                         </select>
                         <div class="ragbooks-help-text">
                             <strong>None:</strong> No cleaning<br>

@@ -238,13 +238,6 @@ export const CLEANING_PATTERNS = {
             flags: 'g',
             replacement: '\n\n',
             description: 'Collapse 3+ newlines to 2'
-        },
-        {
-            name: 'Normalize Whitespace',
-            pattern: '\\s+',
-            flags: 'g',
-            replacement: ' ',
-            description: 'Collapse all whitespace to single space'
         }
     ]
 };

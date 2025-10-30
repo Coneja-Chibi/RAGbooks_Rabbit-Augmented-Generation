@@ -4,6 +4,8 @@
 // =============================================================================
 
 import { getStringHash } from '../../../utils.js';
+import { cleanText } from './text-cleaning.js';
+import { substituteParams } from '../../../../script.js';
 
 /**
  * Creates summary chunks for chunks with summaryVector enabled
@@ -88,15 +90,19 @@ export function filterChunksBySearchMode(chunks, searchMode) {
  * @param {Array} scenes - Scene metadata from chat_metadata.ragbooks_scenes
  * @param {Object} config - Chat vectorization config
  * @param {Object} summaryOptions - Summarization settings { summarizeChunks, summaryStyle, perChunkSummaryControl }
+ * @param {Object} cleaningOptions - Text cleaning settings { cleaningMode, customPatterns }
  * @returns {Array} Scene chunks (and summary chunks if enabled)
  */
-export function processScenesToChunks(messages, scenes, config, summaryOptions = {}) {
+export function processScenesToChunks(messages, scenes, config, summaryOptions = {}, cleaningOptions = {}) {
     const chunks = [];
     let skippedOpen = 0;
     let skippedInvalid = 0;
 
     // Extract summarization settings
     const { summarizeChunks = false, summaryStyle = 'concise', perChunkSummaryControl = false } = summaryOptions;
+
+    // Extract cleaning settings
+    const { cleaningMode = 'none', customPatterns = [] } = cleaningOptions;
 
     scenes.forEach((scene, idx) => {
         // Skip open scenes or invalid scenes
@@ -115,8 +121,14 @@ export function processScenesToChunks(messages, scenes, config, summaryOptions =
         const sceneMessages = messages.slice(scene.start, scene.end + 1);
         if (sceneMessages.length === 0) return;
 
-        // Build scene text
-        const sceneText = sceneMessages.map(m => m.mes).join('\n\n');
+        // Build scene text with cleaning and type safety (like base ST extension)
+        const sceneText = sceneMessages
+            .map(m => {
+                const messageText = String(substituteParams(m.mes || ''));
+                return cleanText(messageText, cleaningMode, customPatterns);
+            })
+            .filter(text => text && text.trim().length > 0)
+            .join('\n\n');
         const sceneHash = getStringHash(`scene_${scene.start}_${scene.end}_${sceneText}`);
 
         // Create main scene chunk

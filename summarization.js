@@ -61,8 +61,7 @@ export async function generateSummaryForChunk(chunkText, style = 'concise', opti
         // Call SillyTavern's raw generation API (like qvink_memory does)
         const summary = await generateRaw({
             prompt: prompt,
-            quietPrompt: true,  // Mark as internal/quiet to prevent extension interference
-            type: 'summary'     // Explicitly mark as summary generation
+            trimNames: false  // Mark as quiet generation to prevent extension interference (e.g., Rabbit Response Team)
         });
 
         // Validate and clean response
@@ -132,40 +131,75 @@ export async function generateSummariesForChunks(chunks, style = 'concise', prog
         }
 
         const chunk = chunksToSummarize[i];
+        let retryCount = 0;
+        const maxRetries = 3;
+        let lastError = null;
+        let success = false;
 
-        try {
-            // Generate summary
-            const summary = await generateSummaryForChunk(chunk.text, style);
+        // Retry loop with exponential backoff
+        while (retryCount <= maxRetries && !success) {
+            try {
+                // Generate summary
+                const summary = await generateSummaryForChunk(chunk.text, style);
 
-            if (summary) {
-                // Add summary to chunk
-                chunk.summary = summary;
-                chunk.summaryVector = true; // Enable dual-vector search
-                successCount++;
+                if (summary) {
+                    // Add summary to chunk
+                    chunk.summary = summary;
+                    chunk.summaryVector = true; // Enable dual-vector search
+                    successCount++;
+                    success = true;
 
-                console.log(`[RAGBooks Summarization] ✓ Chunk ${i + 1}/${chunksToSummarize.length}: "${summary.substring(0, 50)}..."`);
-            } else {
-                failCount++;
-                console.warn(`[RAGBooks Summarization] ✗ Chunk ${i + 1}/${chunksToSummarize.length}: Failed`);
+                    console.log(`[RAGBooks Summarization] ✓ Chunk ${i + 1}/${chunksToSummarize.length}: "${summary.substring(0, 50)}..."`);
+                } else {
+                    // No summary returned but no error thrown
+                    failCount++;
+                    console.warn(`[RAGBooks Summarization] ✗ Chunk ${i + 1}/${chunksToSummarize.length}: No summary generated`);
+                    break; // Don't retry if generation returned empty
+                }
+
+                // Progress callback
+                if (progressCallback) {
+                    progressCallback(i + 1, chunksToSummarize.length);
+                }
+
+            } catch (error) {
+                lastError = error;
+                retryCount++;
+
+                // Check if it's a rate limit error (429)
+                const isRateLimit = error.message && (
+                    error.message.includes('429') ||
+                    error.message.toLowerCase().includes('rate limit') ||
+                    error.message.toLowerCase().includes('too many requests')
+                );
+
+                if (isRateLimit && retryCount <= maxRetries) {
+                    // Exponential backoff: 2s, 4s, 8s
+                    const delayMs = 2000 * Math.pow(2, retryCount - 1);
+                    console.warn(`[RAGBooks Summarization] ⚠ Rate limit on chunk ${i + 1} (attempt ${retryCount}/${maxRetries}). Retrying in ${delayMs/1000}s...`);
+                    await new Promise(resolve => setTimeout(resolve, delayMs));
+                } else if (!isRateLimit) {
+                    // Non-rate-limit error - log and stop retrying this chunk
+                    console.error(`[RAGBooks Summarization] ✗ Error on chunk ${i + 1}:`, error.message);
+                    failCount++;
+                    break;
+                } else {
+                    // Max retries exceeded for rate limit
+                    console.error(`[RAGBooks Summarization] ✗ Chunk ${i + 1} failed after ${maxRetries} retries:`, error.message);
+                    failCount++;
+                }
             }
-
-            // Progress callback
-            if (progressCallback) {
-                progressCallback(i + 1, chunksToSummarize.length);
-            }
-
-        } catch (error) {
-            failCount++;
-            console.error(`[RAGBooks Summarization] Error on chunk ${i + 1}:`, error);
-
-            // Longer delay after errors (especially rate limits) to avoid hammering API
-            console.log('[RAGBooks Summarization] Waiting 2 seconds after error before continuing...');
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            continue; // Skip the normal delay below
         }
 
-        // Standard delay between successful requests to avoid hammering API
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // If still not successful after all retries, mark as failed
+        if (!success && retryCount > maxRetries) {
+            console.error(`[RAGBooks Summarization] ✗ Chunk ${i + 1} abandoned after ${maxRetries} retries`);
+        }
+
+        // Standard delay between chunks to avoid hammering API (only if successful)
+        if (success) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
     }
 
     console.log(`[RAGBooks Summarization] Complete: ${successCount} succeeded, ${failCount} failed`);

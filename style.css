@@ -1809,6 +1809,46 @@ input[type="file"]#ragbooks_doc_file {
     transform: translateY(-1px);
 }
 
+/* Context Indicator Badge */
+.ragbooks-context-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: 0.75em;
+    border-radius: 4px;
+    border: 1px solid;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+    transition: all 0.2s ease;
+}
+
+.ragbooks-context-indicator.character {
+    background: rgba(59, 130, 246, 0.1);
+    color: rgba(59, 130, 246, 0.9);
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+.ragbooks-context-indicator.chat {
+    background: rgba(168, 85, 247, 0.1);
+    color: rgba(168, 85, 247, 0.9);
+    border-color: rgba(168, 85, 247, 0.3);
+}
+
+.ragbooks-context-indicator.missing {
+    background: rgba(239, 68, 68, 0.1);
+    color: rgba(239, 68, 68, 0.9);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.ragbooks-context-indicator:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
 /* Scope Dropdown */
 .ragbooks-scope-dropdown {
     position: relative;

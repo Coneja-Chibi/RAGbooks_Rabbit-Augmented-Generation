@@ -54,6 +54,24 @@ import { applyTemporalDecay, applyDecayToResults, applySceneAwareDecay, getDefau
 import { performEnhancedSearch, performBasicSearch, buildSearchParams, getSearchFunction } from './search-orchestrator.js';
 import { generateSummariesForChunks, validateSummarySettings, contentTypeSupportsSummarization } from './summarization.js';
 import { cleanText, CLEANING_MODES, CLEANING_PATTERNS, validatePattern } from './text-cleaning.js';
+import {
+    showProgressModal,
+    hideProgressModal,
+    updateProgressStep,
+    updateProgressStats,
+    updateProgressMessage,
+    showProgressError,
+    showProgressSuccess,
+    createParsingCallback,
+    createSummarizationCallback
+} from './progress-indicator.js';
+
+import {
+    semanticChunkText,
+    slidingWindowChunk,
+    cosineSimilarity,
+    splitIntoSentences
+} from './semantic-chunking.js';
 
 // Export generateQuietPrompt to window scope for testing/debugging
 if (typeof window !== 'undefined') {
@@ -94,7 +112,9 @@ const CHUNKING_STRATEGIES = {
     SECTION_BASED: 'section',      // Split by section headers
     SIZE_BASED: 'size',            // Fixed size with overlap
     PARAGRAPH: 'paragraph',        // Split by \n\n
-    SMART_MERGE: 'smart_merge'     // Combine related entries
+    SMART_MERGE: 'smart_merge',    // Combine related entries
+    SEMANTIC: 'semantic',          // AI-powered semantic chunking (embedding similarity)
+    SLIDING_WINDOW: 'sliding'      // Sliding window with sentence-aware boundaries
 };
 
 // Section header regex for document chunking - LANGUAGE-AGNOSTIC & VERY PERMISSIVE
@@ -949,19 +969,27 @@ async function saveChunksToLibrary(collectionId, chunks) {
     // Convert array of chunks to hash-indexed object
     chunks.forEach((chunk, index) => {
         const hash = chunk.hash || getStringHash(chunk.text);
+
+        // DEFENSIVE FALLBACK: Ensure name has a value from topic, section, or text
+        let chunkName = chunk.name || chunk.topic || chunk.section || chunk.metadata?.section || chunk.metadata?.topic || '';
+        if (!chunkName && chunk.text) {
+            // Last resort: generate from first sentence of text
+            chunkName = getFirstSentenceTitle(chunk.text, 80) || 'Untitled Chunk';
+        }
+
         library[collectionId][hash] = {
             text: chunk.text,
             metadata: chunk.metadata || {},
             hash: hash,
             index: index,
             // Keyword system
-            keywords: chunk.keywords || [],
+            keywords: Array.isArray(chunk.keywords) ? chunk.keywords : [],
             systemKeywords: chunk.systemKeywords || chunk.keywords || [],
             customKeywords: chunk.customKeywords || [],
             customWeights: chunk.customWeights || {},
             disabledKeywords: chunk.disabledKeywords || [],
             // Titles & comments
-            name: chunk.name || chunk.section || chunk.metadata?.section || '',  // User-editable title
+            name: chunkName,  // User-editable title with fallbacks
             section: chunk.section || chunk.metadata?.section || '',
             topic: chunk.topic || chunk.metadata?.topic || '',
             comment: chunk.comment || '',
@@ -975,6 +1003,7 @@ async function saveChunksToLibrary(collectionId, chunks) {
             // NEW: Summary system (Phase 1)
             summary: chunk.summary || '',                    // Short abstract for semantic search
             summaryVector: chunk.summaryVector !== undefined ? chunk.summaryVector : false,  // Create separate embedding?
+            summaryVectors: chunk.summaryVectors || [],      // Multiple searchable summary tags (array)
             isSummaryChunk: chunk.isSummaryChunk || false,   // Is this a summary-only chunk?
             parentHash: chunk.parentHash || null,            // If summary chunk, hash of parent
             // NEW: Importance weighting (Phase 3)
@@ -1098,12 +1127,45 @@ async function updateChunksInLibrary(collectionId, chunks) {
             });
         }
 
-        // Update library with new data (metadata + text)
-        // Spread metadata first, then override with text to ensure structure
-        const { text: _, ...metadataOnly } = metadata;
+        // Update library with new data, preserving both top-level and nested metadata fields
+        const { text: _, metadata: __, ...topLevelFields } = chunkData;
+        const nestedMetadata = chunkData.metadata || {};
+
+        // DEBUG: Log what we're saving
+        if (Object.keys(chunks).indexOf(hash) === 0) {
+            console.log('[updateChunksInLibrary] First chunk debug:', {
+                hash,
+                'chunkData.name': chunkData.name,
+                'chunkData.topic': chunkData.topic,
+                'topLevelFields.name': topLevelFields.name,
+                'nestedMetadata.name': nestedMetadata.name,
+                'topLevelFields keys': Object.keys(topLevelFields).slice(0, 10)
+            });
+        }
+
+        // DEFENSIVE FALLBACK #1: Ensure name field always has a value
+        // If name is missing/empty in both top-level and nested, use topic or section from existing chunk
+        if (!topLevelFields.name && !nestedMetadata.name) {
+            topLevelFields.name = chunkData.topic || chunkData.section || existingChunk.topic || existingChunk.section || '';
+            console.warn(`⚠️ Chunk ${hash} missing name - falling back to: "${topLevelFields.name}"`);
+        }
+
+        // DEFENSIVE FALLBACK #2: Preserve existing summaryVectors if new data doesn't have them
+        if (!topLevelFields.summaryVectors?.length && existingChunk.summaryVectors?.length) {
+            topLevelFields.summaryVectors = existingChunk.summaryVectors;
+            console.warn(`⚠️ Chunk ${hash} preserving ${existingChunk.summaryVectors.length} existing summaryVectors`);
+        }
+
+        // DEFENSIVE FALLBACK #3: Preserve existing keywords if new data doesn't have them
+        if (!topLevelFields.keywords?.length && existingChunk.keywords?.length) {
+            topLevelFields.keywords = existingChunk.keywords;
+            console.warn(`⚠️ Chunk ${hash} preserving ${existingChunk.keywords.length} existing keywords`);
+        }
+
         library[collectionId][hash] = {
             text: chunkText,
-            ...metadataOnly
+            ...nestedMetadata,   // Apply nested metadata first
+            ...topLevelFields   // Then top-level fields override (preserves user edits to name, keywords, etc.)
         };
 
         updatedHashes.push(hash);
@@ -2603,6 +2665,38 @@ function splitIntoSentences(text) {
     return sentences ? sentences.map(sentence => sentence.trim()).filter(Boolean) : [cleaned];
 }
 
+/**
+ * Get first sentence from text for use as chunk title
+ * @param {string} text - Chunk text
+ * @param {number} maxLength - Maximum length for title (default 100)
+ * @returns {string} First sentence or truncated text
+ */
+function getFirstSentenceTitle(text, maxLength = 100) {
+    if (!text || !text.trim()) {
+        return '';
+    }
+
+    const sentences = splitIntoSentences(text);
+    if (sentences.length === 0) {
+        return text.substring(0, maxLength).trim() + '...';
+    }
+
+    let title = sentences[0].trim();
+
+    // Remove speaker prefix if present (e.g., "User: " or "Character: ")
+    const speakerMatch = title.match(/^[^:]+:\s*/);
+    if (speakerMatch) {
+        title = title.substring(speakerMatch[0].length);
+    }
+
+    // Truncate if too long
+    if (title.length > maxLength) {
+        title = title.substring(0, maxLength).trim() + '...';
+    }
+
+    return title;
+}
+
 function splitByLength(text, targetLength) {
     const words = text.split(/\s+/);
     const pieces = [];
@@ -2763,7 +2857,7 @@ async function loadWorldInfo(lorebookName) {
  */
 function naturalChunkText(text, options = {}) {
     const chunkSize = options.chunkSize || 500;
-    const chunkOverlap = options.chunkOverlap || 50;
+    const chunkOverlap = options.chunkOverlap !== undefined ? options.chunkOverlap : 50;
 
     if (!text || text.length === 0) return [];
     if (text.length <= chunkSize) return [text];
@@ -2782,7 +2876,9 @@ function naturalChunkText(text, options = {}) {
         if (separatorIndex >= separators.length - 1) {
             // Last resort: hard split
             chunks.push(remainingText.substring(0, chunkSize).trim());
-            splitText(remainingText.substring(chunkSize - chunkOverlap), separatorIndex);
+            // If overlap is 0, start at chunkSize, otherwise use overlap
+            const nextStart = chunkOverlap > 0 ? chunkSize - chunkOverlap : chunkSize;
+            splitText(remainingText.substring(nextStart), separatorIndex);
             return;
         }
 
@@ -2805,9 +2901,14 @@ function naturalChunkText(text, options = {}) {
                     chunks.push(currentChunk.trim());
                 }
 
-                // Start new chunk with overlap
-                const overlapStart = Math.max(0, currentChunk.length - chunkOverlap);
-                currentChunk = currentChunk.substring(overlapStart) + separator + part;
+                // Start new chunk with overlap (or no overlap if chunkOverlap is 0)
+                if (chunkOverlap > 0) {
+                    const overlapStart = Math.max(0, currentChunk.length - chunkOverlap);
+                    currentChunk = currentChunk.substring(overlapStart) + separator + part;
+                } else {
+                    // No overlap: start fresh with just the current part
+                    currentChunk = part;
+                }
 
                 // If single part is too large, recurse with finer separator
                 if (part.length > chunkSize) {
@@ -2830,7 +2931,7 @@ function naturalChunkText(text, options = {}) {
 /**
  * Parse and vectorize a lorebook/world info
  */
-async function parseLorebook(lorebookName, options = {}) {
+async function parseLorebook(lorebookName, options = {}, progressCallback = null) {
     console.log(`📚 Parsing lorebook: ${lorebookName}`);
 
     const lorebook = await loadWorldInfo(lorebookName);
@@ -2892,7 +2993,14 @@ async function parseLorebook(lorebookName, options = {}) {
     const cleaningMode = options.cleaningMode || 'balanced';
     const customPatterns = options.customPatterns || [];
 
+    let entryIndex = 0;
     for (const entry of entries) {
+        entryIndex++;
+
+        // Report progress
+        if (progressCallback) {
+            progressCallback(entryIndex, entries.length);
+        }
         // Clean the entry content before processing
         entry.content = cleanText(entry.content, cleaningMode, customPatterns);
 
@@ -2948,6 +3056,8 @@ async function parseLorebook(lorebookName, options = {}) {
             });
 
             naturalChunks.forEach((chunkText, idx) => {
+                const title = getFirstSentenceTitle(chunkText) || `${entryName} (Part ${idx + 1})`;
+
                 // Use parent entry's keys instead of extracting from chunk
                 chunks.push({
                     text: chunkText,
@@ -2963,7 +3073,7 @@ async function parseLorebook(lorebookName, options = {}) {
                         summaryStyle: summaryStyle
                     },
                     section: entryName,
-                    topic: `Chunk ${idx + 1}`,
+                    topic: title,
                     keywords: keys, // Use parent entry's keywords
                     systemKeywords: keys // Use parent entry's keywords
                 });
@@ -2976,6 +3086,8 @@ async function parseLorebook(lorebookName, options = {}) {
             });
 
             sizedChunks.forEach((chunkText, idx) => {
+                const title = getFirstSentenceTitle(chunkText) || `${entryName} (Part ${idx + 1})`;
+
                 // Use parent entry's keys instead of extracting from chunk
                 chunks.push({
                     text: chunkText,
@@ -2991,9 +3103,78 @@ async function parseLorebook(lorebookName, options = {}) {
                         summaryStyle: summaryStyle
                     },
                     section: entryName,
-                    topic: `Chunk ${idx + 1}`,
+                    topic: title,
                     keywords: keys, // Use parent entry's keywords
                     systemKeywords: keys // Use parent entry's keywords
+                });
+            });
+        } else if (chunkingStrategy === CHUNKING_STRATEGIES.SEMANTIC) {
+            // Semantic chunking using AI embeddings to detect topic shifts
+            console.log(`🧠 [RAGBooks] Using semantic chunking for entry: ${entryName}`);
+
+            const semanticChunks = await semanticChunkText(entry.content, {
+                similarityThreshold: options.semanticThreshold || 0.5,
+                minChunkSize: options.minChunkSize || 100,
+                maxChunkSize: options.maxChunkSize || 1500,
+                progressCallback: (current, total) => {
+                    console.log(`  Embedding ${current}/${total} sentences...`);
+                }
+            });
+
+            semanticChunks.forEach((chunkText, idx) => {
+                const title = getFirstSentenceTitle(chunkText) || `${entryName} (Part ${idx + 1})`;
+
+                chunks.push({
+                    text: chunkText,
+                    metadata: {
+                        source: CONTENT_SOURCES.LOREBOOK,
+                        lorebookName: lorebookName,
+                        entryName: entryName,
+                        chunkIndex: idx,
+                        keys: keys,
+                        chunkingMethod: 'semantic',
+                        // Per-chunk control flags
+                        enableSummary: perChunkSummaryControl ? true : summarizeChunks,
+                        enableMetadata: perChunkMetadataControl ? true : extractMetadata,
+                        summaryStyle: summaryStyle
+                    },
+                    section: entryName,
+                    topic: title,
+                    keywords: keys,
+                    systemKeywords: keys
+                });
+            });
+        } else if (chunkingStrategy === CHUNKING_STRATEGIES.SLIDING_WINDOW) {
+            // Sliding window with sentence-aware boundaries
+            console.log(`🪟 [RAGBooks] Using sliding window chunking for entry: ${entryName}`);
+
+            const windowChunks = slidingWindowChunk(entry.content, {
+                windowSize: options.chunkSize || 500,
+                overlapPercent: options.overlapPercent || 20,
+                sentenceAware: true
+            });
+
+            windowChunks.forEach((chunkText, idx) => {
+                const title = getFirstSentenceTitle(chunkText) || `${entryName} (Part ${idx + 1})`;
+
+                chunks.push({
+                    text: chunkText,
+                    metadata: {
+                        source: CONTENT_SOURCES.LOREBOOK,
+                        lorebookName: lorebookName,
+                        entryName: entryName,
+                        chunkIndex: idx,
+                        keys: keys,
+                        chunkingMethod: 'sliding_window',
+                        // Per-chunk control flags
+                        enableSummary: perChunkSummaryControl ? true : summarizeChunks,
+                        enableMetadata: perChunkMetadataControl ? true : extractMetadata,
+                        summaryStyle: summaryStyle
+                    },
+                    section: entryName,
+                    topic: title,
+                    keywords: keys,
+                    systemKeywords: keys
                 });
             });
         } else {
@@ -3025,7 +3206,7 @@ async function parseLorebook(lorebookName, options = {}) {
     if (summarizeChunks && contentTypeSupportsSummarization('lorebook') && validateSummarySettings({ summarizeChunks, summaryStyle })) {
         console.log(`🤖 Generating ${summaryStyle} summaries for lorebook chunks...`);
         try {
-            await generateSummariesForChunks(chunks, summaryStyle);
+            await generateSummariesForChunks(chunks, summaryStyle, options.summarizationCallback);
         } catch (error) {
             console.error('Failed to generate summaries, continuing without them:', error);
         }
@@ -3046,11 +3227,11 @@ async function parseLorebook(lorebookName, options = {}) {
  * @param {string} options.chunkingStrategy - How to chunk: 'per_field', 'paragraph', 'smart_merge'
  * @returns {Promise<Array>} Array of chunk objects
  */
-async function parseCharacterCard(characterId, options = {}) {
+async function parseCharacterCard(characterId, options = {}, progressCallback = null) {
     console.log(`👤 Parsing character card: ${characterId}`);
 
     const defaultOptions = {
-        fields: ['description', 'personality', 'scenario'],
+        fields: ['description', 'personality', 'scenario', 'creator_notes', 'system_prompt'],
         chunkingStrategy: CHUNKING_STRATEGIES.PER_FIELD
     };
     const config = { ...defaultOptions, ...options };
@@ -3082,12 +3263,25 @@ async function parseCharacterCard(characterId, options = {}) {
         personality: { text: cleanText(character.personality || '', cleaningMode, customPatterns), label: 'Personality' },
         scenario: { text: cleanText(character.scenario || '', cleaningMode, customPatterns), label: 'Scenario' },
         first_message: { text: cleanText(character.first_mes || '', cleaningMode, customPatterns), label: 'First Message' },
-        example_dialogs: { text: cleanText(character.mes_example || '', cleaningMode, customPatterns), label: 'Example Dialogs' }
+        example_dialogs: { text: cleanText(character.mes_example || '', cleaningMode, customPatterns), label: 'Example Dialogs' },
+        // V3 fields
+        creator_notes: { text: cleanText(character.creator_notes || character.creatorcomment || '', cleaningMode, customPatterns), label: 'Creator Notes' },
+        system_prompt: { text: cleanText(character.system_prompt || '', cleaningMode, customPatterns), label: 'System Prompt' },
+        post_history_instructions: { text: cleanText(character.post_history_instructions || '', cleaningMode, customPatterns), label: 'Post-History Instructions' },
+        // Extension fields
+        depth_prompt: { text: cleanText(character.extensions?.depth_prompt?.prompt || '', cleaningMode, customPatterns), label: 'Depth Prompt' }
     };
 
+    let fieldIndex = 0;
     if (config.chunkingStrategy === CHUNKING_STRATEGIES.PER_FIELD) {
         // One chunk per field
         for (const fieldName of config.fields) {
+            fieldIndex++;
+
+            // Report progress
+            if (progressCallback) {
+                progressCallback(fieldIndex, config.fields.length);
+            }
             const field = fieldMap[fieldName];
             if (field && field.text && field.text.trim().length > 0) {
                 // No keyword extraction for character cards - semantic search handles it
@@ -3113,7 +3307,15 @@ async function parseCharacterCard(characterId, options = {}) {
         }
     } else if (config.chunkingStrategy === CHUNKING_STRATEGIES.PARAGRAPH) {
         // Split each field by paragraphs
+        fieldIndex = 0;
         for (const fieldName of config.fields) {
+            fieldIndex++;
+
+            // Report progress
+            if (progressCallback) {
+                progressCallback(fieldIndex, config.fields.length);
+            }
+
             const field = fieldMap[fieldName];
             if (field && field.text && field.text.trim().length > 0) {
                 const paragraphs = field.text.split(/\n\n+/).filter(p => p.trim().length > 0);
@@ -3144,7 +3346,15 @@ async function parseCharacterCard(characterId, options = {}) {
         }
     } else if (config.chunkingStrategy === 'natural') {
         // Natural chunking for all fields
+        fieldIndex = 0;
         for (const fieldName of config.fields) {
+            fieldIndex++;
+
+            // Report progress
+            if (progressCallback) {
+                progressCallback(fieldIndex, config.fields.length);
+            }
+
             const field = fieldMap[fieldName];
             if (field && field.text && field.text.trim().length > 0) {
                 const naturalChunks = naturalChunkText(field.text, {
@@ -3152,6 +3362,8 @@ async function parseCharacterCard(characterId, options = {}) {
                     chunkOverlap: options.chunkOverlap || 50
                 });
                 naturalChunks.forEach((chunkText, idx) => {
+                    const title = getFirstSentenceTitle(chunkText) || `${field.label} (Part ${idx + 1})`;
+
                     // No keyword extraction for character cards - semantic search handles it
                     chunks.push({
                         text: chunkText,
@@ -3168,9 +3380,102 @@ async function parseCharacterCard(characterId, options = {}) {
                             summaryStyle: summaryStyle
                         },
                         section: field.label,
-                        topic: `Chunk ${idx + 1}`,
+                        topic: title,
                         keywords: [], // No keywords for natural character content
                         systemKeywords: [] // No keywords for natural character content
+                    });
+                });
+            }
+        }
+    } else if (config.chunkingStrategy === CHUNKING_STRATEGIES.SEMANTIC) {
+        // Semantic chunking for character fields using AI embeddings
+        console.log(`🧠 [RAGBooks] Using semantic chunking for character: ${character.name}`);
+
+        fieldIndex = 0;
+        for (const fieldName of config.fields) {
+            fieldIndex++;
+
+            if (progressCallback) {
+                progressCallback(fieldIndex, config.fields.length);
+            }
+
+            const field = fieldMap[fieldName];
+            if (field && field.text && field.text.trim().length > 0) {
+                const semanticChunks = await semanticChunkText(field.text, {
+                    similarityThreshold: options.semanticThreshold || 0.5,
+                    minChunkSize: options.minChunkSize || 100,
+                    maxChunkSize: options.maxChunkSize || 1500,
+                    progressCallback: (current, total) => {
+                        console.log(`  ${field.label}: Embedding ${current}/${total} sentences...`);
+                    }
+                });
+
+                semanticChunks.forEach((chunkText, idx) => {
+                    const title = getFirstSentenceTitle(chunkText) || `${field.label} (Part ${idx + 1})`;
+
+                    chunks.push({
+                        text: chunkText,
+                        metadata: {
+                            source: CONTENT_SOURCES.CHARACTER,
+                            characterName: character.name,
+                            characterId: characterId,
+                            field: fieldName,
+                            fieldLabel: field.label,
+                            chunkIndex: idx,
+                            chunkingMethod: 'semantic',
+                            enableSummary: perChunkSummaryControl ? true : summarizeChunks,
+                            enableMetadata: perChunkMetadataControl ? true : extractMetadata,
+                            summaryStyle: summaryStyle
+                        },
+                        section: field.label,
+                        topic: title,
+                        keywords: [],
+                        systemKeywords: []
+                    });
+                });
+            }
+        }
+    } else if (config.chunkingStrategy === CHUNKING_STRATEGIES.SLIDING_WINDOW) {
+        // Sliding window for character fields with sentence-aware boundaries
+        console.log(`🪟 [RAGBooks] Using sliding window chunking for character: ${character.name}`);
+
+        fieldIndex = 0;
+        for (const fieldName of config.fields) {
+            fieldIndex++;
+
+            if (progressCallback) {
+                progressCallback(fieldIndex, config.fields.length);
+            }
+
+            const field = fieldMap[fieldName];
+            if (field && field.text && field.text.trim().length > 0) {
+                const windowChunks = slidingWindowChunk(field.text, {
+                    windowSize: options.chunkSize || 500,
+                    overlapPercent: options.overlapPercent || 20,
+                    sentenceAware: true
+                });
+
+                windowChunks.forEach((chunkText, idx) => {
+                    const title = getFirstSentenceTitle(chunkText) || `${field.label} (Part ${idx + 1})`;
+
+                    chunks.push({
+                        text: chunkText,
+                        metadata: {
+                            source: CONTENT_SOURCES.CHARACTER,
+                            characterName: character.name,
+                            characterId: characterId,
+                            field: fieldName,
+                            fieldLabel: field.label,
+                            chunkIndex: idx,
+                            chunkingMethod: 'sliding_window',
+                            enableSummary: perChunkSummaryControl ? true : summarizeChunks,
+                            enableMetadata: perChunkMetadataControl ? true : extractMetadata,
+                            summaryStyle: summaryStyle
+                        },
+                        section: field.label,
+                        topic: title,
+                        keywords: [],
+                        systemKeywords: []
                     });
                 });
             }
@@ -3217,7 +3522,7 @@ async function parseCharacterCard(characterId, options = {}) {
     if (summarizeChunks && contentTypeSupportsSummarization('character') && validateSummarySettings({ summarizeChunks, summaryStyle })) {
         console.log(`🤖 Generating ${summaryStyle} summaries for character chunks...`);
         try {
-            await generateSummariesForChunks(chunks, summaryStyle);
+            await generateSummariesForChunks(chunks, summaryStyle, options.summarizationCallback);
         } catch (error) {
             console.error('Failed to generate summaries, continuing without them:', error);
         }
@@ -3239,7 +3544,7 @@ async function parseCharacterCard(characterId, options = {}) {
  * @param {number} options.chunkSize - Size for size-based chunking (default: 500)
  * @returns {Promise<Array>} Array of chunk objects
  */
-async function parseChatHistory(options = {}) {
+async function parseChatHistory(options = {}, progressCallback = null) {
     console.log(`💬 Parsing chat history`);
 
     const defaultOptions = {
@@ -3282,12 +3587,21 @@ async function parseChatHistory(options = {}) {
     const getUserName = () => useMacros ? '{{user}}' : userName;
     const getCharName = () => useMacros ? '{{char}}' : characterName;
 
+    let messageIndex = 0;
+    const totalMessages = messages.length;
+
     if (config.chunkingStrategy === CHUNKING_STRATEGIES.BY_SPEAKER) {
         // Group consecutive messages by the same speaker
         let currentSpeaker = null;
         let currentGroup = [];
 
         for (const msg of messages) {
+            messageIndex++;
+
+            // Report progress
+            if (progressCallback) {
+                progressCallback(messageIndex, totalMessages);
+            }
             const speaker = msg.is_user ? getUserName() : getCharName();
             // Clean the message text
             const cleanedMessage = cleanText(msg.mes || '', cleaningMode, customPatterns);
@@ -3300,6 +3614,8 @@ async function parseChatHistory(options = {}) {
             if (speaker !== currentSpeaker && currentGroup.length > 0) {
                 // Save previous group
                 const chunkText = currentGroup.join('\n\n');
+                const title = getFirstSentenceTitle(chunkText) || `${currentSpeaker}'s Messages`;
+
                 // No keyword extraction for chat - semantic search handles it
                 chunks.push({
                     text: chunkText,
@@ -3310,7 +3626,7 @@ async function parseChatHistory(options = {}) {
                         chatId: config.chatId || 'current'
                     },
                     section: `${currentSpeaker}'s Messages`,
-                    topic: 'Chat History',
+                    topic: title,
                     keywords: [], // No keywords for natural chat content
                     systemKeywords: [], // No keywords for natural chat content
                     conditions: { enabled: false } // Chat chunks default to always active
@@ -3325,6 +3641,8 @@ async function parseChatHistory(options = {}) {
         // Save final group
         if (currentGroup.length > 0) {
             const chunkText = currentGroup.join('\n\n');
+            const title = getFirstSentenceTitle(chunkText) || `${currentSpeaker}'s Messages`;
+
             // No keyword extraction for chat - semantic search handles it
             chunks.push({
                 text: chunkText,
@@ -3335,7 +3653,7 @@ async function parseChatHistory(options = {}) {
                     chatId: config.chatId || 'current'
                 },
                 section: `${currentSpeaker}'s Messages`,
-                topic: 'Chat History',
+                topic: title,
                 keywords: [], // No keywords for natural chat content
                 systemKeywords: [], // No keywords for natural chat content
                 conditions: { enabled: false } // Chat chunks default to always active
@@ -3374,70 +3692,55 @@ async function parseChatHistory(options = {}) {
             console.warn(`⚠️ Scene processing returned 0 chunks - this may indicate an issue`);
         }
     } else if (config.chunkingStrategy === CHUNKING_STRATEGIES.SIZE_BASED) {
-        // Fixed-size chunks with overlap
-        let currentChunk = [];
-        let currentLength = 0;
-        const overlap = Math.floor(config.chunkSize * 0.1); // 10% overlap
-
+        // Fixed-size chunks with overlap - actually respects character limit
+        // Build full chat text first
+        const chatMessages = [];
+        messageIndex = 0;
         for (const msg of messages) {
+            messageIndex++;
+
+            // Report progress
+            if (progressCallback) {
+                progressCallback(messageIndex, totalMessages);
+            }
+
             const speaker = msg.is_user ? getUserName() : getCharName();
-            // Clean the message text
             const cleanedMessage = cleanText(msg.mes || '', cleaningMode, customPatterns);
 
-            // Skip messages that are empty after cleaning (image-only, deleted, etc.)
+            // Skip messages that are empty after cleaning
             if (!cleanedMessage || cleanedMessage.trim().length === 0) {
                 continue;
             }
 
-            const text = `${speaker}: ${cleanedMessage}`;
-            const textLength = text.length;
-
-            if (currentLength + textLength > config.chunkSize && currentChunk.length > 0) {
-                // Save current chunk
-                const chunkText = currentChunk.join('\n\n');
-                // No keyword extraction for chat - semantic search handles it
-                chunks.push({
-                    text: chunkText,
-                    metadata: {
-                        source: CONTENT_SOURCES.CHAT,
-                        messageCount: currentChunk.length,
-                        chatId: config.chatId || 'current'
-                    },
-                    section: 'Chat History',
-                    topic: `Chunk ${chunks.length + 1}`,
-                    keywords: [], // No keywords for natural chat content
-                    systemKeywords: [], // No keywords for natural chat content
-                    conditions: { enabled: false } // Chat chunks default to always active
-                });
-
-                // Keep last few messages for overlap
-                const overlapMessages = currentChunk.slice(-Math.max(1, Math.floor(currentChunk.length * 0.1)));
-                currentChunk = overlapMessages;
-                currentLength = overlapMessages.join('\n\n').length;
-            }
-
-            currentChunk.push(text);
-            currentLength += textLength;
+            chatMessages.push(`${speaker}: ${cleanedMessage}`);
         }
 
-        // Save final chunk
-        if (currentChunk.length > 0) {
-            const chunkText = currentChunk.join('\n\n');
-            // No keyword extraction for chat - semantic search handles it
+        if (chatMessages.length === 0) {
+            console.warn('⚠️ All chat messages were empty after cleaning');
+            return [];
+        }
+
+        // Join all messages and split by target size
+        const fullChatText = chatMessages.join('\n\n');
+        const overlap = Math.floor(config.chunkSize * 0.1); // 10% overlap
+        const textChunks = splitTextToSizedChunks(fullChatText, config.chunkSize, overlap);
+
+        textChunks.forEach((chunkText, index) => {
+            const title = getFirstSentenceTitle(chunkText) || `Chunk ${index + 1} of ${textChunks.length}`;
+
             chunks.push({
                 text: chunkText,
                 metadata: {
                     source: CONTENT_SOURCES.CHAT,
-                    messageCount: currentChunk.length,
                     chatId: config.chatId || 'current'
                 },
                 section: 'Chat History',
-                topic: `Chunk ${chunks.length + 1}`,
-                keywords: [], // No keywords for natural chat content
-                systemKeywords: [], // No keywords for natural chat content
-                conditions: { enabled: false } // Chat chunks default to always active
+                topic: title,
+                keywords: [],
+                systemKeywords: [],
+                conditions: { enabled: false }
             });
-        }
+        });
     }
 
     console.log(`💬 Created ${chunks.length} chunks from chat history`);
@@ -3459,7 +3762,7 @@ async function parseChatHistory(options = {}) {
     if (summarizeChunks && contentTypeSupportsSummarization('chat') && validateSummarySettings({ summarizeChunks, summaryStyle })) {
         console.log(`🤖 Generating ${summaryStyle} summaries for chat chunks...`);
         try {
-            await generateSummariesForChunks(chunks, summaryStyle);
+            await generateSummariesForChunks(chunks, summaryStyle, options.summarizationCallback);
         } catch (error) {
             console.error('Failed to generate summaries, continuing without them:', error);
         }
@@ -3481,7 +3784,7 @@ async function parseChatHistory(options = {}) {
  * @param {number} options.chunkSize - Size for size-based chunking (default: 500)
  * @returns {Promise<Array>} Array of chunk objects
  */
-async function parseCustomDocument(text, metadata = {}, options = {}) {
+async function parseCustomDocument(text, metadata = {}, options = {}, progressCallback = null) {
     console.log(`📄 Parsing custom document: ${metadata.name || 'Unnamed'}`);
 
     const defaultOptions = {
@@ -3644,6 +3947,64 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
                 systemKeywords: [] // No keywords for natural URL/custom content
             });
         }
+    } else if (config.chunkingStrategy === CHUNKING_STRATEGIES.SEMANTIC) {
+        // Semantic chunking using AI embeddings to detect topic shifts
+        console.log(`🧠 [RAGBooks] Using semantic chunking for document: ${baseMetadata.documentName}`);
+
+        const semanticChunks = await semanticChunkText(text, {
+            similarityThreshold: options.semanticThreshold || 0.5,
+            minChunkSize: options.minChunkSize || 100,
+            maxChunkSize: options.maxChunkSize || 1500,
+            progressCallback: (current, total) => {
+                console.log(`  Embedding ${current}/${total} sentences...`);
+                if (progressCallback) {
+                    progressCallback(current, total);
+                }
+            }
+        });
+
+        semanticChunks.forEach((chunkText, idx) => {
+            const title = getFirstSentenceTitle(chunkText) || `Part ${idx + 1}`;
+
+            chunks.push({
+                text: chunkText,
+                metadata: {
+                    ...baseMetadata,
+                    chunkIndex: idx,
+                    chunkingMethod: 'semantic'
+                },
+                section: baseMetadata.documentName,
+                topic: title,
+                keywords: [],
+                systemKeywords: []
+            });
+        });
+    } else if (config.chunkingStrategy === CHUNKING_STRATEGIES.SLIDING_WINDOW) {
+        // Sliding window with sentence-aware boundaries
+        console.log(`🪟 [RAGBooks] Using sliding window chunking for document: ${baseMetadata.documentName}`);
+
+        const windowChunks = slidingWindowChunk(text, {
+            windowSize: options.chunkSize || 500,
+            overlapPercent: options.overlapPercent || 20,
+            sentenceAware: true
+        });
+
+        windowChunks.forEach((chunkText, idx) => {
+            const title = getFirstSentenceTitle(chunkText) || `Part ${idx + 1}`;
+
+            chunks.push({
+                text: chunkText,
+                metadata: {
+                    ...baseMetadata,
+                    chunkIndex: idx,
+                    chunkingMethod: 'sliding_window'
+                },
+                section: baseMetadata.documentName,
+                topic: title,
+                keywords: [],
+                systemKeywords: []
+            });
+        });
     }
 
     console.log(`📄 Created ${chunks.length} chunks from custom document`);
@@ -3652,7 +4013,7 @@ async function parseCustomDocument(text, metadata = {}, options = {}) {
     if (summarizeChunks && contentTypeSupportsSummarization('custom') && validateSummarySettings({ summarizeChunks, summaryStyle })) {
         console.log(`🤖 Generating ${summaryStyle} summaries for custom document chunks...`);
         try {
-            await generateSummariesForChunks(chunks, summaryStyle);
+            await generateSummariesForChunks(chunks, summaryStyle, options.summarizationCallback);
         } catch (error) {
             console.error('Failed to generate summaries, continuing without them:', error);
         }
@@ -5662,17 +6023,33 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
     try {
         let chunks;
 
+        // Create progress callbacks for parsing and summarization
+        const parsingCallback = (current, total) => {
+            updateProgressStep('parsing', 'active', `${current}/${total}`);
+        };
+
+        const summarizationCallback = createSummarizationCallback();
+
+        // Add callbacks to sourceConfig
+        sourceConfig.summarizationCallback = summarizationCallback;
+
+        // Start parsing step
+        updateProgressStep('parsing', 'active', '');
+        updateProgressStep('chunking', 'pending', '');
+        updateProgressStep('summarizing', 'pending', '');
+        updateProgressStep('saving', 'pending', '');
+
         switch (sourceType) {
             case CONTENT_SOURCES.LOREBOOK:
-                chunks = await parseLorebook(sourceName, sourceConfig);
+                chunks = await parseLorebook(sourceName, sourceConfig, parsingCallback);
                 break;
 
             case CONTENT_SOURCES.CHARACTER:
-                chunks = await parseCharacterCard(sourceName, sourceConfig);
+                chunks = await parseCharacterCard(sourceName, sourceConfig, parsingCallback);
                 break;
 
             case CONTENT_SOURCES.CHAT:
-                chunks = await parseChatHistory(sourceConfig);
+                chunks = await parseChatHistory(sourceConfig, parsingCallback);
                 break;
 
             case CONTENT_SOURCES.CUSTOM:
@@ -5682,13 +6059,19 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
                 chunks = await parseCustomDocument(
                     sourceConfig.text,
                     { name: sourceName, ...sourceConfig.metadata },
-                    sourceConfig
+                    sourceConfig,
+                    parsingCallback
                 );
                 break;
 
             default:
                 throw new Error(`Unknown content source type: ${sourceType}`);
         }
+
+        // Mark parsing as completed
+        updateProgressStep('parsing', 'completed', '');
+        updateProgressStep('chunking', 'completed', `${chunks.length} chunks`);
+        updateProgressStats({ chunks: chunks.length });
 
         // Validate that chunks were created
         if (!chunks || chunks.length === 0) {
@@ -5703,11 +6086,14 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
                 } else if (!getContext()?.chat || getContext().chat.length === 0) {
                     errorMsg += '• This chat has no messages\n';
                 } else {
-                    errorMsg += '• Unknown chunking issue - check console for errors\n';
+                    errorMsg += '• All messages were filtered as empty (image-only, deleted, or removed by text cleaning)\n';
+                    errorMsg += '• Chat may contain only system messages or empty content\n';
                 }
                 errorMsg += '\n🔧 Try:\n';
                 errorMsg += '• Using a different chunking strategy\n';
-                errorMsg += '• Checking that your chat has messages\n';
+                errorMsg += '• Checking that your chat has valid text messages\n';
+                errorMsg += '• Reducing text cleaning aggressiveness (try "basic" or "none" mode)\n';
+                errorMsg += '• Check console for warnings about filtered messages\n';
             } else {
                 errorMsg += `📝 Source type: ${sourceType}\n`;
                 errorMsg += `📝 Chunking strategy: ${strategy}\n`;
@@ -5743,8 +6129,15 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
             metadata: chunk.metadata
         }));
 
+        // Update progress: saving to database
+        updateProgressStep('summarizing', 'completed', '');
+        updateProgressStep('saving', 'active', 'Saving vectors...');
+
         await apiInsertVectorItems(collectionId, items);
         await saveChunksToLibrary(collectionId, validChunks);
+
+        // Mark saving as completed
+        updateProgressStep('saving', 'completed', '');
 
         const ragState = ensureRagState();
         if (!ragState.sources) ragState.sources = {};
@@ -7067,11 +7460,38 @@ function openChunkViewer(collectionId, chunks) {
     currentViewingCollection = collectionId;
     currentViewingChunks = JSON.parse(JSON.stringify(chunks));
 
-    // Initialize missing 'name' field from 'section' for backwards compatibility
+    // Initialize missing 'name' field for backwards compatibility
+    let initializedCount = 0;
     Object.values(currentViewingChunks).forEach(chunk => {
-        if (!chunk.name && chunk.section) {
-            chunk.name = chunk.section;
+        if (!chunk.name || chunk.name.trim().length === 0) {
+            // DEFENSIVE FALLBACK: Always ensure name has a value
+            // Priority: topic > section > first sentence of text > "Untitled Chunk"
+            chunk.name = chunk.topic ||
+                         chunk.section ||
+                         (chunk.text ? getFirstSentenceTitle(chunk.text, 80) : '') ||
+                         'Untitled Chunk';
+            initializedCount++;
         }
+
+        // DEFENSIVE FALLBACK: Ensure summaryVectors is always an array
+        if (!Array.isArray(chunk.summaryVectors)) {
+            chunk.summaryVectors = chunk.summaryVectors ? [chunk.summaryVectors] : [];
+        }
+
+        // DEFENSIVE FALLBACK: Ensure keywords is always an array
+        if (!Array.isArray(chunk.keywords)) {
+            chunk.keywords = [];
+        }
+    });
+
+    // DEBUG: Log initialization
+    const firstChunk = Object.values(currentViewingChunks)[0];
+    console.log('[openChunkViewer] Initialized names:', {
+        totalChunks: Object.keys(currentViewingChunks).length,
+        initializedCount,
+        'firstChunk.name': firstChunk?.name,
+        'firstChunk.topic': firstChunk?.topic,
+        'firstChunk.section': firstChunk?.section
     });
 
     hasUnsavedChunkChanges = false;
@@ -9460,11 +9880,21 @@ function getInlineConfigForm(sourceType) {
                         <span class="ragbooks-label-text">Chunking Strategy</span>
                     </label>
                     <select id="ragbooks_chunking_strategy" class="ragbooks-select">
-                        <option value="per_entry">Per Entry (Recommended)</option>
-                        <option value="paragraph">By Paragraph</option>
-                        <option value="natural">Natural Vectorization</option>
+                        <option value="per_entry">Whole Entries (one chunk per entry)</option>
+                        <option value="paragraph">Paragraph Breaks (split on \\n\\n)</option>
+                        <option value="natural">Smart Size (size-limited, intelligent boundaries)</option>
+                        <option value="size">Fixed Size (hard size limit)</option>
+                        <option value="semantic">🧠 Semantic (AI-powered topic detection)</option>
+                        <option value="sliding">🪟 Sliding Window (sentence-aware overlap)</option>
                     </select>
-                    <div class="ragbooks-help-text">Per Entry = one chunk per lorebook entry, Paragraph = split entries by paragraphs, Natural = math-based optimal chunking</div>
+                    <div class="ragbooks-help-text">
+                        <strong>Whole Entries:</strong> Each lorebook entry becomes one chunk (recommended for most lorebooks)<br>
+                        <strong>Paragraph Breaks:</strong> Splits long entries at double newlines \\n\\n<br>
+                        <strong>Smart Size:</strong> Targets ~X chars, breaks at natural boundaries (paragraphs/sentences)<br>
+                        <strong>Fixed Size:</strong> Hard character limit with overlap (less intelligent splitting)<br>
+                        <strong>🧠 Semantic:</strong> Uses AI embeddings to detect topic shifts (automatic, intelligent, uses more API tokens)<br>
+                        <strong>🪟 Sliding Window:</strong> Fixed-size window with sentence-aware boundaries and % overlap (preserves context)
+                    </div>
                 </div>
 
                 <!-- Chunk Size Controls (only for natural vectorization) -->
@@ -9483,7 +9913,7 @@ function getInlineConfigForm(sourceType) {
                             <span class="ragbooks-slider-icon">🔄</span>
                             <span class="ragbooks-slider-title">Chunk Overlap: <span id="ragbooks_lorebook_chunk_overlap_value">50</span> chars</span>
                         </div>
-                        <div class="ragbooks-slider-hint">How much chunks overlap (helps preserve context across boundaries)</div>
+                        <div class="ragbooks-slider-hint">How much chunks overlap (helps preserve context across boundaries). Set to 0 for no overlap (clean cuts).</div>
                         <input type="range" id="ragbooks_lorebook_chunk_overlap" class="ragbooks-slider" min="0" max="200" step="10" value="50">
                     </div>
                 </div>
@@ -9665,19 +10095,43 @@ function getInlineConfigForm(sourceType) {
                             <input type="checkbox" class="ragbooks-char-field" value="example_dialogs">
                             <span>Example Dialogs</span>
                         </label>
+                        <label class="ragbooks-checkbox-option">
+                            <input type="checkbox" class="ragbooks-char-field" value="creator_notes">
+                            <span>Creator Notes (V3)</span>
+                        </label>
+                        <label class="ragbooks-checkbox-option">
+                            <input type="checkbox" class="ragbooks-char-field" value="system_prompt">
+                            <span>System Prompt (V3)</span>
+                        </label>
+                        <label class="ragbooks-checkbox-option">
+                            <input type="checkbox" class="ragbooks-char-field" value="post_history_instructions">
+                            <span>Post-History (V3)</span>
+                        </label>
+                        <label class="ragbooks-checkbox-option">
+                            <input type="checkbox" class="ragbooks-char-field" value="depth_prompt">
+                            <span>Depth Prompt (Ext)</span>
+                        </label>
                     </div>
-                    <div class="ragbooks-help-text">Select which fields to vectorize</div>
+                    <div class="ragbooks-help-text">Select which fields to vectorize (V3 = Character Card V3 spec, Ext = Extensions)</div>
                 </div>
                 <div class="ragbooks-setting-item">
                     <label class="ragbooks-label">
                         <span class="ragbooks-label-text">Chunking Strategy</span>
                     </label>
                     <select id="ragbooks_chunking_strategy" class="ragbooks-select">
-                        <option value="per_field">Per Field (Recommended)</option>
-                        <option value="paragraph">By Paragraph</option>
-                        <option value="natural">Natural Vectorization</option>
+                        <option value="per_field">Whole Fields (one chunk per field)</option>
+                        <option value="paragraph">Paragraph Breaks (split on \\n\\n)</option>
+                        <option value="natural">Smart Size (size-limited, intelligent boundaries)</option>
+                        <option value="semantic">🧠 Semantic (AI-powered topic detection)</option>
+                        <option value="sliding">🪟 Sliding Window (sentence-aware overlap)</option>
                     </select>
-                    <div class="ragbooks-help-text">Per Field = one chunk per field, Paragraph = split by paragraphs, Natural = math-based optimal chunking</div>
+                    <div class="ragbooks-help-text">
+                        <strong>Whole Fields:</strong> Each selected field becomes one chunk (simple, respects field structure)<br>
+                        <strong>Paragraph Breaks:</strong> Splits at double newlines \\n\\n (good for well-formatted content)<br>
+                        <strong>Smart Size:</strong> Targets ~X chars per chunk, breaks at paragraphs/sentences when possible (requires chunk size setting)<br>
+                        <strong>🧠 Semantic:</strong> Uses AI embeddings to detect topic shifts (automatic, intelligent, uses more API tokens)<br>
+                        <strong>🪟 Sliding Window:</strong> Fixed-size window with sentence-aware boundaries and % overlap (preserves context)
+                    </div>
                 </div>
 
                 <!-- Chunk Size Controls (only for natural vectorization) -->
@@ -9696,7 +10150,7 @@ function getInlineConfigForm(sourceType) {
                             <span class="ragbooks-slider-icon">🔄</span>
                             <span class="ragbooks-slider-title">Chunk Overlap: <span id="ragbooks_character_chunk_overlap_value">50</span> chars</span>
                         </div>
-                        <div class="ragbooks-slider-hint">How much chunks overlap (helps preserve context across boundaries)</div>
+                        <div class="ragbooks-slider-hint">How much chunks overlap (helps preserve context across boundaries). Set to 0 for no overlap (clean cuts).</div>
                         <input type="range" id="ragbooks_character_chunk_overlap" class="ragbooks-slider" min="0" max="200" step="10" value="50">
                     </div>
                 </div>
@@ -9843,7 +10297,7 @@ function getInlineConfigForm(sourceType) {
                             <span class="ragbooks-slider-icon">🔄</span>
                             <span class="ragbooks-slider-title">Chunk Overlap: <span id="ragbooks_url_chunk_overlap_value">50</span> chars</span>
                         </div>
-                        <div class="ragbooks-slider-hint">How much chunks overlap (helps preserve context across boundaries)</div>
+                        <div class="ragbooks-slider-hint">How much chunks overlap (helps preserve context across boundaries). Set to 0 for no overlap (clean cuts).</div>
                         <input type="range" id="ragbooks_url_chunk_overlap" class="ragbooks-slider" min="0" max="200" step="10" value="50">
                     </div>
                 </div>
@@ -9976,16 +10430,16 @@ function getInlineConfigForm(sourceType) {
                         <span class="ragbooks-label-text">Chunking Strategy</span>
                     </label>
                     <select id="ragbooks_chunking_strategy" class="ragbooks-select">
-                        <option value="by_scene" ${chatVectorSettings.chunkingStrategy === 'by_scene' ? 'selected' : ''}>By Scene (if marked)</option>
-                        <option value="by_speaker" ${chatVectorSettings.chunkingStrategy === 'by_speaker' ? 'selected' : ''}>By Speaker</option>
-                        <option value="size" ${chatVectorSettings.chunkingStrategy === 'size' ? 'selected' : ''}>Fixed Size (~400 chars)</option>
-                        <option value="natural" ${chatVectorSettings.chunkingStrategy === 'natural' ? 'selected' : ''}>Natural Vectorization</option>
+                        <option value="by_scene" ${chatVectorSettings.chunkingStrategy === 'by_scene' ? 'selected' : ''}>Scene Boundaries (if marked with flags)</option>
+                        <option value="by_speaker" ${chatVectorSettings.chunkingStrategy === 'by_speaker' ? 'selected' : ''}>Speaker Groups (consecutive messages)</option>
+                        <option value="size" ${chatVectorSettings.chunkingStrategy === 'size' ? 'selected' : ''}>Fixed Size (hard character limit)</option>
+                        <option value="natural" ${chatVectorSettings.chunkingStrategy === 'natural' ? 'selected' : ''}>Smart Size (size-limited, intelligent boundaries)</option>
                     </select>
                     <div class="ragbooks-help-text">
-                        <strong>By Scene:</strong> Each marked scene becomes one chunk<br>
-                        <strong>By Speaker:</strong> Group consecutive messages by character<br>
-                        <strong>Fixed Size:</strong> Uniform ~400 char chunks (ST default)<br>
-                        <strong>Natural:</strong> Math-based optimal chunking
+                        <strong>Scene Boundaries:</strong> Each scene (green flag → red flag) becomes one chunk (requires manual scene marking)<br>
+                        <strong>Speaker Groups:</strong> Groups consecutive messages from same character/user (preserves conversation flow)<br>
+                        <strong>Fixed Size:</strong> Splits at hard character limit with overlap (simple, predictable sizes)<br>
+                        <strong>Smart Size:</strong> Targets ~X chars, breaks at natural boundaries (paragraphs/sentences, requires chunk size setting)
                     </div>
                 </div>
 
@@ -10345,12 +10799,21 @@ function getInlineConfigForm(sourceType) {
                         <span class="ragbooks-label-text">Chunking Strategy</span>
                     </label>
                     <select id="ragbooks_chunking_strategy" class="ragbooks-select">
-                        <option value="paragraph">By Paragraph (Recommended)</option>
-                        <option value="section">By Section Headers</option>
-                        <option value="size">Fixed Size</option>
-                        <option value="natural">Natural Vectorization</option>
+                        <option value="paragraph">Paragraph Breaks (split on \n\n)</option>
+                        <option value="section">Section Headers (# Markdown or HTML headings)</option>
+                        <option value="size">Fixed Size (hard character limit)</option>
+                        <option value="natural">Smart Size (size-limited, intelligent boundaries)</option>
+                        <option value="semantic">🧠 Semantic (AI-powered topic detection)</option>
+                        <option value="sliding">🪟 Sliding Window (sentence-aware overlap)</option>
                     </select>
-                    <div class="ragbooks-help-text">Paragraph = split by line breaks, Section = split on headers, Fixed Size = uniform chunks, Natural = math-based optimal chunking</div>
+                    <div class="ragbooks-help-text">
+                        <strong>Paragraph Breaks:</strong> Splits at double newlines \n\n (recommended for most documents)<br>
+                        <strong>Section Headers:</strong> Splits at Markdown # headers or HTML &lt;h1&gt;-&lt;h6&gt; tags (good for structured docs)<br>
+                        <strong>Fixed Size:</strong> Hard character limit with overlap (simple, predictable sizes)<br>
+                        <strong>Smart Size:</strong> Targets ~X chars, breaks at natural boundaries (paragraphs/sentences, requires chunk size setting)<br>
+                        <strong>🧠 Semantic:</strong> Uses AI embeddings to detect topic shifts (automatic, intelligent, uses more API tokens)<br>
+                        <strong>🪟 Sliding Window:</strong> Fixed-size window with sentence-aware boundaries and % overlap (preserves context)
+                    </div>
                 </div>
 
                 <!-- Chunk Size Controls (only for size/natural strategies) -->
@@ -10368,7 +10831,7 @@ function getInlineConfigForm(sourceType) {
                             <span class="ragbooks-slider-icon">🔄</span>
                             <span class="ragbooks-slider-title">Chunk Overlap: <span id="ragbooks_custom_chunk_overlap_value">50</span> chars</span>
                         </div>
-                        <div class="ragbooks-slider-hint">How much chunks overlap (helps preserve context across boundaries)</div>
+                        <div class="ragbooks-slider-hint">How much chunks overlap (helps preserve context across boundaries). Set to 0 for no overlap (clean cuts).</div>
                         <input type="range" id="ragbooks_custom_chunk_overlap" class="ragbooks-slider" min="0" max="200" step="10" value="50">
                     </div>
                 </div>
@@ -11142,14 +11605,27 @@ async function handleInlineVectorization() {
         $('#ragbooks_source_type_select').val('');
         $('#ragbooks_inline_config').hide().empty();
 
-        toastr.info('Vectorizing...');
+        // Show progress modal
+        const sourceTypeLabel = sourceType === 'lorebook' ? 'Lorebook' :
+                               sourceType === 'character' ? 'Character' :
+                               sourceType === 'chat' ? 'Chat History' :
+                               sourceType === 'url' ? 'URL' :
+                               'Document';
+        showProgressModal(`Vectorizing ${sourceTypeLabel}`, sourceName);
 
-        // Map 'url' to 'custom' since URL content is already fetched and in sourceConfig.text
-        const actualSourceType = sourceType === 'url' ? CONTENT_SOURCES.CUSTOM : sourceType;
-        const result = await vectorizeContentSource(actualSourceType, sourceName, sourceConfig);
+        try {
+            // Map 'url' to 'custom' since URL content is already fetched and in sourceConfig.text
+            const actualSourceType = sourceType === 'url' ? CONTENT_SOURCES.CUSTOM : sourceType;
+            const result = await vectorizeContentSource(actualSourceType, sourceName, sourceConfig);
 
-        toastr.success(`Vectorized: ${result.chunkCount} chunks created`);
-        renderCollections();
+            // Show success
+            showProgressSuccess(`Successfully created ${result.chunkCount} chunks`, 2000);
+            renderCollections();
+        } catch (error) {
+            console.error('Vectorization failed:', error);
+            showProgressError(error.message);
+            // Don't close modal on error - let user read it and click close
+        }
     } catch (error) {
         console.error('Vectorization failed:', error);
         toastr.error('Vectorization failed: ' + error.message);
@@ -11740,6 +12216,17 @@ jQuery(async function () {
     ensureRagState();
 
     console.log('📚 RAGBooks extension initializing...');
+
+    // Load progress indicator CSS
+    if (!document.getElementById('ragbooks-progress-indicator-styles')) {
+        const progressCSS = document.createElement('link');
+        progressCSS.id = 'ragbooks-progress-indicator-styles';
+        progressCSS.rel = 'stylesheet';
+        progressCSS.type = 'text/css';
+        progressCSS.href = `/${extensionFolderPath}/progress-indicator.css`;
+        document.head.appendChild(progressCSS);
+        console.log('📚 Loaded progress indicator styles');
+    }
 
     // Migrate flat sources to scoped structure (one-time operation)
     // ========================================================================

@@ -1127,53 +1127,88 @@ async function updateChunksInLibrary(collectionId, chunks) {
             });
         }
 
-        // Update library with new data, preserving both top-level and nested metadata fields
-        const { text: _, metadata: __, ...topLevelFields } = chunkData;
-        const nestedMetadata = chunkData.metadata || {};
+        // CRITICAL FIX: Properly merge all chunk data
+        // The issue was that we were destructuring and potentially losing fields
+        // Now we explicitly keep ALL fields from chunkData and just ensure text is handled correctly
 
-        // DEBUG: Log what we're saving
+        const updatedChunk = {
+            // Start with existing chunk to preserve any fields we might not be updating
+            ...existingChunk,
+            // Override with new chunk data (this includes all edits from the viewer)
+            ...chunkData,
+            // Text must be at top level, not in metadata
+            text: chunkText,
+            // If chunkData has metadata object, merge it but don't nest it
+            ...(chunkData.metadata || {})
+        };
+
+        // Remove the nested metadata object if it exists (we've already spread its contents)
+        delete updatedChunk.metadata;
+
+        // DEBUG: Log what we're saving (only first chunk)
         if (Object.keys(chunks).indexOf(hash) === 0) {
-            console.log('[updateChunksInLibrary] First chunk debug:', {
+            console.log('[updateChunksInLibrary] First chunk save debug:', {
                 hash,
-                'chunkData.name': chunkData.name,
-                'chunkData.topic': chunkData.topic,
-                'topLevelFields.name': topLevelFields.name,
-                'nestedMetadata.name': nestedMetadata.name,
-                'topLevelFields keys': Object.keys(topLevelFields).slice(0, 10)
+                'updatedChunk.name': updatedChunk.name,
+                'updatedChunk.keywords': updatedChunk.keywords?.length,
+                'updatedChunk.text length': updatedChunk.text?.length,
+                'updatedChunk fields': Object.keys(updatedChunk).slice(0, 15).join(', ')
             });
         }
 
         // DEFENSIVE FALLBACK #1: Ensure name field always has a value
-        // If name is missing/empty in both top-level and nested, use topic or section from existing chunk
-        if (!topLevelFields.name && !nestedMetadata.name) {
-            topLevelFields.name = chunkData.topic || chunkData.section || existingChunk.topic || existingChunk.section || '';
-            console.warn(`⚠️ Chunk ${hash} missing name - falling back to: "${topLevelFields.name}"`);
+        if (!updatedChunk.name || updatedChunk.name.trim() === '') {
+            updatedChunk.name = updatedChunk.topic || updatedChunk.section || getFirstSentenceTitle(updatedChunk.text, 80) || 'Untitled Chunk';
+            console.warn(`⚠️ Chunk ${hash} missing name - using fallback: "${updatedChunk.name}"`);
         }
 
-        // DEFENSIVE FALLBACK #2: Preserve existing summaryVectors if new data doesn't have them
-        if (!topLevelFields.summaryVectors?.length && existingChunk.summaryVectors?.length) {
-            topLevelFields.summaryVectors = existingChunk.summaryVectors;
-            console.warn(`⚠️ Chunk ${hash} preserving ${existingChunk.summaryVectors.length} existing summaryVectors`);
+        // DEFENSIVE FALLBACK #2: Ensure arrays are initialized
+        if (!Array.isArray(updatedChunk.keywords)) {
+            updatedChunk.keywords = [];
+        }
+        if (!Array.isArray(updatedChunk.summaryVectors)) {
+            updatedChunk.summaryVectors = [];
+        }
+        if (!Array.isArray(updatedChunk.chunkLinks)) {
+            updatedChunk.chunkLinks = [];
         }
 
-        // DEFENSIVE FALLBACK #3: Preserve existing keywords if new data doesn't have them
-        if (!topLevelFields.keywords?.length && existingChunk.keywords?.length) {
-            topLevelFields.keywords = existingChunk.keywords;
-            console.warn(`⚠️ Chunk ${hash} preserving ${existingChunk.keywords.length} existing keywords`);
+        // DEFENSIVE FALLBACK #3: Ensure customWeights is an object
+        if (!updatedChunk.customWeights || typeof updatedChunk.customWeights !== 'object') {
+            updatedChunk.customWeights = {};
         }
 
-        library[collectionId][hash] = {
-            text: chunkText,
-            ...nestedMetadata,   // Apply nested metadata first
-            ...topLevelFields   // Then top-level fields override (preserves user edits to name, keywords, etc.)
-        };
+        // Write the fully merged chunk back to the library
+        library[collectionId][hash] = updatedChunk;
 
         updatedHashes.push(hash);
     }
 
-    // Save updated library to extension_settings
-    saveSettingsDebounced();
-    console.log(`✅ Updated ${updatedHashes.length} chunks in library`);
+    // CRITICAL: Force immediate save to extension_settings
+    // Using debounced save can sometimes lose data if page closes before debounce fires
+    console.log(`💾 [updateChunksInLibrary] Saving ${updatedHashes.length} chunks to extension_settings...`);
+
+    try {
+        // Call saveSettingsDebounced to trigger the save
+        saveSettingsDebounced();
+
+        // Verify the save by checking the library reference
+        const verifyLibrary = getContextualLibrary();
+        if (!verifyLibrary[collectionId]) {
+            throw new Error('Library verification failed - collection disappeared after save!');
+        }
+
+        // Verify first chunk was actually saved
+        const firstHash = updatedHashes[0];
+        if (firstHash && !verifyLibrary[collectionId][firstHash]) {
+            throw new Error(`Library verification failed - chunk ${firstHash} not found after save!`);
+        }
+
+        console.log(`✅ Updated ${updatedHashes.length} chunks in library (verified)`);
+    } catch (saveError) {
+        console.error('❌ [updateChunksInLibrary] Save verification failed:', saveError);
+        throw new Error(`Failed to save chunks: ${saveError.message}`);
+    }
 
     // Re-vectorize chunks with changed text
     if (chunksToRevectorize.length > 0) {
@@ -2656,15 +2691,6 @@ function looksLikeBulletBlock(block) {
     return bulletCount && bulletCount >= Math.ceil(lines.length / 2);
 }
 
-function splitIntoSentences(text) {
-    const cleaned = text.replace(/\s+/g, ' ').trim();
-    if (!cleaned) {
-        return [];
-    }
-    const sentences = cleaned.match(/[^.!?]+[.!?]?/g);
-    return sentences ? sentences.map(sentence => sentence.trim()).filter(Boolean) : [cleaned];
-}
-
 /**
  * Get first sentence from text for use as chunk title
  * @param {string} text - Chunk text
@@ -2676,6 +2702,7 @@ function getFirstSentenceTitle(text, maxLength = 100) {
         return '';
     }
 
+    // Use the imported splitIntoSentences from semantic-chunking.js
     const sentences = splitIntoSentences(text);
     if (sentences.length === 0) {
         return text.substring(0, maxLength).trim() + '...';
@@ -7549,19 +7576,32 @@ function closeChunkViewer() {
 
 async function saveChunkViewerChanges() {
     if (!currentViewingCollection) {
-        toastr.error('No collection to save');
+        toastr.error('No collection to save', 'RAGBooks');
+        return;
+    }
+
+    if (!hasUnsavedChunkChanges) {
+        toastr.info('No changes to save', 'RAGBooks');
         return;
     }
 
     try {
+        // Show saving indicator
+        toastr.info('Saving changes...', 'RAGBooks', { timeOut: 0, extendedTimeOut: 0 });
+
         // Log chunks before save for debugging
-        console.log('[Chunk Save] Preparing to save chunks:', Object.keys(currentViewingChunks).length);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('💾 [Chunk Save] Starting save process...');
+        console.log(`   Collection: ${currentViewingCollection}`);
+        console.log(`   Chunks to save: ${Object.keys(currentViewingChunks).length}`);
+
         const sampleChunk = Object.values(currentViewingChunks)[0];
         if (sampleChunk) {
-            console.log('[Chunk Save] Sample chunk before:', {
+            console.log('[Chunk Save] Sample chunk BEFORE save:', {
                 hash: sampleChunk.hash,
                 name: sampleChunk.name,
-                keywordCount: sampleChunk.keywords?.length || 0
+                keywordCount: sampleChunk.keywords?.length || 0,
+                text: sampleChunk.text?.substring(0, 50) + '...'
             });
         }
 
@@ -7595,28 +7635,52 @@ async function saveChunkViewerChanges() {
             }
         }
 
+        // Call the update function (this will save to extension_settings)
         await updateChunksInLibrary(currentViewingCollection, currentViewingChunks);
+
+        // Mark as saved
         hasUnsavedChunkChanges = false;
 
-        // Verify save was successful
+        // VERIFICATION: Confirm save was successful
+        console.log('🔍 [Chunk Save] Verifying save...');
         const library = getContextualLibrary();
         const savedChunks = library[currentViewingCollection];
-        if (savedChunks) {
-            const sampleHash = Object.keys(currentViewingChunks)[0];
-            const verified = savedChunks[sampleHash];
-            console.log('[Chunk Save] Verification - chunk saved:', {
-                hash: sampleHash,
-                name: verified?.name,
-                keywordCount: verified?.keywords?.length || 0
-            });
-        } else {
-            console.error('[Chunk Save] Verification FAILED - collection not found in library!');
+
+        if (!savedChunks) {
+            throw new Error('Verification FAILED - collection not found in library after save!');
         }
 
-        toastr.success('Chunks saved successfully');
+        const sampleHash = Object.keys(currentViewingChunks)[0];
+        const verifiedChunk = savedChunks[sampleHash];
+
+        if (!verifiedChunk) {
+            throw new Error(`Verification FAILED - chunk ${sampleHash} not found in library after save!`);
+        }
+
+        console.log('[Chunk Save] Sample chunk AFTER save (verified):', {
+            hash: sampleHash,
+            name: verifiedChunk.name,
+            keywordCount: verifiedChunk.keywords?.length || 0,
+            text: verifiedChunk.text?.substring(0, 50) + '...'
+        });
+
+        console.log('✅ [Chunk Save] Save successful and verified!');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+        // Clear the "saving" toastr and show success
+        toastr.clear();
+        toastr.success(`Saved ${Object.keys(currentViewingChunks).length} chunks successfully`, 'RAGBooks', { timeOut: 2000 });
+
     } catch (error) {
-        console.error('Failed to save chunks:', error);
-        toastr.error('Failed to save chunks');
+        console.error('❌ [Chunk Save] Save failed:', error);
+        console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+        // Clear the "saving" toastr and show error
+        toastr.clear();
+        toastr.error(`Failed to save chunks: ${error.message}`, 'RAGBooks', { timeOut: 5000 });
+
+        // Don't mark as saved if there was an error
+        throw error;
     }
 }
 

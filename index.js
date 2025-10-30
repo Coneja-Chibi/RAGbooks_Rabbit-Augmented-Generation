@@ -800,11 +800,23 @@ async function apiGetSavedHashes(collectionId) {
 async function apiInsertVectorItems(collectionId, items) {
     ensureVectorConfig();
 
-    const args = await getAdditionalVectorArgs(items.map(item => item.text));
+    // Final safety check: filter out any items with empty text
+    const validItems = items.filter(item => item.text && item.text.trim().length > 0);
+
+    if (validItems.length === 0) {
+        console.warn('[RAGBooks] apiInsertVectorItems called with no valid items (all empty text)');
+        return; // Early return, no items to insert
+    }
+
+    if (validItems.length < items.length) {
+        console.warn(`[RAGBooks] Filtered ${items.length - validItems.length} items with empty text in apiInsertVectorItems`);
+    }
+
+    const args = await getAdditionalVectorArgs(validItems.map(item => item.text));
     const body = {
         ...getVectorsRequestBody(args),
         collectionId: collectionId,
-        items: items.map(item => ({
+        items: validItems.map(item => ({
             hash: item.hash,
             text: item.text,
             index: item.index,
@@ -949,6 +961,7 @@ async function saveChunksToLibrary(collectionId, chunks) {
             customWeights: chunk.customWeights || {},
             disabledKeywords: chunk.disabledKeywords || [],
             // Titles & comments
+            name: chunk.name || chunk.section || chunk.metadata?.section || '',  // User-editable title
             section: chunk.section || chunk.metadata?.section || '',
             topic: chunk.topic || chunk.metadata?.topic || '',
             comment: chunk.comment || '',
@@ -2882,6 +2895,13 @@ async function parseLorebook(lorebookName, options = {}) {
     for (const entry of entries) {
         // Clean the entry content before processing
         entry.content = cleanText(entry.content, cleaningMode, customPatterns);
+
+        // Skip entries that become empty after text cleaning (HTML-only, code-only, etc.)
+        if (!entry.content || entry.content.trim().length === 0) {
+            console.warn(`📚 Skipping lorebook entry (empty after cleaning): "${entry.comment || entry.title || 'unnamed'}"`);
+            continue;
+        }
+
         // Handle different key formats
         let keys = [];
         if (Array.isArray(entry.key)) {
@@ -3272,6 +3292,11 @@ async function parseChatHistory(options = {}) {
             // Clean the message text
             const cleanedMessage = cleanText(msg.mes || '', cleaningMode, customPatterns);
 
+            // Skip messages that are empty after cleaning (image-only, deleted, etc.)
+            if (!cleanedMessage || cleanedMessage.trim().length === 0) {
+                continue;
+            }
+
             if (speaker !== currentSpeaker && currentGroup.length > 0) {
                 // Save previous group
                 const chunkText = currentGroup.join('\n\n');
@@ -3356,7 +3381,15 @@ async function parseChatHistory(options = {}) {
 
         for (const msg of messages) {
             const speaker = msg.is_user ? getUserName() : getCharName();
-            const text = `${speaker}: ${msg.mes}`;
+            // Clean the message text
+            const cleanedMessage = cleanText(msg.mes || '', cleaningMode, customPatterns);
+
+            // Skip messages that are empty after cleaning (image-only, deleted, etc.)
+            if (!cleanedMessage || cleanedMessage.trim().length === 0) {
+                continue;
+            }
+
+            const text = `${speaker}: ${cleanedMessage}`;
             const textLength = text.length;
 
             if (currentLength + textLength > config.chunkSize && currentChunk.length > 0) {
@@ -3408,6 +3441,19 @@ async function parseChatHistory(options = {}) {
     }
 
     console.log(`💬 Created ${chunks.length} chunks from chat history`);
+
+    // Filter out empty chunks (can happen after aggressive text cleaning)
+    const originalCount = chunks.length;
+    chunks = chunks.filter(chunk => chunk.text && chunk.text.trim().length > 0);
+    if (chunks.length < originalCount) {
+        console.warn(`⚠️ Filtered out ${originalCount - chunks.length} empty chunks after text cleaning`);
+    }
+
+    if (chunks.length === 0) {
+        throw new Error('All chat messages were filtered out (empty text after cleaning). Try adjusting your text cleaning settings or check if chat contains valid content.');
+    }
+
+    console.log(`💬 Final chunk count after filtering: ${chunks.length}`);
 
     // Generate AI summaries if enabled and content type supports it
     if (summarizeChunks && contentTypeSupportsSummarization('chat') && validateSummarySettings({ summarizeChunks, summaryStyle })) {
@@ -5679,14 +5725,26 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
         }
 
         const collectionId = `${COLLECTION_PREFIX}${sourceType}_${sourceName.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        const items = chunks.map(chunk => ({
+
+        // Filter out chunks with empty/invalid text before creating items
+        const validChunks = chunks.filter(chunk => chunk.text && chunk.text.trim().length > 0);
+
+        if (validChunks.length === 0) {
+            throw new Error('All chunks have empty text after filtering. This may be caused by aggressive text cleaning removing all content. Please check your text cleaning settings or source content.');
+        }
+
+        if (validChunks.length < chunks.length) {
+            console.warn(`⚠️ Filtered out ${chunks.length - validChunks.length} chunks with empty text`);
+        }
+
+        const items = validChunks.map(chunk => ({
             text: chunk.text,
             hash: getStringHash(chunk.text),
             metadata: chunk.metadata
         }));
 
         await apiInsertVectorItems(collectionId, items);
-        await saveChunksToLibrary(collectionId, chunks);
+        await saveChunksToLibrary(collectionId, validChunks);
 
         const ragState = ensureRagState();
         if (!ragState.sources) ragState.sources = {};
@@ -7008,6 +7066,14 @@ function openChunkViewer(collectionId, chunks) {
 
     currentViewingCollection = collectionId;
     currentViewingChunks = JSON.parse(JSON.stringify(chunks));
+
+    // Initialize missing 'name' field from 'section' for backwards compatibility
+    Object.values(currentViewingChunks).forEach(chunk => {
+        if (!chunk.name && chunk.section) {
+            chunk.name = chunk.section;
+        }
+    });
+
     hasUnsavedChunkChanges = false;
 
     // Update modal title

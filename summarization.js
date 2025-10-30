@@ -90,11 +90,17 @@ export async function generateSummaryForChunk(chunkText, style = 'concise', opti
  * @param {Array} chunks - Array of chunk objects
  * @param {string} style - Summary style
  * @param {Function} progressCallback - Optional callback for progress updates
+ * @param {AbortSignal} abortSignal - Optional abort signal for cancellation
  * @returns {Promise<Array>} Chunks with summaries added
  */
-export async function generateSummariesForChunks(chunks, style = 'concise', progressCallback = null) {
+export async function generateSummariesForChunks(chunks, style = 'concise', progressCallback = null, abortSignal = null) {
     if (!chunks || !Array.isArray(chunks) || chunks.length === 0) {
         return chunks;
+    }
+
+    // Check if cancelled before starting
+    if (abortSignal?.aborted) {
+        throw new Error('Operation cancelled by user');
     }
 
     console.log(`[RAGBooks Summarization] Generating ${style} summaries for ${chunks.length} chunks...`);
@@ -118,6 +124,12 @@ export async function generateSummariesForChunks(chunks, style = 'concise', prog
 
     // Process chunks sequentially to avoid API rate limits
     for (let i = 0; i < chunksToSummarize.length; i++) {
+        // Check for cancellation before processing each chunk
+        if (abortSignal?.aborted) {
+            console.log(`[RAGBooks Summarization] Cancelled after ${successCount} summaries`);
+            throw new Error('Operation cancelled by user');
+        }
+
         const chunk = chunksToSummarize[i];
 
         try {
@@ -144,10 +156,15 @@ export async function generateSummariesForChunks(chunks, style = 'concise', prog
         } catch (error) {
             failCount++;
             console.error(`[RAGBooks Summarization] Error on chunk ${i + 1}:`, error);
+
+            // Longer delay after errors (especially rate limits) to avoid hammering API
+            console.log('[RAGBooks Summarization] Waiting 2 seconds after error before continuing...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            continue; // Skip the normal delay below
         }
 
-        // Small delay to avoid hammering API
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Standard delay between successful requests to avoid hammering API
+        await new Promise(resolve => setTimeout(resolve, 500));
     }
 
     console.log(`[RAGBooks Summarization] Complete: ${successCount} succeeded, ${failCount} failed`);

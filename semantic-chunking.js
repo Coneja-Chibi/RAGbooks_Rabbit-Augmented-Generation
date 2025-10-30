@@ -92,184 +92,54 @@ export function cosineSimilarity(vec1, vec2) {
 }
 
 /**
- * Get embeddings for text using SillyTavern's vector API
- * @param {string} text - Text to embed
- * @returns {Promise<number[]>} Embedding vector
+ * DISABLED: Semantic chunking requires too many embedding API calls
+ * Would need to create temporary collections or have a dedicated embedding endpoint
+ * For now, semantic chunking is not available
  */
 async function getEmbedding(text) {
-    try {
-        // Call SillyTavern's vector API endpoint
-        const response = await fetch('/api/vectors/insert', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                collectionId: 'temp_semantic_chunking',
-                items: [{
-                    text: text,
-                    index: 0
-                }],
-                preventDuplicates: false
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error(`Embedding API returned ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        // The response contains the items with their embeddings
-        if (data && data.items && data.items[0] && data.items[0].vector) {
-            return data.items[0].vector;
-        }
-
-        throw new Error('No embedding vector in response');
-
-    } catch (error) {
-        console.error('[RAGBooks Semantic] Failed to get embedding:', error);
-        throw error;
-    }
+    throw new Error('Semantic chunking is currently disabled - requires embedding API infrastructure');
 }
 
 /**
- * Get embeddings for multiple texts in batch
- * @param {string[]} texts - Array of texts to embed
- * @param {Function} progressCallback - Optional progress callback (current, total)
- * @returns {Promise<number[][]>} Array of embedding vectors
+ * DISABLED: Batch embeddings not available
  */
 async function getBatchEmbeddings(texts, progressCallback = null) {
-    const embeddings = [];
-
-    console.log(`[RAGBooks Semantic] Generating ${texts.length} embeddings for semantic analysis...`);
-
-    for (let i = 0; i < texts.length; i++) {
-        try {
-            const embedding = await getEmbedding(texts[i]);
-            embeddings.push(embedding);
-
-            if (progressCallback) {
-                progressCallback(i + 1, texts.length);
-            }
-
-            // Small delay to avoid hammering API
-            if (i < texts.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, 50));
-            }
-        } catch (error) {
-            console.error(`[RAGBooks Semantic] Failed to embed text ${i + 1}:`, error);
-            // Push null for failed embeddings
-            embeddings.push(null);
-        }
-    }
-
-    return embeddings;
+    throw new Error('Semantic chunking is currently disabled - requires embedding API infrastructure');
 }
 
 /**
- * Perform semantic chunking on text using embedding similarity
- * @param {string} text - Text to chunk
- * @param {Object} options - Chunking options
- * @param {number} options.similarityThreshold - Similarity threshold (0-1, lower = more chunks)
- * @param {number} options.minChunkSize - Minimum characters per chunk
- * @param {number} options.maxChunkSize - Maximum characters per chunk
- * @param {Function} options.progressCallback - Optional progress callback
- * @returns {Promise<string[]>} Array of text chunks
+ * DISABLED: Semantic chunking disabled until embedding API infrastructure is added
+ * This would require creating temporary collections or a dedicated embedding endpoint
+ * For now, falls back to simple sentence-based chunking
  */
 export async function semanticChunkText(text, options = {}) {
-    const defaultOptions = {
-        similarityThreshold: 0.5,  // Split when similarity drops below this
-        minChunkSize: 100,          // Minimum chunk size in characters
-        maxChunkSize: 1500,         // Maximum chunk size in characters
-        progressCallback: null
+    console.warn('[RAGBooks Semantic] Semantic chunking is disabled - falling back to sentence grouping');
+
+    // Fallback: Group sentences by size instead of semantic similarity
+    const config = {
+        maxChunkSize: options.maxChunkSize || 1500,
+        minChunkSize: options.minChunkSize || 100
     };
 
-    const config = { ...defaultOptions, ...options };
-
-    console.log('[RAGBooks Semantic] Starting semantic chunking...');
-    console.log(`  Threshold: ${config.similarityThreshold}`);
-    console.log(`  Size range: ${config.minChunkSize}-${config.maxChunkSize} chars`);
-
-    // Step 1: Split into sentences
     const sentences = splitIntoSentences(text);
+    if (sentences.length === 0) return [];
+    if (sentences.length === 1) return [text];
 
-    if (sentences.length === 0) {
-        return [];
-    }
-
-    if (sentences.length === 1) {
-        return [text];
-    }
-
-    console.log(`[RAGBooks Semantic] Split into ${sentences.length} sentences`);
-
-    // Step 2: Get embeddings for all sentences
-    const embeddings = await getBatchEmbeddings(sentences, config.progressCallback);
-
-    // Filter out failed embeddings
-    const validIndices = embeddings
-        .map((emb, idx) => emb !== null ? idx : -1)
-        .filter(idx => idx !== -1);
-
-    if (validIndices.length < 2) {
-        console.warn('[RAGBooks Semantic] Not enough valid embeddings, falling back to single chunk');
-        return [text];
-    }
-
-    console.log(`[RAGBooks Semantic] Generated ${validIndices.length}/${sentences.length} embeddings`);
-
-    // Step 3: Calculate similarities between consecutive sentences
-    const similarities = [];
-    for (let i = 0; i < validIndices.length - 1; i++) {
-        const idx1 = validIndices[i];
-        const idx2 = validIndices[i + 1];
-        const similarity = cosineSimilarity(embeddings[idx1], embeddings[idx2]);
-        similarities.push({
-            index: idx1,
-            nextIndex: idx2,
-            similarity: similarity
-        });
-    }
-
-    // Step 4: Identify split points where similarity drops below threshold
-    const splitPoints = [0]; // Always start with first sentence
-
-    for (const sim of similarities) {
-        if (sim.similarity < config.similarityThreshold) {
-            // Topic shift detected
-            splitPoints.push(sim.nextIndex);
-            console.log(`[RAGBooks Semantic] Topic shift at sentence ${sim.nextIndex} (similarity: ${sim.similarity.toFixed(3)})`);
-        }
-    }
-
-    splitPoints.push(sentences.length); // Always end with last sentence
-
-    console.log(`[RAGBooks Semantic] Detected ${splitPoints.length - 1} semantic chunks`);
-
-    // Step 5: Build chunks from split points
     const chunks = [];
+    let currentChunk = '';
 
-    for (let i = 0; i < splitPoints.length - 1; i++) {
-        const start = splitPoints[i];
-        const end = splitPoints[i + 1];
-        const chunkSentences = sentences.slice(start, end);
-        let chunkText = chunkSentences.join(' ').trim();
-
-        // Enforce size constraints
-        if (chunkText.length > config.maxChunkSize) {
-            // Chunk too large - split it further
-            const subChunks = splitLargeChunk(chunkText, config.maxChunkSize);
-            chunks.push(...subChunks);
-        } else if (chunkText.length < config.minChunkSize && chunks.length > 0) {
-            // Chunk too small - merge with previous
-            chunks[chunks.length - 1] += ' ' + chunkText;
+    for (const sentence of sentences) {
+        if ((currentChunk + ' ' + sentence).length > config.maxChunkSize && currentChunk.length >= config.minChunkSize) {
+            chunks.push(currentChunk.trim());
+            currentChunk = sentence;
         } else {
-            chunks.push(chunkText);
+            currentChunk += (currentChunk ? ' ' : '') + sentence;
         }
     }
 
-    console.log(`[RAGBooks Semantic] Created ${chunks.length} final chunks`);
+    if (currentChunk.trim().length > 0) {
+        chunks.push(currentChunk.trim());
+    }
 
     return chunks.filter(chunk => chunk.length > 0);
 }

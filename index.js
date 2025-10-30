@@ -78,6 +78,9 @@ if (typeof window !== 'undefined') {
     window.generateQuietPrompt = generateQuietPrompt;
 }
 
+// Global abort controller for cancelling ongoing operations
+let vectorizationAbortController = null;
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -2958,8 +2961,13 @@ function naturalChunkText(text, options = {}) {
 /**
  * Parse and vectorize a lorebook/world info
  */
-async function parseLorebook(lorebookName, options = {}, progressCallback = null) {
+async function parseLorebook(lorebookName, options = {}, progressCallback = null, abortSignal = null) {
     console.log(`📚 Parsing lorebook: ${lorebookName}`);
+
+    // Check if cancelled
+    if (abortSignal?.aborted) {
+        throw new Error('Operation cancelled by user');
+    }
 
     const lorebook = await loadWorldInfo(lorebookName);
     console.log('📚 Lorebook data received:', lorebook);
@@ -3233,9 +3241,10 @@ async function parseLorebook(lorebookName, options = {}, progressCallback = null
     if (summarizeChunks && contentTypeSupportsSummarization('lorebook') && validateSummarySettings({ summarizeChunks, summaryStyle })) {
         console.log(`🤖 Generating ${summaryStyle} summaries for lorebook chunks...`);
         try {
-            await generateSummariesForChunks(chunks, summaryStyle, options.summarizationCallback);
+            await generateSummariesForChunks(chunks, summaryStyle, options.summarizationCallback, abortSignal);
         } catch (error) {
             console.error('Failed to generate summaries, continuing without them:', error);
+            throw error; // Re-throw to propagate cancellation
         }
     }
 
@@ -3254,8 +3263,13 @@ async function parseLorebook(lorebookName, options = {}, progressCallback = null
  * @param {string} options.chunkingStrategy - How to chunk: 'per_field', 'paragraph', 'smart_merge'
  * @returns {Promise<Array>} Array of chunk objects
  */
-async function parseCharacterCard(characterId, options = {}, progressCallback = null) {
+async function parseCharacterCard(characterId, options = {}, progressCallback = null, abortSignal = null) {
     console.log(`👤 Parsing character card: ${characterId}`);
+
+    // Check if cancelled
+    if (abortSignal?.aborted) {
+        throw new Error('Operation cancelled by user');
+    }
 
     const defaultOptions = {
         fields: ['description', 'personality', 'scenario', 'creator_notes', 'system_prompt'],
@@ -3549,9 +3563,10 @@ async function parseCharacterCard(characterId, options = {}, progressCallback = 
     if (summarizeChunks && contentTypeSupportsSummarization('character') && validateSummarySettings({ summarizeChunks, summaryStyle })) {
         console.log(`🤖 Generating ${summaryStyle} summaries for character chunks...`);
         try {
-            await generateSummariesForChunks(chunks, summaryStyle, options.summarizationCallback);
+            await generateSummariesForChunks(chunks, summaryStyle, options.summarizationCallback, abortSignal);
         } catch (error) {
             console.error('Failed to generate summaries, continuing without them:', error);
+            throw error; // Re-throw to propagate cancellation
         }
     }
 
@@ -3571,8 +3586,13 @@ async function parseCharacterCard(characterId, options = {}, progressCallback = 
  * @param {number} options.chunkSize - Size for size-based chunking (default: 500)
  * @returns {Promise<Array>} Array of chunk objects
  */
-async function parseChatHistory(options = {}, progressCallback = null) {
+async function parseChatHistory(options = {}, progressCallback = null, abortSignal = null) {
     console.log(`💬 Parsing chat history`);
+
+    // Check if cancelled
+    if (abortSignal?.aborted) {
+        throw new Error('Operation cancelled by user');
+    }
 
     const defaultOptions = {
         chatId: null, // null = current chat
@@ -3789,9 +3809,10 @@ async function parseChatHistory(options = {}, progressCallback = null) {
     if (summarizeChunks && contentTypeSupportsSummarization('chat') && validateSummarySettings({ summarizeChunks, summaryStyle })) {
         console.log(`🤖 Generating ${summaryStyle} summaries for chat chunks...`);
         try {
-            await generateSummariesForChunks(chunks, summaryStyle, options.summarizationCallback);
+            await generateSummariesForChunks(chunks, summaryStyle, options.summarizationCallback, abortSignal);
         } catch (error) {
             console.error('Failed to generate summaries, continuing without them:', error);
+            throw error; // Re-throw to propagate cancellation
         }
     }
 
@@ -3811,8 +3832,13 @@ async function parseChatHistory(options = {}, progressCallback = null) {
  * @param {number} options.chunkSize - Size for size-based chunking (default: 500)
  * @returns {Promise<Array>} Array of chunk objects
  */
-async function parseCustomDocument(text, metadata = {}, options = {}, progressCallback = null) {
+async function parseCustomDocument(text, metadata = {}, options = {}, progressCallback = null, abortSignal = null) {
     console.log(`📄 Parsing custom document: ${metadata.name || 'Unnamed'}`);
+
+    // Check if cancelled
+    if (abortSignal?.aborted) {
+        throw new Error('Operation cancelled by user');
+    }
 
     const defaultOptions = {
         chunkingStrategy: CHUNKING_STRATEGIES.PARAGRAPH,
@@ -4040,9 +4066,10 @@ async function parseCustomDocument(text, metadata = {}, options = {}, progressCa
     if (summarizeChunks && contentTypeSupportsSummarization('custom') && validateSummarySettings({ summarizeChunks, summaryStyle })) {
         console.log(`🤖 Generating ${summaryStyle} summaries for custom document chunks...`);
         try {
-            await generateSummariesForChunks(chunks, summaryStyle, options.summarizationCallback);
+            await generateSummariesForChunks(chunks, summaryStyle, options.summarizationCallback, abortSignal);
         } catch (error) {
             console.error('Failed to generate summaries, continuing without them:', error);
+            throw error; // Re-throw to propagate cancellation
         }
     }
 
@@ -6044,8 +6071,13 @@ async function handleRAGButtonClick(messageId, documentInfo) {
 /**
  * Main entry point: Vectorize content from any source
  */
-async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {}) {
+async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {}, abortSignal = null) {
     console.log(`🔮 Vectorizing ${sourceType}: ${sourceName}`);
+
+    // Check if cancelled before starting
+    if (abortSignal?.aborted) {
+        throw new Error('Operation cancelled by user');
+    }
 
     try {
         let chunks;
@@ -6068,15 +6100,15 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
 
         switch (sourceType) {
             case CONTENT_SOURCES.LOREBOOK:
-                chunks = await parseLorebook(sourceName, sourceConfig, parsingCallback);
+                chunks = await parseLorebook(sourceName, sourceConfig, parsingCallback, abortSignal);
                 break;
 
             case CONTENT_SOURCES.CHARACTER:
-                chunks = await parseCharacterCard(sourceName, sourceConfig, parsingCallback);
+                chunks = await parseCharacterCard(sourceName, sourceConfig, parsingCallback, abortSignal);
                 break;
 
             case CONTENT_SOURCES.CHAT:
-                chunks = await parseChatHistory(sourceConfig, parsingCallback);
+                chunks = await parseChatHistory(sourceConfig, parsingCallback, abortSignal);
                 break;
 
             case CONTENT_SOURCES.CUSTOM:
@@ -6087,7 +6119,8 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
                     sourceConfig.text,
                     { name: sourceName, ...sourceConfig.metadata },
                     sourceConfig,
-                    parsingCallback
+                    parsingCallback,
+                    abortSignal
                 );
                 break;
 
@@ -6095,8 +6128,13 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
                 throw new Error(`Unknown content source type: ${sourceType}`);
         }
 
-        // Mark parsing as completed
+        // Mark parsing and chunking as completed
         updateProgressStep('parsing', 'completed', '');
+        updateProgressStep('chunking', 'active', `${chunks.length} chunks`);
+
+        // Brief pause to show chunking step (since it happens inside parse functions)
+        await new Promise(resolve => setTimeout(resolve, 300));
+
         updateProgressStep('chunking', 'completed', `${chunks.length} chunks`);
         updateProgressStats({ chunks: chunks.length });
 
@@ -6150,6 +6188,18 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
             console.warn(`⚠️ Filtered out ${chunks.length - validChunks.length} chunks with empty text`);
         }
 
+        // Show summarizing step (if summaries were generated in parse functions)
+        const chunksWithSummaries = validChunks.filter(c => c.summary || c.summaryVectors?.length > 0);
+        if (chunksWithSummaries.length > 0) {
+            updateProgressStep('summarizing', 'active', `${chunksWithSummaries.length} summaries`);
+            updateProgressStats({ summaries: chunksWithSummaries.length });
+
+            // Brief pause to show summarizing step
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+
+        updateProgressStep('summarizing', 'completed', '');
+
         const items = validChunks.map(chunk => ({
             text: chunk.text,
             hash: getStringHash(chunk.text),
@@ -6157,11 +6207,13 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {})
         }));
 
         // Update progress: saving to database
-        updateProgressStep('summarizing', 'completed', '');
         updateProgressStep('saving', 'active', 'Saving vectors...');
 
         await apiInsertVectorItems(collectionId, items);
         await saveChunksToLibrary(collectionId, validChunks);
+
+        // Brief pause to show saving step completed
+        await new Promise(resolve => setTimeout(resolve, 300));
 
         // Mark saving as completed
         updateProgressStep('saving', 'completed', '');
@@ -9948,7 +10000,7 @@ function getInlineConfigForm(sourceType) {
                         <option value="paragraph">Paragraph Breaks (split on \\n\\n)</option>
                         <option value="natural">Smart Size (size-limited, intelligent boundaries)</option>
                         <option value="size">Fixed Size (hard size limit)</option>
-                        <option value="semantic">🧠 Semantic (AI-powered topic detection)</option>
+                        <option value="semantic">⚠️ Semantic (sentence grouping - AI disabled)</option>
                         <option value="sliding">🪟 Sliding Window (sentence-aware overlap)</option>
                     </select>
                     <div class="ragbooks-help-text">
@@ -9956,7 +10008,7 @@ function getInlineConfigForm(sourceType) {
                         <strong>Paragraph Breaks:</strong> Splits long entries at double newlines \\n\\n<br>
                         <strong>Smart Size:</strong> Targets ~X chars, breaks at natural boundaries (paragraphs/sentences)<br>
                         <strong>Fixed Size:</strong> Hard character limit with overlap (less intelligent splitting)<br>
-                        <strong>🧠 Semantic:</strong> Uses AI embeddings to detect topic shifts (automatic, intelligent, uses more API tokens)<br>
+                        <strong>⚠️ Semantic:</strong> Groups sentences by size (AI topic detection disabled)<br>
                         <strong>🪟 Sliding Window:</strong> Fixed-size window with sentence-aware boundaries and % overlap (preserves context)
                     </div>
                 </div>
@@ -10186,14 +10238,14 @@ function getInlineConfigForm(sourceType) {
                         <option value="per_field">Whole Fields (one chunk per field)</option>
                         <option value="paragraph">Paragraph Breaks (split on \\n\\n)</option>
                         <option value="natural">Smart Size (size-limited, intelligent boundaries)</option>
-                        <option value="semantic">🧠 Semantic (AI-powered topic detection)</option>
+                        <option value="semantic">⚠️ Semantic (sentence grouping - AI disabled)</option>
                         <option value="sliding">🪟 Sliding Window (sentence-aware overlap)</option>
                     </select>
                     <div class="ragbooks-help-text">
                         <strong>Whole Fields:</strong> Each selected field becomes one chunk (simple, respects field structure)<br>
                         <strong>Paragraph Breaks:</strong> Splits at double newlines \\n\\n (good for well-formatted content)<br>
                         <strong>Smart Size:</strong> Targets ~X chars per chunk, breaks at paragraphs/sentences when possible (requires chunk size setting)<br>
-                        <strong>🧠 Semantic:</strong> Uses AI embeddings to detect topic shifts (automatic, intelligent, uses more API tokens)<br>
+                        <strong>⚠️ Semantic:</strong> Groups sentences by size (AI topic detection disabled)<br>
                         <strong>🪟 Sliding Window:</strong> Fixed-size window with sentence-aware boundaries and % overlap (preserves context)
                     </div>
                 </div>
@@ -10867,7 +10919,7 @@ function getInlineConfigForm(sourceType) {
                         <option value="section">Section Headers (# Markdown or HTML headings)</option>
                         <option value="size">Fixed Size (hard character limit)</option>
                         <option value="natural">Smart Size (size-limited, intelligent boundaries)</option>
-                        <option value="semantic">🧠 Semantic (AI-powered topic detection)</option>
+                        <option value="semantic">⚠️ Semantic (sentence grouping - AI disabled)</option>
                         <option value="sliding">🪟 Sliding Window (sentence-aware overlap)</option>
                     </select>
                     <div class="ragbooks-help-text">
@@ -10875,7 +10927,7 @@ function getInlineConfigForm(sourceType) {
                         <strong>Section Headers:</strong> Splits at Markdown # headers or HTML &lt;h1&gt;-&lt;h6&gt; tags (good for structured docs)<br>
                         <strong>Fixed Size:</strong> Hard character limit with overlap (simple, predictable sizes)<br>
                         <strong>Smart Size:</strong> Targets ~X chars, breaks at natural boundaries (paragraphs/sentences, requires chunk size setting)<br>
-                        <strong>🧠 Semantic:</strong> Uses AI embeddings to detect topic shifts (automatic, intelligent, uses more API tokens)<br>
+                        <strong>⚠️ Semantic:</strong> Groups sentences by size (AI topic detection disabled)<br>
                         <strong>🪟 Sliding Window:</strong> Fixed-size window with sentence-aware boundaries and % overlap (preserves context)
                     </div>
                 </div>
@@ -11675,15 +11727,28 @@ async function handleInlineVectorization() {
                                sourceType === 'chat' ? 'Chat History' :
                                sourceType === 'url' ? 'URL' :
                                'Document';
-        showProgressModal(`Vectorizing ${sourceTypeLabel}`, sourceName);
+        // Create new abort controller
+        vectorizationAbortController = new AbortController();
+
+        showProgressModal(`Vectorizing ${sourceTypeLabel}`, sourceName, {
+            cancelable: true,
+            onCancel: () => {
+                console.log('[RAGBooks] User cancelled vectorization');
+                if (vectorizationAbortController) {
+                    vectorizationAbortController.abort();
+                    vectorizationAbortController = null;
+                }
+                toastr.info('Vectorization cancelled', 'RAGBooks');
+            }
+        });
 
         try {
             // Map 'url' to 'custom' since URL content is already fetched and in sourceConfig.text
             const actualSourceType = sourceType === 'url' ? CONTENT_SOURCES.CUSTOM : sourceType;
-            const result = await vectorizeContentSource(actualSourceType, sourceName, sourceConfig);
+            const result = await vectorizeContentSource(actualSourceType, sourceName, sourceConfig, vectorizationAbortController.signal);
 
-            // Show success
-            showProgressSuccess(`Successfully created ${result.chunkCount} chunks`, 2000);
+            // Show success (0 = manual close only, no auto-close)
+            showProgressSuccess(`Successfully created ${result.chunkCount} chunks`, 0);
             renderCollections();
         } catch (error) {
             console.error('Vectorization failed:', error);
@@ -12287,7 +12352,7 @@ jQuery(async function () {
         progressCSS.id = 'ragbooks-progress-indicator-styles';
         progressCSS.rel = 'stylesheet';
         progressCSS.type = 'text/css';
-        progressCSS.href = `/${extensionFolderPath}/progress-indicator.css`;
+        progressCSS.href = `/${extensionFolderPath}/progress-indicator.css?v=${Date.now()}`;
         document.head.appendChild(progressCSS);
         console.log('📚 Loaded progress indicator styles');
     }

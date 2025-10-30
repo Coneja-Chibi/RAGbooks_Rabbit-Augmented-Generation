@@ -10,8 +10,9 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(4px);
+    background: rgba(0, 0, 0, 0.90) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -30,10 +31,12 @@
 
 /* Progress Modal */
 .ragbooks-progress-modal {
-    background: var(--SmartThemeBodyColor);
-    border: 1px solid var(--SmartThemeBorderColor);
-    border-radius: 8px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 90%, black) !important;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 20%, transparent) !important;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8),
+                0 0 0 1px rgba(255, 255, 255, 0.03),
+                inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
     max-width: 500px;
     width: 90%;
     padding: 32px;
@@ -75,9 +78,9 @@
     width: 48px;
     height: 48px;
     margin: 0 auto 24px;
-    border: 3px solid rgba(255, 255, 255, 0.15);
-    border-top: 3px solid #ff7e5f;
-    border-right: 3px solid #feb47b;
+    border: 3px solid rgba(255, 255, 255, 0.08) !important;
+    border-top: 3px solid var(--active) !important;
+    border-right: 3px solid color-mix(in srgb, var(--active) 60%, transparent) !important;
     border-radius: 50%;
     animation: ragbooks-spin 1s linear infinite;
 }
@@ -99,7 +102,7 @@
 .ragbooks-progress-bar {
     width: 100%;
     height: 8px;
-    background: color-mix(in srgb, var(--SmartThemeBorderColor) 30%, transparent);
+    background: color-mix(in srgb, var(--SmartThemeBorderColor) 15%, transparent) !important;
     border-radius: 4px;
     overflow: hidden;
     margin-bottom: 8px;
@@ -107,7 +110,7 @@
 
 .ragbooks-progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #ff7e5f, #feb47b);
+    background: linear-gradient(90deg, var(--active), color-mix(in srgb, var(--active) 70%, white)) !important;
     border-radius: 4px;
     transition: width 0.3s ease;
     width: 0%;
@@ -133,15 +136,15 @@
     align-items: center;
     gap: 12px;
     padding: 10px 14px;
-    background: color-mix(in srgb, var(--SmartThemeBorderColor) 15%, transparent);
+    background: color-mix(in srgb, var(--SmartThemeBorderColor) 10%, transparent) !important;
     border-radius: 6px;
     font-size: 13px;
     transition: all 0.3s ease;
 }
 
 .ragbooks-progress-step.active {
-    background: color-mix(in srgb, var(--active) 20%, transparent);
-    border-left: 3px solid var(--active);
+    background: color-mix(in srgb, var(--active) 15%, transparent) !important;
+    border-left: 3px solid var(--active) !important;
 }
 
 .ragbooks-progress-step.completed {

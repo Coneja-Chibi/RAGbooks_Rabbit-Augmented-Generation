@@ -6125,6 +6125,18 @@ async function queryRAG(characterName, queryText) {
                         });
                         linkedChunks.push(linkedChunk);
                         seen.add(link.targetHash);
+                    } else {
+                        // Parent already in results - update its score if summary's score is higher
+                        const existingChunk = combined.find(c => c.hash === link.targetHash);
+                        if (existingChunk && chunk.score > existingChunk.score) {
+                            existingChunk.score = chunk.score;
+                            existingChunk.reason = {
+                                type: 'score-boosted-by-summary',
+                                source: chunk.hash,
+                                originalScore: existingChunk.score,
+                                boostedScore: chunk.score
+                            };
+                        }
                     }
                 } else if (link.mode === 'soft') {
                     // Soft mode: mark for priority boosting
@@ -6800,7 +6812,7 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {},
 
         const items = validChunks.map(chunk => ({
             text: chunk.text,
-            hash: getStringHash(chunk.text),
+            hash: chunk.hash, // Use chunk's existing hash (critical for summary chunks)
             metadata: chunk.metadata
         }));
 

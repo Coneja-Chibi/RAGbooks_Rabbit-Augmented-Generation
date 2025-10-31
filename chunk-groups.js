@@ -38,7 +38,10 @@ export function buildGroupIndex(chunks) {
         }
     });
 
-    console.log(`📦 [Groups] Built index with ${Object.keys(groupIndex).length} groups`);
+    const groupCount = Object.keys(groupIndex).length;
+    if (groupCount > 0) {
+        console.log(`📦 [Groups] ${groupCount} groups detected`);
+    }
 
     return groupIndex;
 }
@@ -86,7 +89,9 @@ export function applyGroupBoosts(chunks, queryText, boostMultiplier = 1.3) {
     });
 
     const boostedCount = boosted.filter(c => c.groupBoosted).length;
-    console.log(`📦 [Groups] Applied boosts to ${boostedCount} chunks in ${triggeredGroups.size} triggered groups`);
+    if (boostedCount > 0) {
+        console.log(`📦 [Groups] Boosted ${boostedCount} chunks from ${triggeredGroups.size} matched groups`);
+    }
 
     return boosted;
 }

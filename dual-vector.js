@@ -17,14 +17,16 @@ export function createSummaryChunks(chunks) {
 
     chunks.forEach((chunk, index) => {
         // Only create summary chunk if:
-        // 1. Summary exists
-        // 2. summaryVector flag is true
+        // 1. summaryVectors array has content
+        // 2. summaryVector flag is true (opt-in for dual-vector)
         // 3. Not already a summary chunk
-        if (chunk.summary && chunk.summaryVector && !chunk.isSummaryChunk) {
+        if (chunk.summaryVectors && chunk.summaryVectors.length > 0 && chunk.summaryVector && !chunk.isSummaryChunk) {
+            // Use first summary vector (typically AI-generated, but could be user-added)
+            const summaryText = chunk.summaryVectors[0];
             const summaryHash = getStringHash(`${chunk.hash}_summary`);
 
             const summaryChunk = {
-                text: chunk.summary,
+                text: summaryText,
                 hash: summaryHash,
                 index: chunks.length + summaryChunks.length,
                 metadata: {
@@ -45,7 +47,7 @@ export function createSummaryChunks(chunks) {
                 isSummaryChunk: true,
                 parentHash: chunk.hash,
                 summaryVector: false, // Don't create summary of summary
-                summary: '',
+                summaryVectors: [], // Summary chunks don't need their own summaries
                 // Link summary to parent (force link so parent always comes with summary)
                 chunkLinks: [{ targetHash: chunk.hash, mode: 'force' }],
                 // Other fields
@@ -154,7 +156,7 @@ export function processScenesToChunks(messages, scenes, config, summaryOptions =
             customKeywords: [],
             customWeights: {},
             disabledKeywords: [],
-            summary: scene.summary || '',
+            summaryVectors: scene.summary ? [scene.summary] : [], // Migrate old scene.summary to array
             summaryVector: scene.summaryVector !== false,
             isSummaryChunk: false,
             parentHash: null,

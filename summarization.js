@@ -91,9 +91,10 @@ export async function generateSummaryForChunk(chunkText, style = 'concise', opti
  * @param {string} style - Summary style
  * @param {Function} progressCallback - Optional callback for progress updates
  * @param {AbortSignal} abortSignal - Optional abort signal for cancellation
+ * @param {number} delayMs - Delay between API requests in milliseconds (default: 1000)
  * @returns {Promise<Array>} Chunks with summaries added
  */
-export async function generateSummariesForChunks(chunks, style = 'concise', progressCallback = null, abortSignal = null) {
+export async function generateSummariesForChunks(chunks, style = 'concise', progressCallback = null, abortSignal = null, delayMs = 1000) {
     if (!chunks || !Array.isArray(chunks) || chunks.length === 0) {
         return chunks;
     }
@@ -112,15 +113,34 @@ export async function generateSummariesForChunks(chunks, style = 'concise', prog
         chunk.text.length > 50 // Skip very short chunks
     );
 
+    // Calculate skipped chunks for detailed user feedback
+    const enabledChunks = chunks.filter(c => c.metadata?.enableSummary === true && !c.isSummaryChunk);
+    const disabledChunks = chunks.filter(c => c.metadata?.enableSummary === false && !c.isSummaryChunk);
+    const skippedTooShort = enabledChunks.filter(c => !c.text || c.text.length <= 50);
+
+    // Build detailed skip reasons
+    const skipReasons = [];
+    if (disabledChunks.length > 0) {
+        skipReasons.push(`${disabledChunks.length} had summarization disabled`);
+    }
+    if (skippedTooShort.length > 0) {
+        skipReasons.push(`${skippedTooShort.length} too short (< 50 chars)`);
+    }
+
     if (chunksToSummarize.length === 0) {
-        console.log('[RAGBooks Summarization] No chunks need summarization');
+        const reason = skipReasons.length > 0 ? skipReasons.join(', ') : 'no chunks eligible';
+        console.warn(`[RAGBooks Summarization] ⚠️ Skipped all chunks: ${reason}`);
         return chunks;
     }
 
     console.log(`[RAGBooks Summarization] ${chunksToSummarize.length} chunks eligible for summarization`);
+    if (skipReasons.length > 0) {
+        console.warn(`[RAGBooks Summarization] ⚠️ Skipped ${skipReasons.join(', ')}`);
+    }
 
     let successCount = 0;
     let failCount = 0;
+    let currentDelay = delayMs; // Track current delay (may be upgraded dynamically)
 
     // Process chunks sequentially to avoid API rate limits
     for (let i = 0; i < chunksToSummarize.length; i++) {
@@ -132,20 +152,29 @@ export async function generateSummariesForChunks(chunks, style = 'concise', prog
 
         const chunk = chunksToSummarize[i];
         let retryCount = 0;
-        const maxRetries = 3;
+        const maxRetries = 10; // Increased from 3 to allow more attempts with upgraded delays
         let lastError = null;
         let success = false;
 
-        // Retry loop with exponential backoff
+        // Retry loop with dynamic delay upgrades on rate limits
         while (retryCount <= maxRetries && !success) {
             try {
                 // Generate summary
                 const summary = await generateSummaryForChunk(chunk.text, style);
 
                 if (summary) {
-                    // Add summary to chunk
-                    chunk.summary = summary;
-                    chunk.summaryVector = true; // Enable dual-vector search
+                    // Add summary to summaryVectors array (ONE source of truth)
+                    if (!chunk.summaryVectors) {
+                        chunk.summaryVectors = [];
+                    }
+                    // Add AI summary to array if not already present
+                    if (!chunk.summaryVectors.includes(summary)) {
+                        chunk.summaryVectors.unshift(summary); // Add to front of array
+                    }
+
+                    // Enable dual-vector search (flag tells createSummaryChunks to process this chunk)
+                    chunk.summaryVector = true;
+
                     successCount++;
                     success = true;
 
@@ -173,36 +202,58 @@ export async function generateSummariesForChunks(chunks, style = 'concise', prog
                     error.message.toLowerCase().includes('too many requests')
                 );
 
-                if (isRateLimit && retryCount <= maxRetries) {
-                    // Exponential backoff: 2s, 4s, 8s
-                    const delayMs = 2000 * Math.pow(2, retryCount - 1);
-                    console.warn(`[RAGBooks Summarization] ⚠ Rate limit on chunk ${i + 1} (attempt ${retryCount}/${maxRetries}). Retrying in ${delayMs/1000}s...`);
-                    await new Promise(resolve => setTimeout(resolve, delayMs));
+                if (isRateLimit) {
+                    // Dynamically upgrade the delay for all future requests
+                    const oldDelay = currentDelay;
+                    currentDelay = Math.min(currentDelay * 1.5, 10000); // Increase by 50%, cap at 10s
+                    console.warn(`[RAGBooks Summarization] ⚠ Rate limit detected on chunk ${i + 1}. Upgrading delay: ${oldDelay}ms → ${Math.round(currentDelay)}ms`);
+
+                    // Exponential backoff for immediate retry: 2s, 4s, 8s, 16s...
+                    const retryDelay = Math.min(2000 * Math.pow(2, retryCount - 1), 30000); // Cap at 30s
+                    console.warn(`[RAGBooks Summarization] ⚠ Retrying chunk ${i + 1} in ${retryDelay/1000}s (attempt ${retryCount}/${maxRetries})...`);
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                    // Continue the loop to retry
                 } else if (!isRateLimit) {
                     // Non-rate-limit error - log and stop retrying this chunk
                     console.error(`[RAGBooks Summarization] ✗ Error on chunk ${i + 1}:`, error.message);
                     failCount++;
                     break;
                 } else {
-                    // Max retries exceeded for rate limit
-                    console.error(`[RAGBooks Summarization] ✗ Chunk ${i + 1} failed after ${maxRetries} retries:`, error.message);
+                    // Should not reach here, but just in case
+                    console.error(`[RAGBooks Summarization] ✗ Chunk ${i + 1} failed:`, error.message);
                     failCount++;
+                    break;
                 }
             }
         }
 
         // If still not successful after all retries, mark as failed
         if (!success && retryCount > maxRetries) {
-            console.error(`[RAGBooks Summarization] ✗ Chunk ${i + 1} abandoned after ${maxRetries} retries`);
+            console.error(`[RAGBooks Summarization] ✗ Chunk ${i + 1} abandoned after ${maxRetries} retries with rate limit errors`);
+            failCount++;
         }
 
-        // Standard delay between chunks to avoid hammering API (only if successful)
-        if (success) {
-            await new Promise(resolve => setTimeout(resolve, 500));
+        // Use dynamically adjusted delay between chunks (only if successful)
+        if (success && currentDelay > 0) {
+            await new Promise(resolve => setTimeout(resolve, currentDelay));
         }
     }
 
     console.log(`[RAGBooks Summarization] Complete: ${successCount} succeeded, ${failCount} failed`);
+
+    // Log if delay was dynamically upgraded
+    if (currentDelay > delayMs) {
+        console.log(`[RAGBooks Summarization] ⚙️ Delay auto-upgraded from ${delayMs}ms to ${Math.round(currentDelay)}ms due to rate limiting`);
+    }
+
+    // Return chunks with stats about what was processed/skipped
+    chunks.summarizationStats = {
+        attempted: chunksToSummarize.length,
+        succeeded: successCount,
+        failed: failCount,
+        skippedDisabled: disabledChunks.length,
+        skippedTooShort: skippedTooShort.length
+    };
 
     return chunks;
 }

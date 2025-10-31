@@ -2779,7 +2779,8 @@ body.ragbooks-orange-mode .chunk-list {
 }
 
 /* Switcher icon button - absolutely positioned within form control */
-.switch_input_type_icon {
+.switch_input_type_icon,
+.switch_summary_input_type_icon {
     cursor: pointer;
     font-weight: bold;
     height: 20px;
@@ -2799,7 +2800,8 @@ body.ragbooks-orange-mode .chunk-list {
     transition: opacity var(--animation-duration-2x);
 }
 
-.switch_input_type_icon:hover {
+.switch_input_type_icon:hover,
+.switch_summary_input_type_icon:hover {
     opacity: 1;
 }
 
@@ -3491,4 +3493,177 @@ body.ragbooks-orange-mode .chunk-list {
 
 .ragbooks-scene-card__actions .menu_button {
     padding: 6px 10px;
+}
+
+/* ============================================
+   CONDITIONAL SETTINGS GRID
+   2-column grid layout for conditional settings
+   ============================================ */
+
+.ragbooks-condition-settings-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px 16px;
+    align-items: center;
+    padding: 12px;
+    background: linear-gradient(135deg,
+        rgba(0, 0, 0, 0.15),
+        rgba(99, 102, 241, 0.03));
+    border-radius: 6px;
+    margin-top: 8px;
+}
+
+.ragbooks-condition-settings-grid label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    margin: 0;
+    opacity: 0.7;
+    color: var(--SmartThemeBodyColor);
+}
+
+.ragbooks-condition-settings-grid input[type="checkbox"] {
+    width: auto !important;
+    margin: 0;
+    max-width: fit-content;
+    justify-self: start;
+}
+
+.ragbooks-condition-settings-grid input[type="number"],
+.ragbooks-condition-settings-grid input[type="time"],
+.ragbooks-condition-settings-grid select:not([multiple]) {
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 4px;
+    padding: 6px 8px;
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.9em;
+    transition: all 0.2s ease;
+}
+
+.ragbooks-condition-settings-grid input[type="number"]:focus,
+.ragbooks-condition-settings-grid input[type="time"]:focus,
+.ragbooks-condition-settings-grid select:not([multiple]):focus {
+    border-color: var(--ragbooks-primary);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+}
+
+.ragbooks-condition-settings-grid select[multiple] {
+    min-height: 80px;
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 4px;
+    padding: 6px;
+    color: var(--SmartThemeBodyColor);
+}
+
+.ragbooks-condition-settings-grid input[type="range"] {
+    accent-color: var(--ragbooks-primary);
+}
+
+/* Condition help text */
+.ragbooks-condition-help,
+.ragbooks-condition-help-chunk {
+    padding: 6px 10px;
+    background: linear-gradient(135deg,
+        rgba(0, 0, 0, 0.2),
+        rgba(99, 102, 241, 0.05));
+    border-left: 2px solid var(--ragbooks-primary);
+    border-radius: 4px;
+    font-size: 11px;
+    opacity: 0.8;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-bottom: 8px;
+    color: color-mix(in srgb, var(--SmartThemeBodyColor) 80%, transparent);
+}
+
+.ragbooks-condition-help i,
+.ragbooks-condition-help-chunk i {
+    color: var(--ragbooks-primary);
+    opacity: 0.7;
+    margin-top: 2px;
+}
+
+/* Checkbox group for generation types */
+.ragbooks-checkbox-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+}
+
+.ragbooks-checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.9em;
+    margin: 0;
+    padding: 4px 8px;
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.ragbooks-checkbox-group label:hover {
+    background: color-mix(in srgb, var(--ragbooks-primary) 10%, var(--SmartThemeBlurTintColor));
+    border-color: var(--ragbooks-primary);
+}
+
+/* Negate toggle button styling */
+.ragbooks-condition-negate-toggle {
+    transition: all 0.2s ease;
+}
+
+.ragbooks-condition-negate-toggle.active {
+    background: var(--ragbooks-danger);
+    color: white;
+}
+
+.ragbooks-condition-negate-toggle:not(.active) {
+    background: var(--ragbooks-success);
+    color: white;
+}
+
+/* Confidence slider styling */
+.ragbooks-confidence-value {
+    font-weight: 600;
+    min-width: 40px;
+    text-align: right;
+    color: var(--ragbooks-primary);
+    font-size: 0.9em;
+}
+
+/* Conditional show/hide labels (matchType, upperBound) */
+.ragbooks-matchtype-label,
+.ragbooks-upperbound-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    opacity: 0.7;
+    color: var(--SmartThemeBodyColor);
+}
+
+.ragbooks-matchtype-input,
+.ragbooks-upperbound-input {
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 4px;
+    padding: 6px 8px;
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.9em;
+    transition: all 0.2s ease;
+}
+
+.ragbooks-matchtype-input:focus,
+.ragbooks-upperbound-input:focus {
+    border-color: var(--ragbooks-primary);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
 }

@@ -3,6 +3,54 @@
 // Evaluates conditions to determine if chunks should be activated
 // =============================================================================
 
+// Try to import expressions extension for emotion detection
+let expressionsExtension = null;
+try {
+    // Dynamic import of expressions extension (may not be available)
+    const module = await import('../../expressions/index.js');
+    expressionsExtension = module;
+    console.log('✅ [RAGBooks Conditions] Character Expressions extension loaded for emotion detection');
+} catch (e) {
+    console.log('ℹ️ [RAGBooks Conditions] Character Expressions extension not available, using keyword-based emotion detection');
+}
+
+// Enhanced emotion keywords - expanded to include all expressions extension terminology
+const EMOTION_KEYWORDS = {
+    // Positive emotions
+    joy: ['joy', 'happy', 'smile', 'laugh', 'glad', 'cheerful', 'delighted', 'pleased', 'joyful', 'happiness'],
+    amusement: ['amusement', 'amused', 'funny', 'humorous', 'entertaining', 'playful'],
+    love: ['love', 'adore', 'cherish', 'affection', 'beloved', 'loving', 'tender'],
+    caring: ['caring', 'care', 'compassion', 'kind', 'gentle', 'nurturing', 'supportive'],
+    admiration: ['admiration', 'admire', 'respect', 'impressed', 'awe', 'wonderful'],
+    approval: ['approval', 'approve', 'agree', 'accept', 'support', 'endorse'],
+    excitement: ['excitement', 'excited', 'thrilled', 'energetic', 'pumped', 'hyped', 'enthusiastic'],
+    gratitude: ['gratitude', 'grateful', 'thankful', 'thanks', 'appreciate', 'appreciation'],
+    optimism: ['optimism', 'optimistic', 'hopeful', 'positive', 'confident', 'upbeat'],
+    pride: ['pride', 'proud', 'accomplished', 'achievement', 'success', 'triumphant'],
+    relief: ['relief', 'relieved', 'ease', 'calm', 'relaxed', 'unburdened'],
+    desire: ['desire', 'want', 'wish', 'crave', 'yearn', 'longing', 'passion'],
+
+    // Negative emotions
+    anger: ['anger', 'angry', 'mad', 'furious', 'rage', 'hostile', 'wrath', 'irate'],
+    annoyance: ['annoyance', 'annoyed', 'irritated', 'bothered', 'frustrated', 'vexed'],
+    disapproval: ['disapproval', 'disapprove', 'disagree', 'reject', 'oppose', 'condemn'],
+    disgust: ['disgust', 'disgusted', 'repulsed', 'revolted', 'nauseated', 'repelled'],
+    sadness: ['sadness', 'sad', 'unhappy', 'miserable', 'sorrowful', 'melancholy', 'down'],
+    grief: ['grief', 'grieving', 'mourn', 'loss', 'bereavement', 'heartbroken'],
+    disappointment: ['disappointment', 'disappointed', 'letdown', 'dissatisfied', 'disheartened'],
+    remorse: ['remorse', 'regret', 'guilty', 'ashamed', 'sorry', 'repentant'],
+    embarrassment: ['embarrassment', 'embarrassed', 'awkward', 'self-conscious', 'humiliated', 'flustered'],
+    fear: ['fear', 'afraid', 'scared', 'terrified', 'frightened', 'dread', 'alarmed'],
+    nervousness: ['nervousness', 'nervous', 'anxious', 'worried', 'uneasy', 'jittery', 'tense'],
+
+    // Mixed/Neutral emotions
+    surprise: ['surprise', 'surprised', 'shocked', 'amazed', 'astonished', 'startled', 'stunned'],
+    curiosity: ['curiosity', 'curious', 'interested', 'intrigued', 'inquisitive', 'wondering'],
+    confusion: ['confusion', 'confused', 'puzzled', 'perplexed', 'bewildered', 'uncertain'],
+    realization: ['realization', 'realize', 'understand', 'comprehend', 'grasp', 'see', 'aha'],
+    neutral: [] // Neutral has no keywords
+};
+
 /**
  * Evaluates a single condition rule
  * @param {Object} rule - Condition rule
@@ -15,33 +63,99 @@ function evaluateConditionRule(rule, context) {
     switch (rule.type) {
         case 'keyword':
             // Check if keyword appears in recent messages
-            const recentText = context.recentMessages.join(' ').toLowerCase();
-            result = recentText.includes((rule.value || '').toLowerCase());
+            const kwSettings = rule.settings || { values: [rule.value || ''], matchMode: 'contains', caseSensitive: false };
+            const keywords = kwSettings.values || [];
+            const matchMode = kwSettings.matchMode || 'contains';
+            const caseSensitive = kwSettings.caseSensitive !== false;
+
+            const recentText = caseSensitive ? context.recentMessages.join(' ') : context.recentMessages.join(' ').toLowerCase();
+
+            result = keywords.some(kw => {
+                const keyword = caseSensitive ? kw : kw.toLowerCase();
+                if (matchMode === 'exact') {
+                    // Match whole word
+                    const regex = new RegExp(`\\b${keyword}\\b`, caseSensitive ? '' : 'i');
+                    return regex.test(recentText);
+                } else if (matchMode === 'startsWith') {
+                    return recentText.startsWith(keyword);
+                } else if (matchMode === 'endsWith') {
+                    return recentText.endsWith(keyword);
+                } else {
+                    // Default: contains
+                    return recentText.includes(keyword);
+                }
+            });
             break;
 
         case 'speaker':
             // Check if last speaker matches
-            result = context.lastSpeaker === rule.value;
+            const spSettings = rule.settings || { values: [rule.value || ''], matchType: 'any' };
+            const targetSpeakers = spSettings.values || [];
+            const matchType = spSettings.matchType || 'any';
+
+            if (matchType === 'all') {
+                // All speakers must be in recent messages
+                const speakers = context.messageSpeakers || [];
+                result = targetSpeakers.every(target => speakers.includes(target));
+            } else {
+                // Any speaker matches (default)
+                result = targetSpeakers.includes(context.lastSpeaker);
+            }
             break;
 
         case 'messageCount':
-            // Check if message count meets threshold
-            const threshold = parseInt(rule.value) || 0;
-            result = context.messageCount >= threshold;
+            // Check if message count meets threshold or range
+            const mcSettings = rule.settings || { count: parseInt(rule.value) || 0, operator: 'gte' };
+            const count = mcSettings.count || 0;
+            const operator = mcSettings.operator || 'gte';
+            const upperBound = mcSettings.upperBound || 0;
+
+            switch (operator) {
+                case 'eq':
+                    result = context.messageCount === count;
+                    break;
+                case 'gte':
+                    result = context.messageCount >= count;
+                    break;
+                case 'lte':
+                    result = context.messageCount <= count;
+                    break;
+                case 'between':
+                    result = context.messageCount >= count && context.messageCount <= upperBound;
+                    break;
+                default:
+                    result = context.messageCount >= count;
+            }
             break;
 
         case 'chunkActive':
             // Check if another chunk (by hash) is active in results
-            const targetHash = parseInt(rule.value);
-            result = context.activeChunks.some(chunk => chunk.hash === targetHash);
+            const caSettings = rule.settings || { values: [rule.value || ''], matchBy: 'hash' };
+            const targetChunks = caSettings.values || [];
+            const matchBy = caSettings.matchBy || 'hash';
+
+            result = targetChunks.some(target => {
+                if (matchBy === 'hash') {
+                    const targetHash = parseInt(target);
+                    return context.activeChunks.some(chunk => chunk.hash === targetHash);
+                } else if (matchBy === 'section') {
+                    return context.activeChunks.some(chunk => chunk.section === target);
+                } else if (matchBy === 'topic') {
+                    return context.activeChunks.some(chunk => chunk.topic === target);
+                }
+                return false;
+            });
             break;
 
         case 'timeOfDay':
-            // Check if current real-world time is in range (HH:MM-HH:MM)
+            // Check if current real-world time is in range
             try {
+                const todSettings = rule.settings || {};
+                const startTime = todSettings.startTime || '00:00';
+                const endTime = todSettings.endTime || '23:59';
+
                 const now = new Date();
                 const currentTime = now.getHours() * 60 + now.getMinutes();
-                const [startTime, endTime] = (rule.value || '00:00-23:59').split('-');
                 const [startH, startM] = startTime.split(':').map(n => parseInt(n));
                 const [endH, endM] = endTime.split(':').map(n => parseInt(n));
                 const start = startH * 60 + startM;
@@ -55,78 +169,175 @@ function evaluateConditionRule(rule, context) {
                     result = currentTime >= start || currentTime <= end;
                 }
             } catch (error) {
-                console.warn(`⚠️ [Conditions] Invalid timeOfDay format: ${rule.value}`);
+                console.warn(`⚠️ [Conditions] Invalid timeOfDay format`);
                 result = false;
             }
             break;
 
         case 'emotion':
-            // Check emotion/sentiment in recent messages using keyword matching
-            const emotionKeywords = {
-                happy: ['happy', 'joy', 'smile', 'laugh', 'glad', 'cheerful', 'delighted', 'pleased'],
-                sad: ['sad', 'cry', 'tear', 'depressed', 'unhappy', 'sorrow', 'miserable', 'gloomy'],
-                angry: ['angry', 'mad', 'furious', 'rage', 'irritated', 'annoyed', 'hostile'],
-                neutral: [], // Neutral has no keywords - always returns false
-                excited: ['excited', 'thrilled', 'energetic', 'pumped', 'hyped', 'enthusiastic'],
-                fearful: ['scared', 'afraid', 'fear', 'terrified', 'frightened', 'anxious', 'nervous'],
-                surprised: ['surprised', 'shocked', 'amazed', 'astonished', 'startled', 'stunned']
-            };
+            // Hybrid emotion detection: Character Expressions → Enhanced Keywords
+            const settings = rule.settings || { values: [rule.value || 'joy'], detectionMethod: 'auto' };
+            const targetEmotions = settings.values || ['joy'];
+            const detectionMethod = settings.detectionMethod || 'auto';
+            let detectedEmotion = null;
+            let usingExpressions = false;
 
-            const targetEmotion = (rule.value || 'neutral').toLowerCase();
-            const keywords = emotionKeywords[targetEmotion] || [];
-            const emotionText = context.recentMessages.join(' ').toLowerCase();
+            // Try Character Expressions extension (if enabled and available)
+            if (detectionMethod !== 'keywords' && expressionsExtension && context.currentCharacter) {
+                try {
+                    detectedEmotion = expressionsExtension.lastExpression[context.currentCharacter];
+                    if (detectedEmotion) {
+                        usingExpressions = true;
+                        const matchedEmotion = detectedEmotion.toLowerCase();
 
-            result = keywords.some(kw => emotionText.includes(kw));
-            break;
+                        // Check if detected emotion matches any target emotions
+                        result = targetEmotions.some(target =>
+                            target.toLowerCase() === matchedEmotion
+                        );
 
-        case 'location':
-            // Check if location matches in recent messages or metadata
-            const locationValue = (rule.value || '').toLowerCase();
-            const locationText = context.recentMessages.join(' ').toLowerCase();
-
-            // Check for {{location}} macro expansion
-            if (locationValue.includes('{{location}}')) {
-                // Get current location from context
-                const currentLocation = (context.location || '').toLowerCase();
-                const searchTerm = locationValue.replace('{{location}}', '').trim();
-                result = searchTerm ? currentLocation.includes(searchTerm) : currentLocation.length > 0;
-            } else {
-                // Simple keyword search in messages
-                result = locationText.includes(locationValue);
+                        if (result) {
+                            console.log(`✅ [Conditions:Emotion] Expressions match: "${detectedEmotion}" matches target [${targetEmotions.join(', ')}]`);
+                        } else if (detectionMethod === 'expressions') {
+                            // If expressions-only mode and no match, don't fall back
+                            console.log(`❌ [Conditions:Emotion] Expressions no match: "${detectedEmotion}" ≠ [${targetEmotions.join(', ')}]`);
+                            break;
+                        }
+                    }
+                } catch (error) {
+                    console.warn('⚠️ [Conditions:Emotion] Failed to get expression:', error);
+                }
             }
+
+            // Fallback to enhanced keyword matching (if not already matched or auto mode)
+            if (!result && detectionMethod !== 'expressions') {
+                const emotionText = context.recentMessages.join(' ').toLowerCase();
+
+                // Check each target emotion's keywords
+                result = targetEmotions.some(targetEmotion => {
+                    const keywords = EMOTION_KEYWORDS[targetEmotion.toLowerCase()] || [];
+                    const found = keywords.some(kw => emotionText.includes(kw));
+
+                    if (found) {
+                        console.log(`✅ [Conditions:Emotion] Keyword match: "${targetEmotion}" found in recent messages`);
+                    }
+
+                    return found;
+                });
+
+                if (!result && !usingExpressions) {
+                    console.log(`❌ [Conditions:Emotion] No keyword match for [${targetEmotions.join(', ')}]`);
+                }
+            }
+
             break;
 
         case 'characterPresent':
             // Check if character name appears as a speaker in recent messages
-            const characterName = (rule.value || '').toLowerCase();
+            const cpSettings = rule.settings || { values: [rule.value || ''], matchType: 'any', lookback: 10 };
+            const targetCharacters = cpSettings.values || [];
+            const cpMatchType = cpSettings.matchType || 'any';
+
             const speakers = context.messageSpeakers || [];
 
-            result = speakers.some(speaker =>
-                (speaker || '').toLowerCase().includes(characterName)
-            );
-            break;
-
-        case 'storyBeat':
-            // Check story beat/phase from metadata
-            const beatValue = (rule.value || '').toLowerCase();
-
-            // Check for {{storyphase}} macro
-            if (beatValue.includes('{{storyphase}}')) {
-                const currentBeat = (context.storyBeat || '').toLowerCase();
-                const searchTerm = beatValue.replace('{{storyphase}}', '').trim();
-                result = searchTerm ? currentBeat.includes(searchTerm) : currentBeat.length > 0;
+            if (cpMatchType === 'all') {
+                // All characters must be present
+                result = targetCharacters.every(char =>
+                    speakers.some(speaker => (speaker || '').toLowerCase().includes(char.toLowerCase()))
+                );
             } else {
-                // Direct match against metadata
-                const currentBeat = (context.storyBeat || '').toLowerCase();
-                result = currentBeat.includes(beatValue);
+                // Any character present (default)
+                result = targetCharacters.some(char =>
+                    speakers.some(speaker => (speaker || '').toLowerCase().includes(char.toLowerCase()))
+                );
             }
             break;
 
         case 'randomChance':
             // Random percentage chance (0-100)
-            const chance = parseInt(rule.value) || 50;
+            const rcSettings = rule.settings || { probability: parseInt(rule.value) || 50 };
+            const chance = rcSettings.probability || 50;
             const roll = Math.random() * 100;
             result = roll <= chance;
+            break;
+
+        case 'generationType':
+            // Check if generation type matches (normal, swipe, regenerate, continue, impersonate)
+            const gtSettings = rule.settings || { values: [rule.value || 'normal'], matchType: 'any' };
+            const targetGenTypes = gtSettings.values || ['normal'];
+            const gtMatchType = gtSettings.matchType || 'any';
+            const currentGenType = (context.generationType || 'normal').toLowerCase();
+
+            if (gtMatchType === 'all') {
+                // All types must match (doesn't make sense for single context, but kept for consistency)
+                result = targetGenTypes.every(type => type.toLowerCase() === currentGenType);
+            } else {
+                // Any type matches (default)
+                result = targetGenTypes.some(type => type.toLowerCase() === currentGenType);
+            }
+            break;
+
+        case 'swipeCount':
+            // Check if swipe count meets threshold or range
+            const scSettings = rule.settings || { count: parseInt(rule.value) || 0, operator: 'gte' };
+            const swipeCount = scSettings.count || 0;
+            const scOperator = scSettings.operator || 'gte';
+            const scUpperBound = scSettings.upperBound || 0;
+            const currentSwipeCount = context.swipeCount || 0;
+
+            switch (scOperator) {
+                case 'eq':
+                    result = currentSwipeCount === swipeCount;
+                    break;
+                case 'gte':
+                    result = currentSwipeCount >= swipeCount;
+                    break;
+                case 'lte':
+                    result = currentSwipeCount <= swipeCount;
+                    break;
+                case 'between':
+                    result = currentSwipeCount >= swipeCount && currentSwipeCount <= scUpperBound;
+                    break;
+                default:
+                    result = currentSwipeCount >= swipeCount;
+            }
+            break;
+
+        case 'lorebookActive':
+            // Check if specific lorebook entry is active
+            const lbSettings = rule.settings || { values: [rule.value || ''], matchType: 'any' };
+            const targetEntries = lbSettings.values || [];
+            const lbMatchType = lbSettings.matchType || 'any';
+            const activeEntries = context.activeLorebookEntries || [];
+
+            if (lbMatchType === 'all') {
+                // All entries must be active
+                result = targetEntries.every(target => {
+                    const targetLower = target.toLowerCase();
+                    return activeEntries.some(entry => {
+                        const entryKey = (entry.key || '').toLowerCase();
+                        const entryUid = String(entry.uid || '').toLowerCase();
+                        return entryKey.includes(targetLower) || entryUid === targetLower;
+                    });
+                });
+            } else {
+                // Any entry active (default)
+                result = targetEntries.some(target => {
+                    const targetLower = target.toLowerCase();
+                    return activeEntries.some(entry => {
+                        const entryKey = (entry.key || '').toLowerCase();
+                        const entryUid = String(entry.uid || '').toLowerCase();
+                        return entryKey.includes(targetLower) || entryUid === targetLower;
+                    });
+                });
+            }
+            break;
+
+        case 'isGroupChat':
+            // Check if current chat is a group chat
+            const gcSettings = rule.settings || { isGroup: rule.value === 'true' || rule.value === true };
+            const expectGroupChat = gcSettings.isGroup !== false;
+            const isGroup = context.isGroupChat || false;
+            result = isGroup === expectGroupChat;
             break;
 
         default:
@@ -197,17 +408,25 @@ export function buildSearchContext(chat, contextWindow = 10, activeChunks = [], 
         return m.is_user ? 'User' : 'Character';
     });
 
+    // Count swipes on last message
+    const swipeCount = (lastMessage.swipes && lastMessage.swipes.length > 0)
+        ? lastMessage.swipes.length - 1
+        : 0;
+
     return {
         recentMessages,
         lastSpeaker: lastMessage.name || (lastMessage.is_user ? 'User' : 'Character'),
         messageCount: chat.length,
         activeChunks,
-
-        // NEW: Additional context for advanced conditions
         messageSpeakers,           // Array of speaker names for characterPresent
-        location: metadata.location || '',          // Location from chat metadata
-        storyBeat: metadata.storyBeat || metadata.storyphase || '',  // Story phase/beat
-        timestamp: new Date()      // Current timestamp for timeOfDay
+        timestamp: new Date(),     // Current timestamp for timeOfDay
+
+        // Context for advanced conditionals
+        generationType: metadata.generationType || 'normal',         // Generation type (normal, swipe, regenerate, continue, impersonate)
+        swipeCount: swipeCount,                                      // Number of swipes on last message
+        activeLorebookEntries: metadata.activeLorebookEntries || [], // Active lorebook entries
+        isGroupChat: metadata.isGroupChat || false,                  // Whether this is a group chat
+        currentCharacter: metadata.currentCharacter || null          // Current character name (for expressions extension)
     };
 }
 
@@ -296,9 +515,36 @@ export function validateConditionRule(rule) {
         }
     }
 
-    if (rule.type === 'location' || rule.type === 'characterPresent' || rule.type === 'storyBeat') {
+    if (rule.type === 'characterPresent') {
         if (!rule.value || rule.value.trim() === '') {
             errors.push(`${rule.type} value cannot be empty`);
+        }
+    }
+
+    if (rule.type === 'generationType') {
+        const validTypes = ['normal', 'swipe', 'regenerate', 'continue', 'impersonate'];
+        const genType = (rule.value || '').toLowerCase();
+        if (!validTypes.includes(genType)) {
+            errors.push(`Generation type must be one of: ${validTypes.join(', ')}`);
+        }
+    }
+
+    if (rule.type === 'swipeCount') {
+        const num = parseInt(rule.value);
+        if (isNaN(num) || num < 0) {
+            errors.push('Swipe count must be a positive number');
+        }
+    }
+
+    if (rule.type === 'lorebookActive') {
+        if (!rule.value || rule.value.trim() === '') {
+            errors.push('Lorebook entry key or UID cannot be empty');
+        }
+    }
+
+    if (rule.type === 'isGroupChat') {
+        if (rule.value !== 'true' && rule.value !== 'false' && rule.value !== true && rule.value !== false) {
+            errors.push('isGroupChat value must be true or false');
         }
     }
 

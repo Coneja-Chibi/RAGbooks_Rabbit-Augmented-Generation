@@ -49,7 +49,7 @@ import { getGroupMembers, selected_group } from '../../../group-chats.js';
 
 // RAGBooks advanced features modules
 import { createSummaryChunks, filterChunksBySearchMode, expandSummaryChunks, mergeSearchResults, processScenesToChunks } from './dual-vector.js';
-import { ragLogger } from './logging-utils.js';
+import { ragLogger, runQuickDiagnostics, checkVectorSource, checkCollectionExists, checkHashMismatch, checkThresholdSettings, checkActiveCollections, SEVERITY } from './logging-utils.js';
 import { applyImportanceWeighting, applyImportanceToResults, rankChunksByImportance, groupChunksByPriorityTier } from './importance-weighting.js';
 import { evaluateConditions, filterChunksByConditions, buildSearchContext, validateConditions } from './conditional-activation.js';
 import { buildGroupIndex, applyGroupBoosts, enforceRequiredGroups, getGroupStats } from './chunk-groups.js';
@@ -204,6 +204,27 @@ function ensureRagState() {
     if (rag.contextWindow === undefined) {
         rag.contextWindow = 10;
     }
+
+    // BUG FIX: Initialize core user-facing settings that diagnostics check
+    // Without these, fresh installs show "not configured" errors even though UI shows defaults
+    if (rag.threshold === undefined) {
+        rag.threshold = 0.65;
+    }
+    if (rag.topK === undefined) {
+        rag.topK = 3;
+    }
+    if (rag.injectionDepth === undefined) {
+        rag.injectionDepth = 4;
+    }
+
+    // Initialize injection structure with defaults
+    if (!rag.injection) {
+        rag.injection = {
+            position: 'after_scenario',
+            depth: 4
+        };
+    }
+
     if (!rag.temporalDecay) {
         rag.temporalDecay = {
             enabled: false,
@@ -1111,7 +1132,7 @@ async function apiInsertVectorItems(collectionId, items) {
 /**
  * Query a vector collection
  */
-async function apiQueryCollection(collectionId, searchText, topK, threshold = 0.80) {
+async function apiQueryCollection(collectionId, searchText, topK, threshold = 0.65) {
     ensureVectorConfig();
 
     const args = await getAdditionalVectorArgs([searchText]);
@@ -1695,8 +1716,8 @@ function getRAGSettings() {
         chunkSize: ragState.chunkSize ?? 1000,
         chunkOverlap: ragState.chunkOverlap ?? 300,
         topK: ragState.topK ?? 3,
-        threshold: ragState.threshold ?? 0.80, // High threshold for quality matches (0.8 = strong similarity)
-        scoreThreshold: ragState.scoreThreshold ?? 0.80,
+        threshold: ragState.threshold ?? 0.65, // BUG FIX: Lowered from 0.80 to 0.65 for better recall
+        scoreThreshold: ragState.scoreThreshold ?? 0.65,
         queryContext: ragState.queryContext ?? 3, // Number of recent messages to use for query
         injectionDepth: ragState.injectionDepth ?? 4,
         injectionRole: ragState.injectionRole ?? 'system',
@@ -5479,10 +5500,18 @@ async function queryAllRAGBooksCollections(queryText) {
     for (const { collectionId, sourceData } of activeCollectionsList) {
         const metadata = collectionMetadata[collectionId];
 
-        // Legacy collections without metadata won't activate (user needs to set triggers)
+        // BUG FIX: Initialize missing metadata for legacy collections instead of skipping
         if (!metadata) {
-            console.log(`⚠️ [RAGBooks] Collection ${collectionId} has no metadata - skipping`);
-            continue;
+            console.log(`⚠️ [RAGBooks] Collection ${collectionId} has no metadata - initializing with defaults`);
+            // Create default metadata for backward compatibility
+            collectionMetadata[collectionId] = {
+                alwaysActive: true,  // Default legacy collections to always active
+                keywords: [],
+                scope: 'global',
+                name: collectionId
+            };
+            metadata = collectionMetadata[collectionId];
+            console.log(`✅ [RAGBooks] Initialized ${collectionId} as always-active (legacy collection)`);
         }
 
         // Check if collection is always active (ignores triggers)
@@ -5884,10 +5913,18 @@ async function queryRAG(characterName, queryText) {
     for (const collectionId of allCollectionNames) {
         const metadata = collectionMetadata[collectionId];
 
-        // Legacy collections without metadata won't activate (user needs to set triggers)
+        // BUG FIX: Initialize missing metadata for legacy collections instead of skipping
         if (!metadata) {
-            console.log(`⚠️ [RAGBooks] Collection ${collectionId} has no metadata - skipping`);
-            continue;
+            console.log(`⚠️ [RAGBooks] Collection ${collectionId} has no metadata - initializing with defaults`);
+            // Create default metadata for backward compatibility
+            collectionMetadata[collectionId] = {
+                alwaysActive: true,  // Default legacy collections to always active
+                keywords: [],
+                scope: 'global',
+                name: collectionId
+            };
+            metadata = collectionMetadata[collectionId];
+            console.log(`✅ [RAGBooks] Initialized ${collectionId} as always-active (legacy collection)`);
         }
 
         // Check if collection is always active (ignores triggers)
@@ -5916,9 +5953,21 @@ async function queryRAG(characterName, queryText) {
             triggerCount: triggers.length
         });
 
-        // No triggers = collection won't activate (user must explicitly set triggers or enable "Always Active")
+        // BUG FIX: Auto-enable alwaysActive for collections without triggers
         if (triggers.length === 0) {
-            console.log(`⚠️ [RAGBooks] Collection ${collectionId} has no triggers - skipping`);
+            console.log(`⚠️ [RAGBooks] Collection ${collectionId} has no triggers - enabling alwaysActive`);
+            metadata.alwaysActive = true;
+            activatedCollections.add(collectionId);
+
+            // Warn user once about auto-activation
+            if (typeof toastr !== 'undefined' && !metadata._autoActivateWarned) {
+                toastr.info(
+                    `Collection "${metadata.name || collectionId}" has no activation triggers and was automatically set to "Always Active". You can change this in collection settings.`,
+                    'RAGBooks: Auto-Activated Collection',
+                    { timeOut: 5000, preventDuplicates: true }
+                );
+                metadata._autoActivateWarned = true;
+            }
             continue;
         }
 
@@ -6012,7 +6061,18 @@ async function queryRAG(characterName, queryText) {
                         return { libName: `${libName}:${currentCollectionId}`, chunks: formattedChunks, library: library[currentCollectionId] };
                     } catch (error) {
                         console.error(`Failed to query ${currentCollectionId} in ${libName} library:`, error);
-                        return { libName: `${libName}:${currentCollectionId}`, chunks: [] };
+
+                        // BUG FIX: Show user-facing error for query failures
+                        const sourceData = ragState.sources?.[currentCollectionId] || {};
+                        if (typeof toastr !== 'undefined') {
+                            toastr.error(
+                                `Failed to query collection "${sourceData.name || currentCollectionId}": ${error.message}\n\nCheck console for details.`,
+                                'RAGBooks: Query Failed',
+                                { timeOut: 8000, closeButton: true, preventDuplicates: true }
+                            );
+                        }
+
+                        return { libName: `${libName}:${currentCollectionId}`, chunks: [], error: error.message };
                     }
                 })()
             );
@@ -6021,6 +6081,38 @@ async function queryRAG(characterName, queryText) {
 
     if (libraryQueries.length === 0) {
         debugLog(`No libraries contain collection ${collectionId}; vectorize the document first.`);
+
+        // Auto-diagnostic: Explain why no collections were activated
+        if (typeof toastr !== 'undefined') {
+            const hasAnyCollections = allCollectionNames.length > 0;
+            const activatedCount = activatedCollections.size;
+
+            if (!hasAnyCollections) {
+                toastr.error(
+                    '🔴 No RAG Collections Found\n\nNo collections exist in your library. You need to:\n1. Create content (character cards, lorebooks, etc.)\n2. Open RAGBooks and click "Chunk Document"\n3. Click "Vectorize" to add to vector database',
+                    'RAGBooks: No Content',
+                    {
+                        timeOut: 0,
+                        extendedTimeOut: 0,
+                        closeButton: true,
+                        positionClass: 'toast-top-center',
+                        preventDuplicates: true
+                    }
+                );
+            } else if (activatedCount === 0) {
+                toastr.warning(
+                    `⚠️  No Collections Activated\n\nYou have ${allCollectionNames.length} collection(s), but none activated for this query.\n\nCollections activate when:\n• Activation triggers in the collection match words in your query\n• Collection is set to "Always Active"\n\nCheck your collection settings and ensure activation triggers are configured.`,
+                    'RAGBooks: No Active Collections',
+                    {
+                        timeOut: 10000,
+                        closeButton: true,
+                        positionClass: 'toast-top-center',
+                        preventDuplicates: true
+                    }
+                );
+            }
+        }
+
         return [];
     }
 
@@ -6257,6 +6349,127 @@ async function queryRAG(characterName, queryText) {
             delivered: finalResults.length,
             fallback: fallbackCount,
         });
+
+        // ========================================================================
+        // AUTO-DIAGNOSTICS: Explain why search returned 0 results
+        // ========================================================================
+
+        // BUG FIX: Detect when chunks were found but all filtered out
+        if (finalResults.length === 0 && (primaryChunks.length > 0 || combined.length > 0)) {
+            console.warn(`⚠️  RAGBooks: Found ${primaryChunks.length} chunks but all filtered out`);
+
+            if (typeof toastr !== 'undefined') {
+                const reasons = [];
+                if (beforeSummaryFilter > finalResults.length) {
+                    reasons.push(`${beforeSummaryFilter} summary chunks removed (parents included)`);
+                }
+                if (combined.length !== filteredByInclusion.length) {
+                    reasons.push(`${combined.length - filteredByInclusion.length} filtered by inclusion groups`);
+                }
+                if (primaryChunks.filter(c => c.disabled).length > 0) {
+                    reasons.push(`${primaryChunks.filter(c => c.disabled).length} disabled chunks`);
+                }
+
+                toastr.warning(
+                    `RAGBooks found ${primaryChunks.length} matching chunks, but all were filtered out.\n\nReasons:\n• ${reasons.join('\n• ')}\n\nThreshold: ${ragState.threshold}`,
+                    'RAGBooks: Results Filtered',
+                    { timeOut: 8000, closeButton: true, preventDuplicates: true }
+                );
+            }
+        }
+
+        if (finalResults.length === 0) {
+            console.warn('⚠️  RAGBooks: No results found - running diagnostics...');
+
+            // Run quick diagnostics to identify the problem
+            (async () => {
+                try {
+                    const scope = 'character'; // Most common case
+                    const context = getContext();
+                    const scopeId = context.characterId;
+
+                    // Check the most common issues first
+                    const issues = [];
+
+                    // 1. Check if vector source is configured
+                    const sourceCheck = await checkVectorSource(extension_settings);
+                    if (!sourceCheck.passed) {
+                        issues.push(sourceCheck);
+                    }
+
+                    // 2. Check if any collections exist
+                    const ragState = extension_settings[extensionName].rag;
+                    const collectionsCheck = checkActiveCollections(ragState, scope, scopeId);
+                    if (!collectionsCheck.passed) {
+                        issues.push(collectionsCheck);
+                    }
+
+                    // 3. Check threshold settings
+                    const thresholdCheck = checkThresholdSettings(ragState.threshold, extension_settings.vectors?.source);
+                    if (!thresholdCheck.passed) {
+                        issues.push(thresholdCheck);
+                    }
+
+                    // 4. For each activated collection, check if it exists in vector DB
+                    if (activatedCollections.size > 0) {
+                        for (const colId of activatedCollections) {
+                            const existsCheck = await checkCollectionExists(colId, extension_settings.vectors?.source);
+                            if (!existsCheck.passed && existsCheck.severity !== SEVERITY.INFO) {
+                                issues.push(existsCheck);
+                                break; // Only show first collection issue
+                            }
+                        }
+                    }
+
+                    // Show the most critical issue as a toaster
+                    if (issues.length > 0) {
+                        // Sort by severity (critical > error > warning)
+                        const severityOrder = { critical: 0, error: 1, warning: 2, info: 3 };
+                        issues.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+
+                        const topIssue = issues[0];
+                        const icon = {
+                            critical: '🔴',
+                            error: '❌',
+                            warning: '⚠️',
+                            info: 'ℹ️'
+                        }[topIssue.severity];
+
+                        const message = `${icon} No RAG Results\n\n${topIssue.issue}\n${topIssue.description}\n\n${topIssue.manualFix || ''}`;
+
+                        if (typeof toastr !== 'undefined') {
+                            toastr.error(message, 'RAGBooks: Search Failed', {
+                                timeOut: 0,
+                                extendedTimeOut: 0,
+                                closeButton: true,
+                                positionClass: 'toast-top-center',
+                                preventDuplicates: true
+                            });
+                        }
+
+                        console.error('🔴 RAGBooks Diagnostic:', topIssue.issue);
+                        console.error('   Description:', topIssue.description);
+                        console.error('   Fix:', topIssue.manualFix || 'See toaster for details');
+                    } else {
+                        // No obvious config issues - likely just no matches for this query
+                        if (typeof toastr !== 'undefined') {
+                            toastr.warning(
+                                `No chunks matched your query with threshold ${(ragState.threshold || 0.80).toFixed(2)}.\n\nTry:\n• Lower your relevance threshold\n• Use more general search terms\n• Check if collection activation triggers match your query`,
+                                'RAGBooks: No Matches',
+                                {
+                                    timeOut: 8000,
+                                    closeButton: true,
+                                    positionClass: 'toast-top-center',
+                                    preventDuplicates: true
+                                }
+                            );
+                        }
+                    }
+                } catch (diagError) {
+                    console.error('RAGBooks diagnostic check failed:', diagError);
+                }
+            })();
+        }
 
         return finalResults;
     } catch (error) {
@@ -6934,6 +7147,50 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {},
         } else {
             console.log(`   Activation triggers: ${metadata.keywords.join(', ')}`);
         }
+
+        // Run post-vectorization diagnostic to catch issues early
+        (async () => {
+            try {
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for vector DB to process
+
+                const vectorSource = extension_settings.vectors?.source;
+                if (!vectorSource) return;
+
+                // Check if collection actually exists in vector DB
+                const existsCheck = await checkCollectionExists(collectionId, vectorSource);
+                if (!existsCheck.passed) {
+                    console.error('⚠️  Post-vectorization check failed:', existsCheck.issue);
+                    if (typeof toastr !== 'undefined') {
+                        toastr.warning(
+                            `⚠️  Vectorization Warning\n\n${existsCheck.issue}\n${existsCheck.description}`,
+                            'RAGBooks',
+                            {
+                                timeOut: 8000,
+                                closeButton: true,
+                                positionClass: 'toast-top-center'
+                            }
+                        );
+                    }
+                } else {
+                    console.log('✅ Post-vectorization check passed:', existsCheck.description);
+                }
+
+                // Check if summary chunks were properly vectorized (if they exist)
+                const library = ragState.libraries?.[metadata.scope]?.[scopeIdentifier]?.[collectionId] ||
+                               ragState.libraries?.global?.[collectionId];
+                if (library) {
+                    const summaryCount = Object.values(library).filter(c => c.isSummaryChunk).length;
+                    if (summaryCount > 0) {
+                        const hashCheck = await checkHashMismatch(collectionId, library, vectorSource);
+                        if (!hashCheck.passed && hashCheck.severity !== SEVERITY.INFO) {
+                            console.warn('⚠️  Summary vectorization issue detected:', hashCheck.issue);
+                        }
+                    }
+                }
+            } catch (diagError) {
+                console.error('Post-vectorization diagnostic failed:', diagError);
+            }
+        })();
 
         return { success: true, collectionId, chunkCount: finalBaseChunks.length };
     } catch (error) {
@@ -14644,6 +14901,422 @@ jQuery(async function () {
 
     $(document).on('click', '#ragbooks_pattern_test', function() {
         testCleaningPattern();
+    });
+
+    // ========================================================================
+    // DIAGNOSTICS MODAL HANDLERS
+    // ========================================================================
+
+    // Store diagnostic results for auto-fix access
+    let currentDiagnosticResults = null;
+
+    /**
+     * Run full diagnostics and display results in modal
+     */
+    async function runDiagnosticsUI() {
+        const $modal = $('#ragbooks_diagnostics_modal');
+        const $loading = $('#ragbooks_diagnostics_loading');
+        const $summary = $('#ragbooks_diagnostics_summary');
+        const $results = $('#ragbooks_diagnostics_results');
+
+        // Show modal with loading state
+        $modal.show();
+        $loading.show();
+        $summary.empty();
+        $results.empty();
+
+        try {
+            // Import the diagnostics functions
+            const { runActiveDiagnostics, SEVERITY } = await import('./logging-utils.js');
+
+            // Run diagnostics
+            const diagnosticResults = await runActiveDiagnostics();
+
+            // Store for auto-fix access
+            currentDiagnosticResults = diagnosticResults;
+
+            // Hide loading
+            $loading.hide();
+
+            // Render summary stats
+            renderDiagnosticSummary(diagnosticResults.summary);
+
+            // Render results by category
+            renderDiagnosticResults(diagnosticResults);
+
+        } catch (error) {
+            console.error('Failed to run diagnostics:', error);
+            $loading.hide();
+            $results.html(`
+                <div style="padding: 20px; text-align: center; color: #f87171;">
+                    <i class="fa-solid fa-exclamation-triangle" style="font-size: 32px; margin-bottom: 12px;"></i>
+                    <p>Failed to run diagnostics: ${error.message}</p>
+                </div>
+            `);
+        }
+    }
+
+    /**
+     * Render summary statistics
+     */
+    function renderDiagnosticSummary(summary) {
+        const $summary = $('#ragbooks_diagnostics_summary');
+
+        const stats = [
+            { label: 'Total Checks', value: summary.total, icon: 'fa-list-check', color: 'var(--SmartThemeBodyColor)' },
+            { label: 'Passed', value: summary.passed, icon: 'fa-circle-check', color: '#4ade80' },
+            { label: 'Failed', value: summary.failed, icon: 'fa-circle-xmark', color: '#f87171' },
+            { label: 'Critical', value: summary.critical, icon: 'fa-circle-exclamation', color: '#dc2626' },
+            { label: 'Errors', value: summary.errors, icon: 'fa-triangle-exclamation', color: '#f59e0b' },
+            { label: 'Warnings', value: summary.warnings, icon: 'fa-exclamation-circle', color: '#fbbf24' }
+        ];
+
+        stats.forEach(stat => {
+            $summary.append(`
+                <div style="background: var(--black10a); padding: 16px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 24px; color: ${stat.color}; margin-bottom: 8px;">
+                        <i class="fa-solid ${stat.icon}"></i> ${stat.value}
+                    </div>
+                    <div style="font-size: 12px; color: var(--grey70); text-transform: uppercase; letter-spacing: 0.5px;">
+                        ${stat.label}
+                    </div>
+                </div>
+            `);
+        });
+    }
+
+    /**
+     * Render diagnostic results by category
+     */
+    function renderDiagnosticResults(diagnosticResults) {
+        const $results = $('#ragbooks_diagnostics_results');
+
+        const categories = [
+            { key: 'vectorDatabase', name: 'Vector Database', icon: 'fa-database' },
+            { key: 'library', name: 'Library & Storage', icon: 'fa-box-archive' },
+            { key: 'search', name: 'Search & Query', icon: 'fa-magnifying-glass' },
+            { key: 'configuration', name: 'Configuration', icon: 'fa-gear' },
+            { key: 'chunkData', name: 'Chunk Data', icon: 'fa-cube' }
+        ];
+
+        categories.forEach(category => {
+            const results = diagnosticResults[category.key] || [];
+            if (results.length === 0) return;
+
+            const failedResults = results.filter(r => !r.passed);
+            const categoryStatus = failedResults.length === 0 ? 'passed' : 'failed';
+            const statusColor = categoryStatus === 'passed' ? '#4ade80' : '#f87171';
+            const statusIcon = categoryStatus === 'passed' ? 'fa-circle-check' : 'fa-circle-xmark';
+
+            $results.append(`
+                <div class="ragbooks-diagnostic-category" data-category="${category.key}" style="margin-bottom: 24px;">
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid var(--SmartThemeBorderColor);">
+                        <i class="fa-solid ${category.icon}" style="font-size: 18px; color: var(--SmartThemeQuoteColor);"></i>
+                        <h3 style="flex: 1; margin: 0; font-size: 16px; font-weight: 600;">${category.name}</h3>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 12px; color: var(--grey70);">${results.filter(r => r.passed).length}/${results.length} passed</span>
+                            <i class="fa-solid ${statusIcon}" style="color: ${statusColor}; font-size: 16px;"></i>
+                        </div>
+                    </div>
+                    <div class="ragbooks-diagnostic-items">
+                        ${results.map((result, index) => renderDiagnosticItem(result, index)).join('')}
+                    </div>
+                </div>
+            `);
+        });
+    }
+
+    /**
+     * Render individual diagnostic item
+     */
+    function renderDiagnosticItem(result, index) {
+        const severityColors = {
+            critical: '#dc2626',
+            error: '#f59e0b',
+            warning: '#fbbf24',
+            info: 'var(--SmartThemeQuoteColor)'
+        };
+
+        const severityIcons = {
+            critical: '🔴',
+            error: '❌',
+            warning: '⚠️',
+            info: 'ℹ️'
+        };
+
+        const icon = severityIcons[result.severity];
+        const color = severityColors[result.severity];
+        const statusIcon = result.passed ? 'fa-circle-check' : 'fa-circle-xmark';
+        const statusColor = result.passed ? '#4ade80' : '#f87171';
+
+        // Don't show passed INFO items to reduce clutter
+        if (result.passed && result.severity === 'info') {
+            return '';
+        }
+
+        return `
+            <div class="ragbooks-diagnostic-item" style="background: var(--black10a); padding: 12px; border-radius: 6px; margin-bottom: 8px; border-left: 3px solid ${color};">
+                <div style="display: flex; align-items: start; gap: 12px;">
+                    <i class="fa-solid ${statusIcon}" style="color: ${statusColor}; font-size: 16px; margin-top: 2px;"></i>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; margin-bottom: 4px;">${icon} ${result.issue}</div>
+                        <div style="font-size: 13px; color: var(--grey70); margin-bottom: 8px;">${result.description}</div>
+                        ${!result.passed && result.manualFix ? `
+                            <div style="font-size: 12px; color: var(--SmartThemeQuoteColor); background: var(--black30a); padding: 8px; border-radius: 4px; margin-top: 8px;">
+                                <strong>How to fix:</strong> ${result.manualFix}
+                            </div>
+                        ` : ''}
+                        ${!result.passed && result.autoFix ? `
+                            <button class="menu_button ragbooks-diagnostic-fix-btn" data-result-index="${index}" data-result-issue="${result.issue}" data-severity="${result.severity}" style="margin-top: 8px; font-size: 12px;">
+                                <i class="fa-solid fa-wrench"></i> Fix Now
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Diagnostics modal event handlers
+    $(document).on('click', '#ragbooks_run_diagnostics', function() {
+        runDiagnosticsUI();
+    });
+
+    $(document).on('click', '#ragbooks_diagnostics_close, #ragbooks_diagnostics_done', function() {
+        $('#ragbooks_diagnostics_modal').hide();
+    });
+
+    $(document).on('click', '#ragbooks_diagnostics_rerun', function() {
+        runDiagnosticsUI();
+    });
+
+    $(document).on('click', '.ragbooks-diagnostic-fix-btn', async function() {
+        const $btn = $(this);
+        const resultIndex = parseInt($btn.data('result-index'));
+        const categoryKey = $btn.closest('.ragbooks-diagnostic-category').data('category');
+
+        $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Fixing...');
+
+        try {
+            if (!currentDiagnosticResults || !currentDiagnosticResults[categoryKey]) {
+                throw new Error('Diagnostic results not found');
+            }
+
+            const result = currentDiagnosticResults[categoryKey][resultIndex];
+            if (!result || !result.autoFix) {
+                throw new Error('Auto-fix function not available for this issue');
+            }
+
+            // Execute the auto-fix function
+            const { saveSettingsDebounced } = await import('../../../../script.js');
+            const message = await result.autoFix(extension_settings);
+
+            // Save settings
+            await saveSettingsDebounced();
+
+            // Show success
+            toastr.success(message || 'Issue fixed successfully');
+            $btn.html('<i class="fa-solid fa-check"></i> Fixed').css('background', '#4ade80');
+
+            // Re-run diagnostics after a brief delay
+            setTimeout(() => {
+                runDiagnosticsUI();
+            }, 1000);
+        } catch (error) {
+            console.error('Auto-fix failed:', error);
+            toastr.error('Auto-fix failed: ' + error.message);
+            $btn.prop('disabled', false).html('<i class="fa-solid fa-wrench"></i> Fix Now');
+        }
+    });
+
+    // ========================================================================
+    // PURGE ALL COLLECTIONS (NUCLEAR OPTION)
+    // ========================================================================
+
+    /**
+     * Purge all RAG collections from all scopes and vector DB
+     */
+    async function purgeAllCollections() {
+        ensureRagState();
+        const ragState = extension_settings[extensionName].rag;
+
+        // Count what will be deleted
+        let totalCollections = 0;
+        let totalChunks = 0;
+        const scopes = [];
+
+        // Count global
+        if (ragState.libraries?.global) {
+            const globalCollections = Object.keys(ragState.libraries.global);
+            totalCollections += globalCollections.length;
+            globalCollections.forEach(colId => {
+                totalChunks += Object.keys(ragState.libraries.global[colId] || {}).length;
+            });
+            if (globalCollections.length > 0) scopes.push(`Global: ${globalCollections.length} collections`);
+        }
+
+        // Count character
+        if (ragState.libraries?.character) {
+            let charCollections = 0;
+            for (const charId in ragState.libraries.character) {
+                const collections = Object.keys(ragState.libraries.character[charId] || {});
+                charCollections += collections.length;
+                collections.forEach(colId => {
+                    totalChunks += Object.keys(ragState.libraries.character[charId][colId] || {}).length;
+                });
+            }
+            totalCollections += charCollections;
+            if (charCollections > 0) scopes.push(`Character: ${charCollections} collections`);
+        }
+
+        // Count chat
+        if (ragState.libraries?.chat) {
+            let chatCollections = 0;
+            for (const chatId in ragState.libraries.chat) {
+                const collections = Object.keys(ragState.libraries.chat[chatId] || {});
+                chatCollections += collections.length;
+                collections.forEach(colId => {
+                    totalChunks += Object.keys(ragState.libraries.chat[chatId][colId] || {}).length;
+                });
+            }
+            totalCollections += chatCollections;
+            if (chatCollections > 0) scopes.push(`Chat: ${chatCollections} collections`);
+        }
+
+        if (totalCollections === 0) {
+            toastr.info('No collections found to purge', 'RAGBooks');
+            return;
+        }
+
+        // Show detailed confirmation dialog
+        const confirmed = await callPopup(`
+            <div style="text-align: left; padding: 16px;">
+                <h3 style="color: #ef4444; margin-bottom: 16px;">
+                    <i class="fa-solid fa-radiation"></i> NUCLEAR OPTION: Purge All Collections
+                </h3>
+
+                <div style="background: rgba(239, 68, 68, 0.1); border: 2px solid #ef4444; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                    <p style="margin: 0 0 12px 0;"><strong>⚠️ WARNING: This action is IRREVERSIBLE!</strong></p>
+                    <p style="margin: 0;">This will permanently delete:</p>
+                </div>
+
+                <div style="margin: 16px 0; padding: 12px; background: var(--black10a); border-radius: 6px;">
+                    <ul style="margin: 8px 0; padding-left: 20px;">
+                        <li><strong>${totalCollections}</strong> collections</li>
+                        <li><strong>${totalChunks}</strong> chunks</li>
+                        <li>All vector embeddings from database</li>
+                        <li>All collection metadata</li>
+                        <li>All source configurations</li>
+                    </ul>
+
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--SmartThemeBorderColor);">
+                        <strong>Scopes affected:</strong>
+                        <ul style="margin: 4px 0; padding-left: 20px;">
+                            ${scopes.map(s => `<li>${s}</li>`).join('')}
+                        </ul>
+                    </div>
+                </div>
+
+                <p style="margin: 16px 0 0 0; color: var(--grey70);">
+                    <strong>Use this only if:</strong><br>
+                    • You're experiencing persistent corruption issues<br>
+                    • Diagnostics show unfixable problems<br>
+                    • You want to start completely fresh
+                </p>
+
+                <p style="margin: 16px 0 0 0; font-size: 12px; color: var(--grey70);">
+                    You'll need to re-chunk and re-vectorize all your content after purging.
+                </p>
+            </div>
+        `, 'confirm', '', { okButton: 'PURGE EVERYTHING', cancelButton: 'Cancel' });
+
+        if (!confirmed) {
+            toastr.info('Purge cancelled', 'RAGBooks');
+            return;
+        }
+
+        try {
+            toastr.info('Purging all collections... This may take a moment.', 'RAGBooks', { timeOut: 0 });
+
+            // Delete from vector DB first
+            const vectorSource = extension_settings.vectors?.source;
+            const allCollectionIds = new Set();
+
+            // Collect all collection IDs
+            if (ragState.libraries?.global) {
+                Object.keys(ragState.libraries.global).forEach(id => allCollectionIds.add(id));
+            }
+            if (ragState.libraries?.character) {
+                for (const charId in ragState.libraries.character) {
+                    Object.keys(ragState.libraries.character[charId]).forEach(id => allCollectionIds.add(id));
+                }
+            }
+            if (ragState.libraries?.chat) {
+                for (const chatId in ragState.libraries.chat) {
+                    Object.keys(ragState.libraries.chat[chatId]).forEach(id => allCollectionIds.add(id));
+                }
+            }
+
+            // Delete from vector DB
+            if (vectorSource && allCollectionIds.size > 0) {
+                console.log(`Deleting ${allCollectionIds.size} collections from vector DB...`);
+                for (const collectionId of allCollectionIds) {
+                    try {
+                        await fetch('/api/vector/purge', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                ...getRequestHeaders()
+                            },
+                            body: JSON.stringify({
+                                collectionId,
+                                source: vectorSource
+                            })
+                        });
+                        console.log(`Deleted vector collection: ${collectionId}`);
+                    } catch (error) {
+                        console.warn(`Failed to delete vector collection ${collectionId}:`, error);
+                    }
+                }
+            }
+
+            // Clear all RAG data from settings
+            ragState.libraries = {
+                global: {},
+                character: {},
+                chat: {}
+            };
+            ragState.sources = {};
+            ragState.collectionMetadata = {};
+
+            // Save settings
+            const { saveSettingsDebounced } = await import('../../../../script.js');
+            await saveSettingsDebounced();
+
+            toastr.clear();
+            toastr.success(
+                `Successfully purged ${totalCollections} collections and ${totalChunks} chunks.\n\nRAGBooks has been reset to factory state.`,
+                'Purge Complete',
+                { timeOut: 10000 }
+            );
+
+            console.log('✅ RAGBooks purge complete');
+
+            // Refresh the UI
+            setTimeout(() => {
+                location.reload();
+            }, 2000);
+
+        } catch (error) {
+            toastr.clear();
+            toastr.error(`Purge failed: ${error.message}\n\nSome data may have been deleted. Check console for details.`, 'Purge Error');
+            console.error('Purge error:', error);
+        }
+    }
+
+    // Purge all button handler
+    $(document).on('click', '#ragbooks_purge_all', function() {
+        purgeAllCollections();
     });
 
     // ========================================================================

@@ -69,6 +69,31 @@
                 </div>
             </div>
 
+            <!-- Diagnostics & Health Card -->
+            <div class="ragbooks-card">
+                <div class="ragbooks-card-header">
+                    <h3>🔍 Diagnostics & Health</h3>
+                    <p class="ragbooks-card-subtitle">Check for configuration issues and troubleshoot problems</p>
+                </div>
+                <div class="ragbooks-card-body">
+                    <div class="ragbooks-settings-grid">
+                        <div class="ragbooks-setting-item">
+                            <button type="button" id="ragbooks_run_diagnostics" class="menu_button" style="width: 100%; padding: 12px; font-size: 14px;">
+                                <i class="fa-solid fa-stethoscope"></i> Run Full Diagnostics
+                            </button>
+                            <div class="ragbooks-help-text">Scan for common issues with vector storage, collections, search settings, and chunk data</div>
+                        </div>
+
+                        <div class="ragbooks-setting-item" style="border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 16px; margin-top: 8px;">
+                            <button type="button" id="ragbooks_purge_all" class="menu_button" style="width: 100%; padding: 12px; font-size: 14px; background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5);">
+                                <i class="fa-solid fa-trash-can"></i> Purge All Collections (Nuclear Option)
+                            </button>
+                            <div class="ragbooks-help-text" style="color: #f87171;">⚠️ DANGER: Permanently deletes ALL RAG collections, libraries, and vector data from all scopes. Use only as last resort.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Advanced Search Features Card -->
             <div class="ragbooks-card">
                 <div class="ragbooks-card-header">
@@ -457,6 +482,54 @@
                     </button>
                     <button id="ragbooks_pattern_cancel" class="menu_button chunk-footer__button" type="button">
                         Cancel
+                    </button>
+                </div>
+            </footer>
+        </section>
+    </div>
+
+    <!-- Diagnostics Results Modal -->
+    <div id="ragbooks_diagnostics_modal" class="ragbooks-overlay" style="display: none;">
+        <section class="drawer-content chunk-modal" role="dialog" aria-modal="true" aria-labelledby="ragbooks_diagnostics_title" style="max-width: 900px;">
+            <header class="chunk-modal__header flex-container alignitemscenter spaceBetween">
+                <div class="chunk-modal__title flex-container flexFlowColumn">
+                    <h2 id="ragbooks_diagnostics_title" class="chunk-modal__heading">
+                        <i class="fa-solid fa-stethoscope"></i> RAGBooks Diagnostics
+                    </h2>
+                    <p id="ragbooks_diagnostics_subtitle" class="chunk-modal__subtitle">System health check results</p>
+                </div>
+                <button id="ragbooks_diagnostics_close" class="menu_button chunk-modal__close" type="button" aria-label="Close diagnostics">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </header>
+
+            <div class="chunk-modal__body" style="padding: 20px; max-height: 70vh; overflow-y: auto;">
+                <!-- Summary Stats -->
+                <div id="ragbooks_diagnostics_summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 24px;">
+                    <!-- Populated dynamically -->
+                </div>
+
+                <!-- Diagnostic Categories -->
+                <div id="ragbooks_diagnostics_results">
+                    <!-- Populated dynamically -->
+                </div>
+
+                <div id="ragbooks_diagnostics_loading" style="text-align: center; padding: 40px;">
+                    <i class="fa-solid fa-spinner fa-spin" style="font-size: 32px; color: var(--SmartThemeQuoteColor);"></i>
+                    <p style="margin-top: 16px; color: var(--SmartThemeBodyColor);">Running diagnostics...</p>
+                </div>
+            </div>
+
+            <footer class="chunk-modal__footer flex-container alignitemscenter spaceBetween">
+                <div class="chunk-footer__info">
+                    <i class="fa-solid fa-info-circle"></i> Click "Fix Now" to automatically resolve issues
+                </div>
+                <div class="chunk-footer__actions flex-container alignitemscenter">
+                    <button id="ragbooks_diagnostics_rerun" class="menu_button chunk-footer__button" type="button">
+                        <i class="fa-solid fa-rotate"></i> Re-run
+                    </button>
+                    <button id="ragbooks_diagnostics_done" class="ragbooks-btn-primary chunk-footer__button" type="button">
+                        Done
                     </button>
                 </div>
             </footer>

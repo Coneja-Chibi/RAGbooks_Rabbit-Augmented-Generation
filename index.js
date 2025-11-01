@@ -4114,6 +4114,7 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
     const messages = (config.messageRange
         ? chat.slice(-config.messageRange)
         : chat).filter(x => !x.is_system);
+    const cleaningMode = options.cleaningMode || 'none'; // Chat defaults to no cleaning (plain text conversations)
 
     // Diagnostic logging
     console.log(`💬 Chat Processing:`);
@@ -4133,7 +4134,6 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
     const perChunkSummaryControl = options.perChunkSummaryControl || false;
 
     // Text cleaning settings
-    const cleaningMode = options.cleaningMode || 'none'; // Chat defaults to no cleaning (plain text conversations)
     const customPatterns = options.customPatterns || [];
 
     // Determine name format based on settings

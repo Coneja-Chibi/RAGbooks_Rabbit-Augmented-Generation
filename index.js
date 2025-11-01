@@ -4086,7 +4086,7 @@ async function parseCharacterCard(characterId, options = {}, progressCallback = 
  */
 async function parseChatHistory(options = {}, progressCallback = null, abortSignal = null) {
     console.log(`💬 Parsing chat history`);
-
+    const cleaningMode = options.cleaningMode || 'none'; // Chat defaults to no cleaning (plain text conversations)
     // Check if cancelled
     if (abortSignal?.aborted) {
         throw new Error('Operation cancelled by user');
@@ -4114,7 +4114,6 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
     const messages = (config.messageRange
         ? chat.slice(-config.messageRange)
         : chat).filter(x => !x.is_system);
-    const cleaningMode = options.cleaningMode || 'none'; // Chat defaults to no cleaning (plain text conversations)
 
     // Diagnostic logging
     console.log(`💬 Chat Processing:`);

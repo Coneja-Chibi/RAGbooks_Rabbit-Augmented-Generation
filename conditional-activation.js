@@ -388,6 +388,12 @@ export function filterChunksByConditions(chunks, context) {
 
     console.log(`🔍 [Conditions] Filtered ${chunks.length} chunks to ${filtered.length} based on conditions`);
 
+    // Safeguard: If all chunks were filtered out, return the original set to prevent empty results.
+    if (chunks.length > 0 && filtered.length === 0) {
+        console.warn('⚠️ [Conditions] All chunks were filtered out by conditions. Returning original chunks to prevent empty results.');
+        return chunks;
+    }
+
     return filtered;
 }
 

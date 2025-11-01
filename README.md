@@ -72,7 +72,7 @@ RAGBooks uses SillyTavern's built-in Vectors extension:
 2. Toggle **Enable RAGBooks** ON
 3. Configure settings:
    - **Top-K**: How many chunks to inject (default: 3)
-   - **Threshold**: Minimum similarity score (default: 0.15)
+   - **Threshold**: Minimum similarity score (default: 0.5)
    - **Injection Depth**: Where in context (default: 4)
 
 ### 4️⃣ **Add Content**
@@ -187,7 +187,7 @@ Each scene stores:
 - **Enable RAGBooks**: Master toggle
 - **Orange Accent Mode**: Orange UI vs theme colors
 - **Top-K**: Chunks per message (1-10, default: 3)
-- **Threshold**: Min similarity (0-1, default: 0.15)
+- **Threshold**: Min similarity (0-1, default: 0.5)
 - **Injection Depth**: Context position (1-10, default: 4)
 
 ### Advanced Features

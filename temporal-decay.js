@@ -46,10 +46,11 @@ export function applyTemporalDecay(score, messageAge, decaySettings) {
     }
 
     // Enforce minimum relevance
-    const minRelevance = decaySettings.minRelevance || 0.3;
-    decayMultiplier = Math.max(decayMultiplier, minRelevance);
+    const minRelevance = decaySettings.minRelevance || 0.1;
+    const finalMultiplier = Math.max(decayMultiplier, minRelevance);
 
-    return score * decayMultiplier;
+    // Safeguard: Ensure score never becomes zero unless it started as zero.
+    return score > 0 ? Math.max(score * finalMultiplier, 0.001) : 0;
 }
 
 /**
@@ -173,8 +174,8 @@ export function getDefaultDecaySettings() {
         enabled: false,              // OFF by default
         mode: 'exponential',         // 'exponential' or 'linear'
         halfLife: 50,               // Messages until 50% relevance
-        linearRate: 0.01,           // % per message (linear mode)
-        minRelevance: 0.3,          // Never decay below 30%
+        linearRate: 0.02,           // % per message (linear mode)
+        minRelevance: 0.1,          // Never decay below 10%
         sceneAware: false           // Reset decay at scene boundaries
     };
 }

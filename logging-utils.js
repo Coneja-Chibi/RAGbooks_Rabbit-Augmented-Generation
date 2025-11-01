@@ -407,7 +407,8 @@ export async function checkCollectionExists(collectionId, source) {
         }
 
         const data = await response.json();
-        const hashes = data.hashes || [];
+        // Handle both API response formats: {hashes: [...]} or direct [...]
+        const hashes = Array.isArray(data) ? data : (data.hashes || []);
 
         if (hashes.length === 0) {
             return new DiagnosticResult(
@@ -455,7 +456,9 @@ export async function checkHashMismatch(collectionId, library, source) {
         }
 
         const data = await response.json();
-        const dbHashes = new Set((data.hashes || []).map(h => parseInt(h)));
+        // Handle both API response formats: {hashes: [...]} or direct [...]
+        const hashes = Array.isArray(data) ? data : (data.hashes || []);
+        const dbHashes = new Set(hashes.map(h => parseInt(h)));
         const libraryHashes = Object.keys(library).map(h => parseInt(h));
 
         const missingInDb = libraryHashes.filter(h => !dbHashes.has(h));
@@ -524,7 +527,9 @@ export async function checkSummaryVectorization(collectionId, library, source) {
         }
 
         const data = await response.json();
-        const dbHashes = new Set((data.hashes || []).map(h => parseInt(h)));
+        // Handle both API response formats: {hashes: [...]} or direct [...]
+        const hashes = Array.isArray(data) ? data : (data.hashes || []);
+        const dbHashes = new Set(hashes.map(h => parseInt(h)));
         const summaryHashes = summaryChunks.map(c => c.hash);
         const missingSummaries = summaryHashes.filter(h => !dbHashes.has(h));
 

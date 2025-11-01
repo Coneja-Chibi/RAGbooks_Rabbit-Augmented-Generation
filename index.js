@@ -1075,7 +1075,9 @@ async function apiGetSavedHashes(collectionId) {
 
     const jsonResponse = await response.json(); // ADDED
     debugLog('[API] apiGetSavedHashes SUCCESS response:', jsonResponse); // ADDED
-    return jsonResponse; // MODIFIED
+    // Handle both API response formats: {hashes: [...]} or direct [...]
+    const hashes = Array.isArray(jsonResponse) ? jsonResponse : (jsonResponse.hashes || []);
+    return hashes; // Return normalized array of hashes
 }
 
 /**
@@ -7064,8 +7066,30 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {},
 
         console.log(`📍 [Vectorization] Determined scope: ${scope} (identifier: ${scopeIdentifier})`);
 
-        await apiInsertVectorItems(collectionId, items);
-        await saveChunksToLibrary(collectionId, validChunks, scope); // Pass scope hint!
+        // TRANSACTION: Insert vectors and save to library atomically with rollback on failure
+        const insertedHashes = validChunks.map(c => c.hash);
+        try {
+            await apiInsertVectorItems(collectionId, items);
+
+            // If vector insertion succeeded, save to library
+            try {
+                await saveChunksToLibrary(collectionId, validChunks, scope);
+            } catch (librarySaveError) {
+                console.error('❌ Library save failed after vector insertion - rolling back vectors');
+                // Rollback: Delete the vectors we just inserted
+                try {
+                    await apiDeleteVectorHashes(collectionId, insertedHashes);
+                    console.log('✅ Rollback complete - vectors deleted');
+                } catch (rollbackError) {
+                    console.error('⚠️  Rollback failed - vectors may be orphaned:', rollbackError);
+                }
+                // Re-throw the original error
+                throw new Error(`Library save failed: ${librarySaveError.message}. Vectors were rolled back.`);
+            }
+        } catch (vectorInsertError) {
+            console.error('❌ Vector insertion failed - no rollback needed');
+            throw vectorInsertError;
+        }
 
         // Brief pause to show saving step completed
         await new Promise(resolve => setTimeout(resolve, 300));
@@ -7148,29 +7172,18 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {},
             console.log(`   Activation triggers: ${metadata.keywords.join(', ')}`);
         }
 
-        // Run post-vectorization diagnostic to catch issues early
-        (async () => {
-            try {
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for vector DB to process
+        // Run post-vectorization diagnostic to catch issues early (BLOCKING)
+        try {
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for vector DB to process
 
-                const vectorSource = extension_settings.vectors?.source;
-                if (!vectorSource) return;
-
+            const vectorSource = extension_settings.vectors?.source;
+            if (vectorSource) {
                 // Check if collection actually exists in vector DB
                 const existsCheck = await checkCollectionExists(collectionId, vectorSource);
                 if (!existsCheck.passed) {
                     console.error('⚠️  Post-vectorization check failed:', existsCheck.issue);
-                    if (typeof toastr !== 'undefined') {
-                        toastr.warning(
-                            `⚠️  Vectorization Warning\n\n${existsCheck.issue}\n${existsCheck.description}`,
-                            'RAGBooks',
-                            {
-                                timeOut: 8000,
-                                closeButton: true,
-                                positionClass: 'toast-top-center'
-                            }
-                        );
-                    }
+                    // Throw error to prevent showing success message
+                    throw new Error(`Vectorization verification failed: ${existsCheck.issue}\n${existsCheck.description}`);
                 } else {
                     console.log('✅ Post-vectorization check passed:', existsCheck.description);
                 }
@@ -7184,13 +7197,16 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {},
                         const hashCheck = await checkHashMismatch(collectionId, library, vectorSource);
                         if (!hashCheck.passed && hashCheck.severity !== SEVERITY.INFO) {
                             console.warn('⚠️  Summary vectorization issue detected:', hashCheck.issue);
+                            // Don't throw for summary issues, just warn
                         }
                     }
                 }
-            } catch (diagError) {
-                console.error('Post-vectorization diagnostic failed:', diagError);
             }
-        })();
+        } catch (diagError) {
+            console.error('Post-vectorization diagnostic failed:', diagError);
+            // Re-throw to prevent showing success when verification failed
+            throw diagError;
+        }
 
         return { success: true, collectionId, chunkCount: finalBaseChunks.length };
     } catch (error) {
@@ -7241,7 +7257,7 @@ async function vectorizeDocumentFromMessage(characterName, content) {
         // Step 2: Get existing hashes
         console.log('\n🔍 STEP 2: Checking for existing chunks in vector DB...');
         const savedHashes = await apiGetSavedHashes(collectionId);
-        const savedHashSet = new Set(savedHashes.map(h => h.hash));
+        const savedHashSet = new Set(savedHashes);
         console.log(`✅ STEP 2 COMPLETE: Found ${savedHashes.length} existing hashes`);
         if (savedHashes.length > 0) {
             console.log(`   Existing hashes:`, Array.from(savedHashSet));

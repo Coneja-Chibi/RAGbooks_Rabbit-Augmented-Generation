@@ -67,28 +67,26 @@ export async function performEnhancedSearch(params) {
     let results = await searchFunction(queryText, chunksArray, topK, threshold);
     logSearchStep(2, `Vector search returned ${results.length} chunks`);
 
-    // Step 3: Chunk linking handled by queryRAG's deriveCrosslinks (no expansion needed here)
-
-    // Step 4: Apply conditional activation filtering
+    // Step 3: Apply conditional activation filtering
     if (enableConditions) {
         const searchContext = buildSearchContext(chat, contextWindow, results, metadata);
         results = filterChunksByConditions(results, searchContext);
         logSearchStep(4, `Conditions filtered to ${results.length} chunks`);
     }
 
-    // Step 5: Apply group keyword matching and boosts
+    // Step 4: Apply group keyword matching and boosts
     if (enableGroups) {
         results = applyGroupBoosts(results, queryText, groupBoostMultiplier);
         logSearchStep(5, 'Group boosts applied');
     }
 
-    // Step 6: Apply importance weighting
+    // Step 5: Apply importance weighting
     if (enableImportance) {
         results = applyImportanceToResults(results);
         logSearchStep(6, 'Importance weighting applied');
     }
 
-    // Step 7: Apply temporal decay (chat only, optional)
+    // Step 6: Apply temporal decay (chat only, optional)
     if (enableDecay && decaySettings.enabled) {
         if (decaySettings.sceneAware && scenes.length > 0) {
             results = applySceneAwareDecay(results, currentMessageId, scenes, decaySettings);
@@ -98,7 +96,7 @@ export async function performEnhancedSearch(params) {
         logSearchStep(7, 'Temporal decay applied');
     }
 
-    // Step 8: Re-rank based on adjusted scores
+    // Step 7: Re-rank based on adjusted scores
     if (enableImportance) {
         results = rankChunksByImportance(results, usePriorityTiers);
         logSearchStep(8, 'Re-ranked by importance');
@@ -106,13 +104,13 @@ export async function performEnhancedSearch(params) {
         results = results.sort((a, b) => (b.score || 0) - (a.score || 0));
     }
 
-    // Step 9: Enforce required group members
+    // Step 8: Enforce required group members
     if (enableGroups) {
         results = enforceRequiredGroups(results, chunksArray, maxForcedGroupMembers);
         logSearchStep(9, 'Required groups enforced');
     }
 
-    // Step 10: Limit to topK
+    // Step 9: Limit to topK
     results = results.slice(0, topK);
     logSearchStep(10, `Limited to top ${topK} chunks`);
 

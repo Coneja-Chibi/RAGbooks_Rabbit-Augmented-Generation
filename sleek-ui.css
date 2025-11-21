@@ -1,0 +1,266 @@
+/* ==========================================================================
+   RAGBooks "Sleek" UI - Radical Redesign
+   ========================================================================== */
+
+/* --- Container & Layout --- */
+#ragbooks_chunks_container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 16px;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.1);
+}
+
+/* --- The Chunk Card --- */
+.rag-sleek-card {
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 12px;
+    /* overflow: hidden; - Removed to allow Select2/Drawers to overflow if needed */
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* Force interactivity on inputs */
+.rag-sleek-body input,
+.rag-sleek-body select,
+.rag-sleek-body textarea,
+.rag-sleek-body button,
+.rag-sleek-body label {
+    pointer-events: auto !important;
+    position: relative;
+    z-index: 10;
+}
+
+.rag-sleek-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    border-color: var(--ragbooks-primary, #6366f1);
+}
+
+.rag-sleek-card.disabled {
+    opacity: 0.6;
+    filter: grayscale(0.8);
+}
+
+/* --- Card Header --- */
+.rag-sleek-header {
+    padding: 12px 16px;
+    background: linear-gradient(to right, rgba(255,255,255,0.03), transparent);
+    border-bottom: 1px solid transparent;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+}
+
+.rag-sleek-card:hover .rag-sleek-header {
+    border-bottom-color: var(--SmartThemeBorderColor);
+}
+
+.rag-sleek-title {
+    font-weight: 600;
+    font-size: 1.05em;
+    color: var(--SmartThemeBodyColor);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 10px;
+}
+
+.rag-sleek-meta {
+    display: flex;
+    gap: 8px;
+    font-size: 0.8em;
+    color: var(--SmartThemeQuoteColor);
+}
+
+/* --- Card Body (Content) --- */
+.rag-sleek-body {
+    padding: 16px;
+    background: var(--black10a);
+    border-top: 1px solid var(--SmartThemeBorderColor);
+    display: none; /* Hidden by default */
+}
+
+.rag-sleek-preview {
+    padding: 12px 16px;
+    font-size: 0.9em;
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.8;
+    line-height: 1.5;
+    max-height: 4.5em; /* 3 lines */
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+}
+
+/* --- Form Elements --- */
+.rag-sleek-input, .rag-sleek-textarea {
+    width: 100%;
+    background: var(--black20a);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    padding: 10px;
+    color: var(--SmartThemeBodyColor);
+    font-family: inherit;
+    transition: border-color 0.2s;
+}
+
+.rag-sleek-input:focus, .rag-sleek-textarea:focus {
+    border-color: var(--ragbooks-primary, #6366f1);
+    outline: none;
+    background: var(--black10a);
+}
+
+.rag-sleek-textarea {
+    min-height: 120px;
+    resize: vertical;
+    line-height: 1.6;
+}
+
+/* --- Keywords --- */
+.rag-sleek-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+}
+
+.rag-sleek-tag {
+    background: var(--black30a);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 20px;
+    padding: 2px 10px;
+    font-size: 0.75em;
+    color: var(--SmartThemeBodyColor);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.rag-sleek-tag.custom {
+    background: rgba(99, 102, 241, 0.15);
+    border-color: rgba(99, 102, 241, 0.4);
+    color: #a5b4fc;
+}
+
+.rag-sleek-tag-weight {
+    font-size: 0.8em;
+    opacity: 0.7;
+    background: rgba(0,0,0,0.2);
+    padding: 0 4px;
+    border-radius: 4px;
+}
+
+/* --- Actions Bar --- */
+.rag-sleek-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    justify-content: flex-end;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+
+.rag-sleek-card:hover .rag-sleek-actions {
+    opacity: 1;
+}
+
+.rag-icon-btn {
+    background: transparent;
+    border: none;
+    color: var(--SmartThemeBodyColor);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.rag-icon-btn:hover {
+    background: var(--SmartThemeBorderColor);
+    color: var(--ragbooks-primary, #6366f1);
+}
+
+.rag-icon-btn.danger:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* --- Condition Drawer (Nested) --- */
+.rag-sleek-drawer {
+    margin-top: 16px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.rag-sleek-drawer-header {
+    padding: 8px 12px;
+    background: var(--black20a);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.9em;
+    font-weight: 600;
+}
+
+.rag-sleek-drawer-header:hover {
+    background: var(--black30a);
+}
+
+.rag-sleek-drawer-content {
+    padding: 12px;
+    background: var(--black10a);
+    border-top: 1px solid var(--SmartThemeBorderColor);
+}
+
+/* --- Importance Slider --- */
+.rag-sleek-slider-container {
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.rag-sleek-slider {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--black40a);
+    appearance: none;
+}
+
+.rag-sleek-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--ragbooks-primary, #6366f1);
+    cursor: pointer;
+    border: 2px solid var(--SmartThemeBlurTintColor);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+/* --- Select2 Overrides for Sleek Theme --- */
+#ragbooks_chunk_viewer_modal .select2-container--default .select2-selection--multiple {
+    background: var(--black20a) !important;
+    border: 1px solid var(--SmartThemeBorderColor) !important;
+    border-radius: 8px !important;
+    min-height: 38px !important;
+}
+
+#ragbooks_chunk_viewer_modal .select2-container--default .select2-selection--multiple .select2-selection__choice {
+    background: rgba(99, 102, 241, 0.2) !important;
+    border: 1px solid rgba(99, 102, 241, 0.4) !important;
+    color: var(--SmartThemeBodyColor) !important;
+    border-radius: 6px !important;
+}

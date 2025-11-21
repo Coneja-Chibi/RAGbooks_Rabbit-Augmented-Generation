@@ -30,7 +30,7 @@ import { State } from './core-state.js';
 import { getEmbedding, getEmbeddingProvider, findTopKWithTiming, calculateSimilarityStats } from './core-embeddings.js';
 import { isPluginAvailable, enrichChunksWithVectors } from './plugin-vector-api.js';
 import { Trie, LRUCache } from './lib-data-structures.js';
-import * as StringUtils from './lib-string-utils.js';
+import StringUtils from './lib-string-utils.js';
 
 // ==================== QUERY EMBEDDING CACHE ====================
 
@@ -223,6 +223,7 @@ export function matchKeywords(chunkKeywords, queryKeywords, options = {}) {
  */
 export function buildKeywordIndex(chunks) {
     const trie = new Trie();
+    const keywordMap = new Map(); // keyword -> [chunk hashes]
     const startTime = performance.now();
 
     let totalKeywords = 0;
@@ -232,10 +233,16 @@ export function buildKeywordIndex(chunks) {
 
         for (const keyword of keywords) {
             if (keyword && typeof keyword === 'string') {
-                // Store chunk hash with keyword
-                const existing = trie.search(keyword.toLowerCase()) || [];
-                existing.push(chunk.hash);
-                trie.insert(keyword.toLowerCase(), existing);
+                const normalized = keyword.toLowerCase();
+
+                // Add to trie for prefix matching
+                trie.insert(normalized);
+
+                // Store chunk hash in map
+                if (!keywordMap.has(normalized)) {
+                    keywordMap.set(normalized, []);
+                }
+                keywordMap.get(normalized).push(chunk.hash);
                 totalKeywords++;
             }
         }
@@ -254,7 +261,8 @@ export function buildKeywordIndex(chunks) {
         });
     }
 
-    return trie;
+    // Return both trie and map
+    return { trie, keywordMap };
 }
 
 /**
@@ -270,20 +278,25 @@ export function searchByKeywords(queryKeywords, keywordIndex, allChunks) {
     const startTime = performance.now();
     const matchingHashes = new Map(); // hash -> match count
 
+    // Handle both old (trie only) and new ({ trie, keywordMap }) format
+    const trie = keywordIndex.trie || keywordIndex;
+    const keywordMap = keywordIndex.keywordMap || new Map();
+
     for (const keyword of queryKeywords) {
         const normalized = keyword.toLowerCase();
 
-        // Exact match from Trie
-        const exactMatches = keywordIndex.search(normalized) || [];
+        // Exact match from keywordMap
+        const exactMatches = keywordMap.get(normalized) || [];
         for (const hash of exactMatches) {
             matchingHashes.set(hash, (matchingHashes.get(hash) || 0) + 1);
         }
 
-        // Prefix match from Trie
-        const prefixMatches = keywordIndex.startsWith(normalized);
-        for (const [matchedKeyword, hashes] of Object.entries(prefixMatches)) {
-            for (const hash of hashes) {
-                matchingHashes.set(hash, (matchingHashes.get(hash) || 0) + 0.8);
+        // Prefix match - find all keywords that start with this prefix
+        for (const [storedKeyword, hashes] of keywordMap) {
+            if (storedKeyword !== normalized && storedKeyword.startsWith(normalized)) {
+                for (const hash of hashes) {
+                    matchingHashes.set(hash, (matchingHashes.get(hash) || 0) + 0.8);
+                }
             }
         }
     }
@@ -780,17 +793,52 @@ export async function searchByVector(queryText, chunks, options = {}) {
 
         // Step 2.5: Enrich chunks with vectors from plugin (for client-side similarity)
         const needsEmbeddings = searchChunks.some(c => !c.embedding);
-        const useServerSide = State.getSettings().useServerSideSearch ?? false;
+        const useServerSide = State.getSettings().useServerSideSearch ?? true;
+
+        // Server-Side Search Path
+        if (useServerSide) {
+            const chunkCollectionId = collectionId || searchChunks[0]?.collectionId;
+            
+            if (chunkCollectionId && await isPluginAvailable()) {
+                logger.log('[RAG:VECTOR] Using server-side search (Plugin)');
+                try {
+                    const { queryWithVectors } = await import('./plugin-vector-api.js');
+                    
+                    // Call server
+                    const serverResults = await queryWithVectors(
+                        chunkCollectionId, 
+                        queryEmbedding, 
+                        topK * 2, // Oversample for filtering
+                        threshold, 
+                        source
+                    );
+
+                    // Map server results back to local chunks
+                    const results = serverResults.map(r => {
+                        const localChunk = searchChunks.find(c => c.hash === r.hash);
+                        if (!localChunk) return null;
+                        return {
+                            chunk: localChunk,
+                            similarity: r.score
+                        };
+                    }).filter(r => r !== null);
+
+                    const searchTime = performance.now() - searchStartTime;
+                    
+                    return {
+                        results,
+                        timing: { duration: searchTime, embeddingTime, searchTime },
+                        stats: { chunkCount: searchChunks.length, queryDim: queryEmbedding.length }
+                    };
+
+                } catch (error) {
+                    logger.warn('[RAG:VECTOR] Server-side search failed, falling back to client-side:', error);
+                    // Fall through to client-side logic
+                }
+            }
+        }
 
         if (needsEmbeddings) {
-            if (useServerSide) {
-                // User chose server-side search - use ST's /api/vector/query instead
-                logger.log('[RAG:VECTOR] Using server-side search (ST API), skipping client-side similarity');
-                logger.warn('[RAG:VECTOR] Server-side search not yet implemented - will use plugin as fallback');
-                // TODO: Implement server-side search fallback using /api/vector/query
-            }
-
-            // Get collectionId from chunks (or from options)
             const chunkCollectionId = collectionId || searchChunks[0]?.collectionId;
 
             // Try to use plugin for client-side similarity
@@ -951,17 +999,26 @@ export async function dualVectorSearch(queryText, chunks, options = {}) {
 
     // Merge using Reciprocal Rank Fusion
     const scoreMap = new Map();
+    const maxSimMap = new Map(); // Track max similarity for hybrid scoring
 
     // Process summary results (higher weight)
     summaryResults.results.forEach((chunk, rank) => {
         const rrfScore = 1 / (rrfK + rank + 1);
         scoreMap.set(chunk.hash, (scoreMap.get(chunk.hash) || 0) + rrfScore * summaryWeight);
+        
+        // Track max similarity
+        const currentMax = maxSimMap.get(chunk.hash) || 0;
+        maxSimMap.set(chunk.hash, Math.max(currentMax, chunk.similarity || 0));
     });
 
     // Process full text results
     fullResults.results.forEach((chunk, rank) => {
         const rrfScore = 1 / (rrfK + rank + 1);
         scoreMap.set(chunk.hash, (scoreMap.get(chunk.hash) || 0) + rrfScore);
+        
+        // Track max similarity
+        const currentMax = maxSimMap.get(chunk.hash) || 0;
+        maxSimMap.set(chunk.hash, Math.max(currentMax, chunk.similarity || 0));
     });
 
     // Combine all unique chunks
@@ -973,19 +1030,51 @@ export async function dualVectorSearch(queryText, chunks, options = {}) {
     });
 
     // Sort by RRF score
-    const merged = Array.from(allChunks.values())
+    let merged = Array.from(allChunks.values())
         .map(chunk => ({
             ...chunk,
-            rrfScore: scoreMap.get(chunk.hash) || 0
+            rrfScore: scoreMap.get(chunk.hash) || 0,
+            similarity: maxSimMap.get(chunk.hash) || 0 // Attach max similarity
         }))
-        .sort((a, b) => b.rrfScore - a.rrfScore)
-        .slice(0, topK);
+        .sort((a, b) => b.rrfScore - a.rrfScore);
 
-    logger.log(`✅ Merged ${summaryResults.results.length} summary + ${fullResults.results.length} full = ${merged.length} unique chunks`);
+    // Feature: Parent Swap (Return full content instead of summary)
+    // Create a lookup map for all available chunks
+    const chunkLookup = new Map(chunks.map(c => [c.hash, c]));
+    const finalResults = [];
+    const addedHashes = new Set();
+
+    for (const result of merged) {
+        let targetChunk = result;
+
+        // If it's a summary chunk, try to find its parent
+        if (result.isSummaryChunk && result.parentHash) {
+            const parent = chunkLookup.get(result.parentHash);
+            if (parent) {
+                targetChunk = { 
+                    ...parent, 
+                    rrfScore: result.rrfScore,
+                    similarity: result.similarity // Inherit max similarity
+                }; 
+                logger.verbose(`[RAG:VECTOR] Swapped summary ${result.hash} for parent ${parent.hash}`);
+            }
+        }
+
+        // Deduplicate
+        if (!addedHashes.has(targetChunk.hash)) {
+            finalResults.push(targetChunk);
+            addedHashes.add(targetChunk.hash);
+        }
+    }
+
+    // Slice top K after swapping/deduplicating
+    const topResults = finalResults.slice(0, topK);
+
+    logger.log(`✅ Merged ${summaryResults.results.length} summary + ${fullResults.results.length} full = ${topResults.length} unique chunks`);
     logger.groupEnd();
 
     return {
-        results: merged,
+        results: topResults,
         timing: {
             duration: Math.max(summaryResults.timing.duration, fullResults.timing.duration),
             summary: summaryResults.timing,
@@ -994,7 +1083,7 @@ export async function dualVectorSearch(queryText, chunks, options = {}) {
         stats: {
             summaryResults: summaryResults.results.length,
             fullResults: fullResults.results.length,
-            mergedResults: merged.length
+            mergedResults: topResults.length
         }
     };
 }
@@ -1103,33 +1192,46 @@ Diagnostics.registerCheck('keyword-extraction-quality', {
     description: 'Validates that keywords are being extracted properly',
     category: 'SEARCH',
     checkFn: async () => {
-        // Test keyword extraction with sample text
-        const sampleText = 'The quick brown fox jumps over the lazy dog. Character names like Alice and Bob are important.';
-        const keywords = extractKeywords(sampleText);
+        try {
+            // Test keyword extraction with sample text
+            const sampleText = 'The quick brown fox jumps over the lazy dog. Character names like Alice and Bob are important.';
+            const keywords = extractKeywords(sampleText);
 
-        if (keywords.length === 0) {
+            if (!keywords || keywords.length === 0) {
+                return {
+                    status: 'error',
+                    message: 'Keyword extraction returned no results',
+                    userMessage: 'Keyword extraction is not working. This will break keyword search.'
+                };
+            }
+
+            // Should extract meaningful keywords (not stop words)
+            const hasStopWords = keywords.some(k => isStopWord(k));
+            if (hasStopWords) {
+                return {
+                    status: 'warn',
+                    message: 'Stop words found in extracted keywords',
+                    userMessage: 'Keyword extraction is including stop words. This may reduce search quality.'
+                };
+            }
+
+            return {
+                status: 'pass',
+                message: `Extracted ${keywords.length} keywords from sample text`,
+                userMessage: `Keyword extraction is working correctly (${keywords.length} keywords from sample).`
+            };
+        } catch (error) {
             return {
                 status: 'error',
-                message: 'Keyword extraction returned no results',
-                userMessage: 'Keyword extraction is not working. This will break keyword search.'
+                message: `Keyword extraction failed: ${error.message}`,
+                userMessage: `Keyword extraction encountered an error: ${error.message}. Check that all dependencies are properly loaded.`,
+                fixes: [{
+                    label: 'Check Console',
+                    description: 'View browser console for detailed error information',
+                    action: () => console.error('[RAG:DIAGNOSTIC] Keyword extraction error:', error)
+                }]
             };
         }
-
-        // Should extract meaningful keywords (not stop words)
-        const hasStopWords = keywords.some(k => isStopWord(k));
-        if (hasStopWords) {
-            return {
-                status: 'warn',
-                message: 'Stop words found in extracted keywords',
-                userMessage: 'Keyword extraction is including stop words. This may reduce search quality.'
-            };
-        }
-
-        return {
-            status: 'pass',
-            message: `Extracted ${keywords.length} keywords from sample text`,
-            userMessage: `Keyword extraction is working correctly (${keywords.length} keywords from sample).`
-        };
     }
 });
 

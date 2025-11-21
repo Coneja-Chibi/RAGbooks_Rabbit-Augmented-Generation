@@ -130,7 +130,7 @@ export class Diagnostics {
                 category: check.category,
                 status: 'error',
                 message: `Check failed: ${error.message}`,
-                userMessage: `Diagnostic check encountered an error. Check the console for details.`,
+                userMessage: `Diagnostic check failed: ${error.message}`,
                 error: error.message,
                 timestamp: Date.now()
             };

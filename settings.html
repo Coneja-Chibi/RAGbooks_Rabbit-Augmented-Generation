@@ -57,6 +57,20 @@
                             <input type="range" id="ragbooks_threshold" class="ragbooks-slider" min="0" max="100" value="15" step="5">
                         </div>
 
+                        <!-- Similarity Algorithm (only shown when plugin is available) -->
+                        <div class="ragbooks-setting-item" id="ragbooks_algorithm_container" style="display: none;">
+                            <div class="ragbooks-slider-header">
+                                <span class="ragbooks-slider-icon">🧮</span>
+                                <span class="ragbooks-slider-title">Similarity Algorithm</span>
+                            </div>
+                            <div class="ragbooks-slider-hint">Algorithm for comparing query to chunks (requires rabbit-rag-vectors plugin)</div>
+                            <select id="ragbooks_similarity_algorithm" class="text_pole" style="width: 100%; margin-top: 8px;">
+                                <option value="cosine">Cosine Similarity (recommended for text)</option>
+                                <option value="jaccard">Jaccard Distance (good for keywords/tags)</option>
+                                <option value="hamming">Hamming Distance (exact matching)</option>
+                            </select>
+                        </div>
+
                         <!-- Injection Depth -->
                         <div class="ragbooks-setting-item ragbooks-slider-container">
                             <div class="ragbooks-slider-header">

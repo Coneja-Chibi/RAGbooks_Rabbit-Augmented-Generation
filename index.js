@@ -48,6 +48,9 @@ import { oai_settings } from '../../../openai.js';
 import { WebLlmVectorProvider } from '../../vectors/webllm.js';
 import { getGroupMembers, selected_group } from '../../../group-chats.js';
 
+// Import core-state to register production test diagnostics
+import './core-state.js';
+
 // RAGBooks advanced features modules
 import { createSummaryChunks, filterChunksBySearchMode, expandSummaryChunks, mergeSearchResults, processScenesToChunks } from './dual-vector.js';
 import { ragLogger, runQuickDiagnostics, checkVectorSource, checkCollectionExists, checkHashMismatch, checkThresholdSettings, checkActiveCollections, SEVERITY } from './logging-utils.js';
@@ -5822,30 +5825,43 @@ async function performCollectionSearch(collectionId, queryText, allChunks, setti
         currentCharacter: context.name2 || null
     };
 
-    const searchParams = buildSearchParams({
-        queryText,
-        allChunks,
-        searchFunction,
+    // Convert allChunks object to array for search
+    const chunksArray = Object.values(allChunks);
+
+    // Build search options
+    const searchOptions = {
+        searchMode: settings.searchMode || 'hybrid',
+        topK: settings.topK || 5,
+        threshold: settings.scoreThreshold || 0.80,
+        applyImportance: settings.enableImportance !== false,
+        applyConditions: settings.enableConditions !== false,
+        applyGroups: settings.enableGroups !== false,
+        applyDecay: settings.temporalDecay?.enabled === true,
+        keywordWeight: settings.keywordWeight || 0.3,
+        vectorWeight: settings.vectorWeight || 0.7,
+        dualVector: settings.dualVector === true,
         settings: {
             ...settings,
-            enableImportance: settings.enableImportance !== false,
-            enableConditions: settings.enableConditions !== false,
-            enableGroups: settings.enableGroups !== false,
-            enableDecay: settings.temporalDecay?.enabled === true,
             temporalDecay: settings.temporalDecay || { enabled: false },
-            topK: settings.topK || 5,
-            threshold: settings.scoreThreshold || 0.80,
             usePriorityTiers: settings.usePriorityTiers === true,
             groupBoostMultiplier: settings.groupBoostMultiplier || 1.3,
             maxForcedGroupMembers: settings.maxForcedGroupMembers || 5,
             contextWindow: settings.contextWindow || 10
-        },
+        }
+    };
+
+    // Build search context
+    const searchContext = {
         chat: context.chat || [],
         scenes: chat_metadata?.ragbooks_scenes || [],
-        metadata: enhancedMetadata  // Pass enhanced metadata with conditional context
-    });
+        metadata: enhancedMetadata,
+        contextWindow: settings.contextWindow || 10
+    };
 
-    return await performEnhancedSearch(searchParams);
+    const result = await performEnhancedSearch(queryText, chunksArray, searchOptions, searchContext);
+
+    // Return just the results array
+    return result.results || [];
 }
 
 async function queryRAG(characterName, queryText) {
@@ -8893,109 +8909,194 @@ function renderChunkCard(chunk) {
     const isDisabled = chunk.disabled || false;
     const importance = chunk.importance !== undefined ? chunk.importance : 100;
 
-    const chevronClass = isExpanded ? 'fa-circle-chevron-up up' : 'fa-circle-chevron-down down';
+    // Dynamic classes
+    const cardClass = `rag-sleek-card ${isDisabled ? 'disabled' : ''} ${isExpanded ? 'expanded' : ''}`;
     const toggleIcon = isDisabled ? 'fa-toggle-off' : 'fa-toggle-on';
-    const disabledClass = isDisabled ? 'chunk-disabled' : '';
-    const toggleColor = isDisabled ? 'var(--grey70)' : 'var(--SmartThemeQuoteColor)';
+    const toggleColor = isDisabled ? 'var(--grey70)' : 'var(--ragbooks-primary)';
 
-    // Keyword Preview logic
+    // Keyword Preview (Pills)
     const keywords = chunk.keywords || [];
-    const topKeywords = keywords.slice(0, 5);
-    const remainingCount = Math.max(0, keywords.length - 5);
+    const topKeywords = keywords.slice(0, 4);
+    const remaining = Math.max(0, keywords.length - 4);
+    
+    const keywordPills = topKeywords.map(k => {
+        const weight = getKeywordWeight(chunk, k);
+        const isCustom = (chunk.customKeywords || []).includes(k);
+        return `<span class="rag-sleek-tag ${isCustom ? 'custom' : ''}">${escapeHtml(k)}</span>`;
+    }).join('') + (remaining > 0 ? `<span class="rag-sleek-tag">+${remaining}</span>` : '');
 
-    const keywordPreview = topKeywords.length > 0
-        ? topKeywords.map(k => `<span class="chunk-keyword-mini-badge" title="${escapeHtml(k)}">${escapeHtml(k)}</span>`).join('') + 
-          (remainingCount > 0 ? `<span class="chunk-keyword-more-badge" title="${remainingCount} more">+${remainingCount}</span>` : '')
-        : '<span class="chunk-keywords-preview empty">No keywords</span>';
-
-    const charCount = chunk.text?.length || 0;
-    const tokenEstimate = Math.ceil(charCount / 4);
+    // Metadata
+    const tokenCount = Math.ceil((chunk.text?.length || 0) / 4);
 
     return `
-        <div class="world_entry ${disabledClass}" data-hash="${hash}" style="margin-bottom: 8px;">
-            <form class="world_entry_form wi-card-entry">
-                <div class="inline-drawer wide100p">
-                    <!-- HEADER -->
-                    <div class="inline-drawer-header gap5px padding0" style="display: flex; align-items: center; padding: 8px;">
-                        <span class="drag-handle" style="cursor: grab; margin-right: 8px;">&#9776;</span>
+        <div class="${cardClass}" data-hash="${hash}">
+            <!-- Header -->
+            <div class="rag-sleek-header rag-chunk-expand" data-hash="${hash}">
+                <div class="rag-sleek-title" title="${escapeHtml(chunk.name || chunk.section || 'Untitled')}">
+                    ${escapeHtml(chunk.name || chunk.section || 'Untitled Chunk')}
+                </div>
+                
+                <div class="rag-sleek-meta">
+                    <span title="Tokens"><i class="fa-solid fa-cube"></i> ${tokenCount}</span>
+                    ${chunk.conditions?.enabled ? '<span title="Conditional" style="color:#a5b4fc"><i class="fa-solid fa-filter"></i></span>' : ''}
+                </div>
 
-                        <div class="inline-drawer-toggle fa-fw fa-solid ${chevronClass} inline-drawer-icon rag-chunk-expand" 
-                             data-hash="${hash}" 
-                             style="cursor: pointer; margin-right: 8px;"></div>
+                <div class="rag-sleek-actions" style="margin-top: 0; opacity: 1; margin-left: 12px;">
+                    <button class="rag-icon-btn rag-chunk-toggle-enabled" data-hash="${hash}" onclick="event.stopPropagation()">
+                        <i class="fa-solid ${toggleIcon}" style="color: ${toggleColor}"></i>
+                    </button>
+                </div>
+            </div>
 
-                        <div class="fa-solid ${toggleIcon} rag-chunk-toggle-enabled" 
-                             data-hash="${hash}" 
-                             style="cursor: pointer; color: ${toggleColor}; font-size: 18px; margin-right: 12px;"></div>
+            <!-- Collapsed Preview (Text snippet) -->
+            ${!isExpanded ? `
+                <div class="rag-sleek-preview rag-chunk-expand" data-hash="${hash}">
+                    ${escapeHtml(chunk.text || '')}
+                </div>
+                <div class="rag-sleek-tags" style="padding: 0 16px 16px 16px;">
+                    ${keywordPills}
+                </div>
+            ` : ''}
 
-                        <div style="flex: 1; overflow: hidden;">
-                            <div style="display: flex; align-items: center; margin-bottom: 4px;">
-                                <input type="text" class="text_pole chunk-title-field rag-chunk-name-edit" 
-                                       data-hash="${hash}" 
-                                       value="${escapeHtml(chunk.name || chunk.section || 'Untitled')}" 
-                                       style="flex: 1; font-weight: bold; background: transparent; border: none; padding: 0;">
-                                
-                                <div class="chunk-metadata-badges" style="margin-left: 12px; display: flex; gap: 6px;">
-                                    <span class="chunk-meta-badge" title="Character count"><i class="fa-solid fa-font"></i> ${charCount}</span>
-                                    <span class="chunk-meta-badge" title="Token estimate"><i class="fa-solid fa-cube"></i> ~${tokenEstimate}</span>
-                                </div>
-                            </div>
-                            
-                            <div class="chunk-keywords-preview">
-                                ${keywordPreview}
-                            </div>
-                        </div>
+            <!-- Expanded Body -->
+            <div class="rag-sleek-body" style="display: ${isExpanded ? 'block' : 'none'}">
+                
+                <!-- Main Text Editor -->
+                <div style="margin-bottom: 16px;">
+                    <label style="font-size: 0.8em; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">Content</label>
+                    <textarea class="rag-sleek-textarea rag-chunk-text-edit" data-hash="${hash}">${escapeHtml(chunk.text || '')}</textarea>
+                </div>
 
-                        <div style="display: flex; gap: 8px; margin-left: 12px;">
-                            <i class="menu_button fa-solid fa-copy rag-chunk-copy" data-hash="${hash}" title="Copy Text"></i>
-                            <i class="menu_button fa-solid fa-trash-can rag-chunk-delete" data-hash="${hash}" title="Delete"></i>
-                        </div>
+                <!-- Keywords (Select2) -->
+                <div style="margin-bottom: 16px;">
+                    <label style="font-size: 0.8em; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">Keywords</label>
+                    <select class="rag-chunk-keywords" data-hash="${hash}" multiple="multiple" style="width: 100%;"></select>
+                </div>
+
+                <!-- Importance Slider -->
+                <div class="rag-sleek-slider-container">
+                    <span style="font-size: 0.9em; font-weight: 600;">Importance</span>
+                    <input type="range" class="rag-sleek-slider rag-importance-slider" data-hash="${hash}" min="0" max="200" value="${importance}">
+                    <span class="rag-importance-value" data-hash="${hash}" style="font-family: monospace; background: var(--black20a); padding: 2px 6px; border-radius: 4px;">${importance}%</span>
+                </div>
+
+                <!-- Nested Drawer: Conditional Activation -->
+                <div class="ragbooks-drawer rag-sleek-drawer">
+                    <div class="ragbooks-drawer-toggle rag-sleek-drawer-header">
+                        <span style="display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-filter" style="color: #a5b4fc;"></i> Conditional Activation
+                        </span>
+                        <i class="fa-solid fa-chevron-down ragbooks-drawer-icon"></i>
                     </div>
-
-                    <!-- EXPANDED BODY -->
-                    <div class="inline-drawer-content inline-drawer-outlet wide100p" style="display: ${isExpanded ? 'block' : 'none'}; padding: 16px;">
-                        
-                        <div class="world_entry_form_control flex1" style="margin-bottom: 16px;">
-                            <label><small>Content</small></label>
-                            <textarea class="text_pole autoSetHeight rag-chunk-text-edit" 
-                                      data-hash="${hash}" 
-                                      rows="6"
-                                      style="resize: vertical; width: 100%;">${escapeHtml(chunk.text || '')}</textarea>
+                    <div class="ragbooks-drawer-content rag-sleek-drawer-content" style="display: none;">
+                        <label class="checkbox_label" style="margin-bottom: 12px;">
+                            <input type="checkbox" class="rag-conditions-enable" data-hash="${hash}" ${chunk.conditions?.enabled ? 'checked' : ''}>
+                            Enable Conditions
+                        </label>
+                        <div class="rag-conditions-list" data-hash="${hash}">
+                            ${renderConditionsList(chunk.conditions?.rules || [])}
                         </div>
-
-                        <!-- Importance Slider -->
-                        <div class="world_entry_form_control" style="margin-bottom: 16px;">
-                            <small>Importance: <strong class="rag-importance-value" data-hash="${hash}">${importance}%</strong></small>
-                            <input type="range" class="rag-importance-slider" 
-                                   data-hash="${hash}" 
-                                   min="0" max="200" value="${importance}" 
-                                   style="width: 100%;">
-                        </div>
-
-                        <!-- Conditional Activation -->
-                        <div class="inline-drawer wide100p" style="border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 12px;">
-                            <div class="inline-drawer-toggle inline-drawer-header" style="cursor: pointer; font-size: 0.9em;">
-                                <strong><i class="fa-solid fa-filter"></i> Conditional Activation</strong>
-                                <div class="fa-solid fa-circle-chevron-down inline-drawer-icon down"></div>
-                            </div>
-                            <div class="inline-drawer-content" style="display: none; padding: 12px; background: var(--black10a); margin-top: 8px; border-radius: 4px;">
-                                <label class="checkbox_label" style="margin-bottom: 8px;">
-                                    <input type="checkbox" class="rag-conditions-enable" data-hash="${hash}" ${chunk.conditions?.enabled ? 'checked' : ''}>
-                                    Enable Conditions
-                                </label>
-                                <!-- Condition builder logic will go here -->
-                            </div>
-                        </div>
-
+                        <button class="menu_button rag-add-condition" data-hash="${hash}" style="width: 100%; margin-top: 8px;">
+                            <i class="fa-solid fa-plus"></i> Add Rule
+                        </button>
                     </div>
                 </div>
-            </form>
+
+                <!-- Nested Drawer: Dual Vector -->
+                <div class="ragbooks-drawer rag-sleek-drawer" style="margin-top: 12px;">
+                    <div class="ragbooks-drawer-toggle rag-sleek-drawer-header">
+                        <span style="display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-clone" style="color: #f472b6;"></i> Dual-Vector Summary
+                        </span>
+                        <i class="fa-solid fa-chevron-down ragbooks-drawer-icon"></i>
+                    </div>
+                    <div class="ragbooks-drawer-content rag-sleek-drawer-content" style="display: none;">
+                        <p style="font-size: 0.8em; opacity: 0.7; margin-bottom: 8px;">Search matches these summaries, but the full text is injected. Add multiple summaries for better search coverage.</p>
+                        <div style="position: relative;">
+                            <select class="ragbooks-summary-vectors-select" data-hash="${hash}" multiple="multiple" style="width: 100%;"></select>
+                            <textarea class="rag-sleek-textarea ragbooks-summary-vectors-plaintext" data-hash="${hash}" rows="3" placeholder="One summary per line..." style="display: none;"></textarea>
+                            <button class="switch_summary_input_type_icon rag-icon-btn" data-hash="${hash}" style="position: absolute; top: 4px; right: 4px; font-size: 12px; padding: 4px 6px;" title="Switch input mode">✨</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Nested Drawer: Advanced Processing (Summarization & Metadata) -->
+                <div class="ragbooks-drawer rag-sleek-drawer" style="margin-top: 12px;">
+                    <div class="ragbooks-drawer-toggle rag-sleek-drawer-header">
+                        <span style="display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-wand-magic-sparkles" style="color: #34d399;"></i> Advanced Processing
+                        </span>
+                        <i class="fa-solid fa-chevron-down ragbooks-drawer-icon"></i>
+                    </div>
+                    <div class="ragbooks-drawer-content rag-sleek-drawer-content" style="display: none;">
+                        
+                        <!-- Summarization Controls -->
+                        <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--SmartThemeBorderColor);">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                                <label class="checkbox_label">
+                                    <input type="checkbox" class="ragbooks-enable-chunk-summary" data-hash="${hash}" ${chunk.metadata?.enableSummary ? 'checked' : ''}>
+                                    Enable AI Summarization
+                                </label>
+                                <button class="rag-icon-btn ragbooks-generate-summary-now" data-hash="${hash}" title="Generate Now">
+                                    <i class="fa-solid fa-play"></i>
+                                </button>
+                            </div>
+                            
+                            <div style="display: ${chunk.metadata?.enableSummary ? 'block' : 'none'};">
+                                <label style="font-size: 0.8em; opacity: 0.7;">Summary Style</label>
+                                <select class="ragbooks-summary-style" data-hash="${hash}" style="width: 100%; margin-top: 4px; background: var(--black20a); border: 1px solid var(--SmartThemeBorderColor); border-radius: 4px; padding: 4px;">
+                                    <option value="concise" ${chunk.metadata?.summaryStyle === 'concise' ? 'selected' : ''}>Concise</option>
+                                    <option value="detailed" ${chunk.metadata?.summaryStyle === 'detailed' ? 'selected' : ''}>Detailed</option>
+                                    <option value="keywords" ${chunk.metadata?.summaryStyle === 'keywords' ? 'selected' : ''}>Keywords</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Metadata Controls -->
+                        <div>
+                            <label class="checkbox_label">
+                                <input type="checkbox" class="ragbooks-enable-chunk-metadata" data-hash="${hash}" ${chunk.metadata?.enableMetadata ? 'checked' : ''}>
+                                Enable Metadata Extraction
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer Actions -->
+                <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 12px; padding-top: 12px; border-top: 1px solid var(--SmartThemeBorderColor);">
+                    <button class="rag-icon-btn" title="Copy Text" data-action="copy"><i class="fa-solid fa-copy"></i></button>
+                    <button class="rag-icon-btn danger rag-chunk-delete" title="Delete Chunk" data-hash="${hash}"><i class="fa-solid fa-trash"></i></button>
+                </div>
+
+            </div>
         </div>
     `;
 }
 
+function renderConditionsList(rules) {
+    if (!rules || rules.length === 0) {
+        return '<div style="padding: 12px; text-align: center; opacity: 0.6; font-size: 0.9em; font-style: italic;">No active conditions.</div>';
+    }
+
+    return rules.map((rule, index) => `
+        <div class="rag-sleek-tag" style="margin-bottom: 4px; background: var(--black30a); padding: 6px 10px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+            <span>
+                <strong style="color: #a5b4fc; text-transform: uppercase; font-size: 0.8em; margin-right: 6px;">${rule.negate ? 'NOT' : 'IS'}</strong>
+                ${escapeHtml(rule.type)}
+            </span>
+            <i class="fa-solid fa-trash rag-icon-btn danger rag-condition-remove" data-index="${index}" style="font-size: 0.8em; cursor: pointer;"></i>
+        </div>
+    `).join('');
+}
+
 function bindInlineDrawerToggles() {
-    // Main chunk expansion
-    $('.inline-drawer-toggle.rag-chunk-expand').off('click').on('click', function(e) {
+    const container = $('#ragbooks_chunks_container');
+
+    // Main chunk expansion (Sleek UI)
+    container.off('click', '.rag-chunk-expand').on('click', '.rag-chunk-expand', function(e) {
+        // Don't expand if clicking buttons inside the header
+        if ($(e.target).closest('button').length) return;
+
         e.stopPropagation();
         const hash = $(this).data('hash');
         if (currentViewingChunks[hash]) {
@@ -9004,18 +9105,167 @@ function bindInlineDrawerToggles() {
         }
     });
 
-    // Nested drawer toggles
-    $('.inline-drawer-toggle.inline-drawer-header').not('.rag-chunk-expand').off('click').on('click', function(e) {
-        const $drawer = $(this).closest('.inline-drawer');
-        const $content = $drawer.find('.inline-drawer-content').first();
-        const $icon = $(this).find('.inline-drawer-icon');
+    // Toggle Enabled/Disabled
+    container.off('click', '.rag-chunk-toggle-enabled').on('click', '.rag-chunk-toggle-enabled', function(e) {
+        e.stopPropagation();
+        const hash = $(this).data('hash');
+        const chunk = currentViewingChunks[hash];
+        if (chunk) {
+            chunk.disabled = !chunk.disabled;
+            hasUnsavedChunkChanges = true;
+            // Re-render ONLY this card to update state/visuals
+            const newCard = renderChunkCard(chunk);
+            $(this).closest('.rag-sleek-card').replaceWith(newCard);
+            // Re-init keywords if expanded
+            if (chunk._expanded) initializeKeywordSelector(chunk);
+        }
+    });
+
+    // Delete Chunk
+    container.off('click', '.rag-chunk-delete').on('click', '.rag-chunk-delete', function(e) {
+        e.stopPropagation();
+        const hash = $(this).data('hash');
+        if (confirm('Delete this chunk permanently?')) {
+            // Mark for deletion in state
+            delete currentViewingChunks[hash];
+            hasUnsavedChunkChanges = true;
+            // Remove from DOM
+            $(this).closest('.rag-sleek-card').fadeOut(200, function() { $(this).remove(); });
+            toastr.success('Chunk deleted (Save to apply)');
+        }
+    });
+
+    // Copy Text
+    container.off('click', '[data-action="copy"]').on('click', '[data-action="copy"]', function(e) {
+        e.stopPropagation();
+        const hash = $(this).closest('.rag-sleek-card').data('hash');
+        const chunk = currentViewingChunks[hash];
+        if (chunk && chunk.text) {
+            navigator.clipboard.writeText(chunk.text);
+            toastr.success('Copied to clipboard');
+        }
+    });
+
+    // Nested drawers (Custom RAGBooks Drawer)
+    container.off('click', '.ragbooks-drawer-toggle').on('click', '.ragbooks-drawer-toggle', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+
+        const $drawer = $(this).closest('.ragbooks-drawer');
+        const $content = $drawer.find('.ragbooks-drawer-content').first();
+        const $icon = $(this).find('.ragbooks-drawer-icon');
 
         if ($content.is(':visible')) {
             $content.slideUp(200);
-            $icon.removeClass('up fa-circle-chevron-up').addClass('down fa-circle-chevron-down');
+            $icon.removeClass('up fa-chevron-up').addClass('down fa-chevron-down');
         } else {
             $content.slideDown(200);
-            $icon.removeClass('down fa-circle-chevron-down').addClass('up fa-circle-chevron-up');
+            $icon.removeClass('down fa-chevron-down').addClass('up fa-chevron-up');
+
+            // Lazy initialize Select2 for summary vectors when drawer opens
+            const $entry = $drawer.closest('.rag-sleek-card, .world_entry');
+            const hash = $entry.data('hash');
+            const chunk = currentViewingChunks[hash];
+
+            console.log('[SummaryVectors] Drawer opened, hash:', hash, 'chunk found:', !!chunk);
+
+            if (chunk) {
+                // Wait for slide animation to complete before initializing Select2
+                setTimeout(() => {
+                    const $summarySelect = $content.find(`.ragbooks-summary-vectors-select[data-hash="${hash}"]`);
+                    console.log('[SummaryVectors] Looking for select in content, found:', $summarySelect.length);
+                    if ($summarySelect.length) {
+                        // Always initialize - the function handles destroying existing instances
+                        initializeSummaryVectorsSelect(chunk);
+                    }
+                }, 250); // Increased timeout to ensure drawer is fully visible
+            }
+        }
+    });
+
+    // --- Advanced Processing Handlers ---
+
+    // Toggle Summarization
+    container.off('change', '.ragbooks-enable-chunk-summary').on('change', '.ragbooks-enable-chunk-summary', function() {
+        const hash = $(this).data('hash');
+        const enabled = $(this).is(':checked');
+        if (currentViewingChunks[hash]) {
+            if (!currentViewingChunks[hash].metadata) currentViewingChunks[hash].metadata = {};
+            currentViewingChunks[hash].metadata.enableSummary = enabled;
+            hasUnsavedChunkChanges = true;
+            
+            // Toggle visibility of style dropdown
+            $(this).closest('.ragbooks-drawer-content').find('.ragbooks-summary-style').parent().toggle(enabled);
+        }
+    });
+
+    // Generate Summary Now
+    container.off('click', '.ragbooks-generate-summary-now').on('click', '.ragbooks-generate-summary-now', async function(e) {
+        e.stopPropagation();
+        const hash = $(this).data('hash');
+        const chunk = currentViewingChunks[hash];
+        if (!chunk) return;
+
+        const $btn = $(this);
+        $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i>');
+
+        try {
+            const style = chunk.metadata?.summaryStyle || 'concise';
+            const prompt = `Summarize this text (${style}):\n${chunk.text}`;
+
+            // Generate
+            const summary = await generateQuietPrompt(prompt, true); // true = skip WIAN/instruct to keep it raw
+
+            if (summary) {
+                const trimmedSummary = summary.trim();
+
+                // Add to chunk's summaryVectors array
+                if (!chunk.summaryVectors) chunk.summaryVectors = [];
+                chunk.summaryVectors.push(trimmedSummary);
+                hasUnsavedChunkChanges = true;
+
+                // Update UI - find the Select2 or textarea
+                const $select = $(`.ragbooks-summary-vectors-select[data-hash="${hash}"]`);
+                const $textarea = $(`.ragbooks-summary-vectors-plaintext[data-hash="${hash}"]`);
+
+                if ($select.length && $select.data('select2')) {
+                    // Add to Select2
+                    const option = new Option(trimmedSummary, trimmedSummary, true, true);
+                    $select.append(option).trigger('change');
+                } else if ($textarea.is(':visible')) {
+                    // Add to textarea (one per line)
+                    const currentVal = $textarea.val();
+                    const newVal = currentVal ? currentVal + '\n' + trimmedSummary : trimmedSummary;
+                    $textarea.val(newVal);
+                }
+
+                toastr.success('Summary generated and added');
+            }
+        } catch (err) {
+            toastr.error('Generation failed: ' + err.message);
+        } finally {
+            $btn.prop('disabled', false).html('<i class="fa-solid fa-play"></i>');
+        }
+    });
+
+    // Summary Style Change
+    container.off('change', '.ragbooks-summary-style').on('change', '.ragbooks-summary-style', function() {
+        const hash = $(this).data('hash');
+        if (currentViewingChunks[hash]) {
+            if (!currentViewingChunks[hash].metadata) currentViewingChunks[hash].metadata = {};
+            currentViewingChunks[hash].metadata.summaryStyle = $(this).val();
+            hasUnsavedChunkChanges = true;
+        }
+    });
+
+    // Metadata Extraction Toggle
+    container.off('change', '.ragbooks-enable-chunk-metadata').on('change', '.ragbooks-enable-chunk-metadata', function() {
+        const hash = $(this).data('hash');
+        if (currentViewingChunks[hash]) {
+            if (!currentViewingChunks[hash].metadata) currentViewingChunks[hash].metadata = {};
+            currentViewingChunks[hash].metadata.enableMetadata = $(this).is(':checked');
+            hasUnsavedChunkChanges = true;
         }
     });
 }
@@ -10278,7 +10528,20 @@ function initializeSummaryVectorsSelect(chunk) {
     const $select = $(`.ragbooks-summary-vectors-select[data-hash="${hash}"]`);
     const $textarea = $(`.ragbooks-summary-vectors-plaintext[data-hash="${hash}"]`);
     const $switchBtn = $(`.switch_summary_input_type_icon[data-hash="${hash}"]`);
-    if (!$select.length) return;
+
+    console.log('[SummaryVectors] Initializing for chunk:', hash, 'select found:', $select.length);
+
+    if (!$select.length) {
+        console.warn('[SummaryVectors] Select element not found for hash:', hash);
+        return;
+    }
+
+    // Check if Select2 is available
+    if (typeof $.fn.select2 !== 'function') {
+        console.error('[SummaryVectors] Select2 is not loaded! Cannot initialize summary vectors input.');
+        toastr.error('Select2 library not available', 'RAGBooks');
+        return;
+    }
 
     // IMPORTANT: Destroy existing select2 to prevent duplication when switching modes
     if ($select.data('select2')) {
@@ -10291,7 +10554,7 @@ function initializeSummaryVectorsSelect(chunk) {
     $switchBtn.off();
 
     const summaryVectors = chunk.summaryVectors || [];
-    const isPlaintext = window.ragbooksSettings.summaryInputPlaintext === true;
+    const isPlaintext = window.ragbooksSettings?.summaryInputPlaintext === true;
 
     // Initialize fancy mode (select2) or plaintext mode
     if (!isPlaintext) {
@@ -10305,6 +10568,7 @@ function initializeSummaryVectorsSelect(chunk) {
             tokenSeparators: [], // No separators - summaries can contain commas/full sentences
             placeholder: 'Add searchable summaries (any length)...',
             width: '100%',
+            dropdownParent: $('#ragbooks_chunk_viewer_modal'),
             templateSelection: function(item) {
                 if (!item.id) return item.text;
 
@@ -10315,6 +10579,8 @@ function initializeSummaryVectorsSelect(chunk) {
                 return $tag;
             }
         });
+
+        console.log('[SummaryVectors] Select2 initialized for chunk:', hash);
 
         // Populate with existing summary vectors
         summaryVectors.forEach(vector => {
@@ -13627,6 +13893,8 @@ async function handleInlineVectorization() {
                 break;
             }
 
+        }
+
         // Read scope selection from UI (applies to all source types)
         const userSelectedScope = $('#ragbooks_scope_selector').val() || null;
         if (userSelectedScope) {
@@ -13718,6 +13986,21 @@ function loadSettings() {
     $('#ragbooks_threshold_value').text(settings.threshold.toFixed(2));
     $('#ragbooks_depth').val(settings.injectionDepth);
     $('#ragbooks_depth_value').text(settings.injectionDepth);
+
+    // Similarity algorithm (only visible when plugin is available)
+    $('#ragbooks_similarity_algorithm').val(settings.similarityAlgorithm || 'cosine');
+
+    // Check plugin availability and show/hide algorithm selector
+    import('./plugin-vector-api.js').then(({ isPluginAvailable }) => {
+        isPluginAvailable().then(available => {
+            if (available) {
+                $('#ragbooks_algorithm_container').show();
+                console.log('📚 [RAGBooks] Plugin detected - algorithm selection enabled');
+            } else {
+                $('#ragbooks_algorithm_container').hide();
+            }
+        });
+    });
 
     // Advanced Search Features
     $('#ragbooks_enable_importance').prop('checked', settings.enableImportance !== false);
@@ -14558,6 +14841,13 @@ jQuery(async function () {
         saveSettingsDebounced();
     });
 
+    $('#ragbooks_similarity_algorithm').on('change', function () {
+        const ragState = ensureRagState();
+        ragState.similarityAlgorithm = $(this).val();
+        saveSettingsDebounced();
+        console.log('📚 [RAGBooks] Similarity Algorithm:', ragState.similarityAlgorithm);
+    });
+
     $('#ragbooks_depth').on('input', function () {
         const value = $(this).val();
         $('#ragbooks_depth_value').text(value);
@@ -14796,6 +15086,68 @@ jQuery(async function () {
     let currentDiagnosticResults = null;
 
     /**
+     * Convert registered check result format to DiagnosticResult format
+     * WHY: The two diagnostic systems use different result formats
+     */
+    function convertRegisteredCheckResult(result) {
+        // Map status to severity and passed
+        const statusMap = {
+            'pass': { passed: true, severity: 'info' },
+            'info': { passed: true, severity: 'info' },
+            'warn': { passed: false, severity: 'warning' },
+            'error': { passed: false, severity: 'error' },
+            'critical': { passed: false, severity: 'critical' }
+        };
+
+        const mapped = statusMap[result.status] || { passed: false, severity: 'warning' };
+
+        // Convert fixes array to autoFix function if available
+        let autoFix = null;
+        let manualFix = null;
+
+        if (result.fixes && result.fixes.length > 0) {
+            const firstFix = result.fixes[0];
+            if (firstFix.action && typeof firstFix.action === 'function') {
+                autoFix = async (settings) => {
+                    await firstFix.action();
+                    return firstFix.label || 'Fix applied';
+                };
+            }
+            manualFix = firstFix.description || firstFix.label;
+        }
+
+        return {
+            passed: mapped.passed,
+            severity: mapped.severity,
+            issue: result.name || result.id || 'Unknown Check',
+            description: result.userMessage || result.message || '',
+            autoFix,
+            manualFix,
+            // Keep original data for reference
+            _originalId: result.id,
+            _originalCategory: result.category
+        };
+    }
+
+    /**
+     * Map registered check categories to UI categories
+     */
+    function mapCategoryToUI(category) {
+        const categoryMap = {
+            'CORE': 'configuration',
+            'EMBEDDINGS': 'vectorDatabase',
+            'SEARCH': 'search',
+            'UI': 'configuration',
+            'GENERAL': 'configuration',
+            'PROCESSING': 'chunkData',
+            'SCORING': 'search',
+            'FEATURES': 'configuration',
+            'PRODUCTION_TESTS': 'productionTests'
+        };
+        return categoryMap[category] || 'configuration';
+    }
+
+    /**
      * Run full diagnostics and display results in modal
      */
     async function runDiagnosticsUI() {
@@ -14811,23 +15163,62 @@ jQuery(async function () {
         $results.empty();
 
         try {
-            // Import the diagnostics functions
+            // Import both diagnostic systems
             const { runActiveDiagnostics, SEVERITY } = await import('./logging-utils.js');
+            const { Diagnostics } = await import('./core-system.js');
 
-            // Run diagnostics
-            const diagnosticResults = await runActiveDiagnostics();
+            // Run context-aware diagnostics (hardcoded checks)
+            const contextResults = await runActiveDiagnostics();
+
+            // Run all registered checks (system-wide checks)
+            const registeredResults = await Diagnostics.runAll();
+
+            // Convert and merge registered results into context results
+            for (const result of registeredResults) {
+                const converted = convertRegisteredCheckResult(result);
+                const uiCategory = mapCategoryToUI(result.category);
+
+                // Ensure the category array exists
+                if (!contextResults[uiCategory]) {
+                    contextResults[uiCategory] = [];
+                }
+
+                contextResults[uiCategory].push(converted);
+            }
+
+            // Recalculate summary statistics
+            const allResults = [
+                ...contextResults.vectorDatabase || [],
+                ...contextResults.library || [],
+                ...contextResults.search || [],
+                ...contextResults.configuration || [],
+                ...contextResults.chunkData || [],
+                ...contextResults.productionTests || []
+            ];
+
+            contextResults.summary = {
+                total: allResults.length,
+                passed: allResults.filter(r => r.passed).length,
+                failed: allResults.filter(r => !r.passed).length,
+                critical: allResults.filter(r => r.severity === 'critical').length,
+                errors: allResults.filter(r => r.severity === 'error').length,
+                warnings: allResults.filter(r => r.severity === 'warning' || r.severity === 'warn').length,
+                info: allResults.filter(r => r.severity === 'info').length
+            };
 
             // Store for auto-fix access
-            currentDiagnosticResults = diagnosticResults;
+            currentDiagnosticResults = contextResults;
 
             // Hide loading
             $loading.hide();
 
             // Render summary stats
-            renderDiagnosticSummary(diagnosticResults.summary);
+            renderDiagnosticSummary(contextResults.summary);
 
             // Render results by category
-            renderDiagnosticResults(diagnosticResults);
+            renderDiagnosticResults(contextResults);
+
+            console.log(`[RAGBooks] Diagnostics complete: ${contextResults.summary.total} checks (${contextResults.summary.passed} passed, ${contextResults.summary.failed} failed)`);
 
         } catch (error) {
             console.error('Failed to run diagnostics:', error);
@@ -14881,30 +15272,72 @@ jQuery(async function () {
             { key: 'library', name: 'Library & Storage', icon: 'fa-box-archive' },
             { key: 'search', name: 'Search & Query', icon: 'fa-magnifying-glass' },
             { key: 'configuration', name: 'Configuration', icon: 'fa-gear' },
-            { key: 'chunkData', name: 'Chunk Data', icon: 'fa-cube' }
+            { key: 'chunkData', name: 'Chunk Data', icon: 'fa-cube' },
+            { key: 'productionTests', name: 'Production Tests', icon: 'fa-flask-vial' }
         ];
 
         categories.forEach(category => {
             const results = diagnosticResults[category.key] || [];
             if (results.length === 0) return;
 
-            const failedResults = results.filter(r => !r.passed);
-            const categoryStatus = failedResults.length === 0 ? 'passed' : 'failed';
+            // Separate results by status
+            const criticalResults = results.filter(r => !r.passed && r.severity === 'critical');
+            const errorResults = results.filter(r => !r.passed && r.severity === 'error');
+            const warningResults = results.filter(r => !r.passed && r.severity === 'warning');
+            const passedResults = results.filter(r => r.passed);
+
+            const failedCount = criticalResults.length + errorResults.length + warningResults.length;
+            const categoryStatus = failedCount === 0 ? 'passed' : 'failed';
             const statusColor = categoryStatus === 'passed' ? '#4ade80' : '#f87171';
             const statusIcon = categoryStatus === 'passed' ? 'fa-circle-check' : 'fa-circle-xmark';
 
             $results.append(`
                 <div class="ragbooks-diagnostic-category" data-category="${category.key}" style="margin-bottom: 24px;">
-                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid var(--SmartThemeBorderColor);">
+                    <div class="ragbooks-diagnostic-category-header" style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid var(--SmartThemeBorderColor); cursor: pointer;" data-collapsed="false">
+                        <i class="fa-solid fa-chevron-down ragbooks-collapse-icon" style="font-size: 12px; color: var(--grey70); transition: transform 0.2s;"></i>
                         <i class="fa-solid ${category.icon}" style="font-size: 18px; color: var(--SmartThemeQuoteColor);"></i>
                         <h3 style="flex: 1; margin: 0; font-size: 16px; font-weight: 600;">${category.name}</h3>
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 12px; color: var(--grey70);">${results.filter(r => r.passed).length}/${results.length} passed</span>
+                            <span style="font-size: 12px; color: var(--grey70);">${passedResults.length}/${results.length} passed</span>
                             <i class="fa-solid ${statusIcon}" style="color: ${statusColor}; font-size: 16px;"></i>
                         </div>
                     </div>
                     <div class="ragbooks-diagnostic-items">
-                        ${results.map((result, index) => renderDiagnosticItem(result, index)).join('')}
+                        ${criticalResults.length > 0 ? `
+                            <div class="ragbooks-diagnostic-section" style="margin-bottom: 16px;">
+                                <div style="font-size: 12px; font-weight: 600; color: #dc2626; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+                                    Critical Issues (${criticalResults.length})
+                                </div>
+                                ${criticalResults.map((result, index) => renderDiagnosticItem(result, results.indexOf(result), 'critical')).join('')}
+                            </div>
+                        ` : ''}
+                        ${errorResults.length > 0 ? `
+                            <div class="ragbooks-diagnostic-section" style="margin-bottom: 16px;">
+                                <div style="font-size: 12px; font-weight: 600; color: #f59e0b; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+                                    Errors (${errorResults.length})
+                                </div>
+                                ${errorResults.map((result, index) => renderDiagnosticItem(result, results.indexOf(result), 'error')).join('')}
+                            </div>
+                        ` : ''}
+                        ${warningResults.length > 0 ? `
+                            <div class="ragbooks-diagnostic-section" style="margin-bottom: 16px;">
+                                <div style="font-size: 12px; font-weight: 600; color: #fbbf24; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+                                    Warnings (${warningResults.length})
+                                </div>
+                                ${warningResults.map((result, index) => renderDiagnosticItem(result, results.indexOf(result), 'warning')).join('')}
+                            </div>
+                        ` : ''}
+                        ${passedResults.length > 0 ? `
+                            <div class="ragbooks-diagnostic-section ragbooks-passed-section">
+                                <div class="ragbooks-passed-header" style="font-size: 12px; font-weight: 600; color: #4ade80; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; display: flex; align-items: center; gap: 8px;" data-expanded="false">
+                                    <i class="fa-solid fa-chevron-right ragbooks-passed-collapse-icon" style="font-size: 10px; transition: transform 0.2s;"></i>
+                                    Passed Checks (${passedResults.length})
+                                </div>
+                                <div class="ragbooks-passed-items" style="display: none;">
+                                    ${passedResults.map((result, index) => renderDiagnosticItem(result, results.indexOf(result), 'passed')).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
                     </div>
                 </div>
             `);
@@ -14914,7 +15347,7 @@ jQuery(async function () {
     /**
      * Render individual diagnostic item
      */
-    function renderDiagnosticItem(result, index) {
+    function renderDiagnosticItem(result, index, displayType = 'default') {
         const severityColors = {
             critical: '#dc2626',
             error: '#f59e0b',
@@ -14929,22 +15362,38 @@ jQuery(async function () {
             info: 'ℹ️'
         };
 
-        const icon = severityIcons[result.severity];
-        const color = severityColors[result.severity];
+        const icon = severityIcons[result.severity] || 'ℹ️';
+        const color = severityColors[result.severity] || 'var(--SmartThemeQuoteColor)';
         const statusIcon = result.passed ? 'fa-circle-check' : 'fa-circle-xmark';
         const statusColor = result.passed ? '#4ade80' : '#f87171';
 
-        // Don't show passed INFO items to reduce clutter
-        if (result.passed && result.severity === 'info') {
-            return '';
+        // For passed items, use a more compact display
+        if (displayType === 'passed' || result.passed) {
+            return `
+                <div class="ragbooks-diagnostic-item ragbooks-diagnostic-passed" style="background: var(--black10a); padding: 8px 12px; border-radius: 6px; margin-bottom: 4px; border-left: 3px solid #4ade80;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <i class="fa-solid fa-circle-check" style="color: #4ade80; font-size: 14px;"></i>
+                        <div style="flex: 1;">
+                            <div style="font-weight: 500; font-size: 13px;">${result.issue}</div>
+                            ${result.description ? `<div style="font-size: 11px; color: var(--grey70); margin-top: 2px;">${result.description}</div>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
         }
 
+        // For failed items, use more prominent display with background highlight
+        const bgColor = displayType === 'critical' ? 'rgba(220, 38, 38, 0.1)' :
+                        displayType === 'error' ? 'rgba(245, 158, 11, 0.1)' :
+                        displayType === 'warning' ? 'rgba(251, 191, 36, 0.1)' :
+                        'var(--black10a)';
+
         return `
-            <div class="ragbooks-diagnostic-item" style="background: var(--black10a); padding: 12px; border-radius: 6px; margin-bottom: 8px; border-left: 3px solid ${color};">
+            <div class="ragbooks-diagnostic-item" style="background: ${bgColor}; padding: 12px; border-radius: 6px; margin-bottom: 8px; border-left: 4px solid ${color};">
                 <div style="display: flex; align-items: start; gap: 12px;">
                     <i class="fa-solid ${statusIcon}" style="color: ${statusColor}; font-size: 16px; margin-top: 2px;"></i>
                     <div style="flex: 1;">
-                        <div style="font-weight: 600; margin-bottom: 4px;">${icon} ${result.issue}</div>
+                        <div style="font-weight: 600; margin-bottom: 4px; font-size: 14px;">${icon} ${result.issue}</div>
                         <div style="font-size: 13px; color: var(--grey70); margin-bottom: 8px;">${result.description}</div>
                         ${!result.passed && result.manualFix ? `
                             <div style="font-size: 12px; color: var(--SmartThemeQuoteColor); background: var(--black30a); padding: 8px; border-radius: 4px; margin-top: 8px;">
@@ -14973,6 +15422,42 @@ jQuery(async function () {
 
     $(document).on('click', '#ragbooks_diagnostics_rerun', function() {
         runDiagnosticsUI();
+    });
+
+    // Toggle passed checks visibility
+    $(document).on('click', '.ragbooks-passed-header', function() {
+        const $header = $(this);
+        const $items = $header.siblings('.ragbooks-passed-items');
+        const $icon = $header.find('.ragbooks-passed-collapse-icon');
+        const isExpanded = $header.data('expanded');
+
+        if (isExpanded) {
+            $items.slideUp(200);
+            $icon.css('transform', 'rotate(0deg)');
+            $header.data('expanded', false);
+        } else {
+            $items.slideDown(200);
+            $icon.css('transform', 'rotate(90deg)');
+            $header.data('expanded', true);
+        }
+    });
+
+    // Toggle category collapse
+    $(document).on('click', '.ragbooks-diagnostic-category-header', function() {
+        const $header = $(this);
+        const $items = $header.siblings('.ragbooks-diagnostic-items');
+        const $icon = $header.find('.ragbooks-collapse-icon');
+        const isCollapsed = $header.data('collapsed');
+
+        if (isCollapsed) {
+            $items.slideDown(200);
+            $icon.css('transform', 'rotate(0deg)');
+            $header.data('collapsed', false);
+        } else {
+            $items.slideUp(200);
+            $icon.css('transform', 'rotate(-90deg)');
+            $header.data('collapsed', true);
+        }
     });
 
     $(document).on('click', '.ragbooks-diagnostic-fix-btn', async function() {

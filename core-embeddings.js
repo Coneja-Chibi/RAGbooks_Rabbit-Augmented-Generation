@@ -14,6 +14,7 @@
 
 import { Diagnostics } from './core-system.js';
 import { extensionName } from './core-state.js';
+import { extension_settings } from '../../../extensions.js';
 
 // ==================== EMBEDDING GENERATION ====================
 
@@ -29,7 +30,8 @@ const embeddingCache = new Map();
  * @throws {Error} If no provider configured
  */
 export function getEmbeddingProvider() {
-    const vectorSettings = window.extension_settings?.vectors;
+    // Access ST's vector extension settings through the proper import
+    const vectorSettings = extension_settings?.vectors;
 
     if (!vectorSettings) {
         throw new Error('Vectors extension not found. Please install the Vectors extension.');
@@ -201,15 +203,39 @@ function providerSupportsBatch(source) {
  * @private
  */
 async function callVectorAPI(text, provider, retries = 3) {
+    // NOTE: ST doesn't expose a direct client-side embedding API
+    // Embeddings are generated server-side during /api/vector/insert
+    // This function uses the rabbit-rag-vectors plugin if available
+
+    const { getRequestHeaders } = await import('../../../../script.js');
+    const { isPluginAvailable } = await import('./plugin-vector-api.js');
+
     for (let attempt = 0; attempt < retries; attempt++) {
         try {
-            // Use ST's vector extension API
-            // The vector extension exposes: window.getVectorForText(text)
-            if (typeof window.getVectorForText === 'function') {
-                const embedding = await window.getVectorForText(text);
-                return embedding;
+            const pluginReady = await isPluginAvailable();
+
+            if (pluginReady) {
+                // Use plugin's get-embedding endpoint
+                const response = await fetch('/api/plugins/rabbit-rag-vectors/get-embedding', {
+                    method: 'POST',
+                    headers: getRequestHeaders(),
+                    body: JSON.stringify({
+                        text: text,
+                        source: provider.source || 'transformers',
+                        model: provider.model || ''
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ error: response.statusText }));
+                    throw new Error(error.error || `Plugin returned ${response.status}`);
+                }
+
+                const data = await response.json();
+                return data.embedding;
             } else {
-                throw new Error('ST vector API not available. Ensure Vectors extension is loaded.');
+                // Standard ST - no client-side embedding API
+                throw new Error('rabbit-rag-vectors plugin not available. Install plugin for client-side embedding generation.');
             }
 
         } catch (error) {
@@ -513,36 +539,71 @@ Diagnostics.registerCheck('embedding-provider-configured', {
 
 Diagnostics.registerCheck('embedding-provider-reachable', {
     name: 'Embedding Provider Reachable',
-    description: 'Tests embedding generation with a sample text',
+    description: 'Tests that the vector extension is configured and API is responsive',
     category: 'EMBEDDINGS',
     checkFn: async () => {
         try {
             const provider = getEmbeddingProvider();
 
-            // Try to generate a test embedding
-            console.log('[RAG:DIAGNOSTICS] Testing embedding generation...');
-            const testText = 'This is a test sentence for embedding generation.';
-            const embedding = await getEmbedding(testText);
+            // Check if we can access extension_settings.vectors
+            const vectorSettings = extension_settings?.vectors;
 
-            if (!embedding || embedding.length === 0) {
+            if (!vectorSettings) {
                 return {
                     status: 'error',
-                    message: 'Provider returned empty embedding',
-                    userMessage: 'The embedding provider returned an empty result. Check provider configuration.'
+                    message: 'Vector extension settings not found',
+                    userMessage: 'The Vectors extension settings are not available. Ensure the Vectors extension is enabled.'
+                };
+            }
+
+            if (!vectorSettings.enabled) {
+                return {
+                    status: 'warn',
+                    message: 'Vector extension is disabled',
+                    userMessage: 'The Vectors extension is disabled. Enable it in Extensions > Vector Storage.'
+                };
+            }
+
+            if (!vectorSettings.source) {
+                return {
+                    status: 'error',
+                    message: 'No vector source configured',
+                    userMessage: 'No embedding provider is selected. Configure one in Extensions > Vector Storage.'
+                };
+            }
+
+            // Test that we can make API calls to the vector endpoints
+            const { getRequestHeaders } = await import('../../../../script.js');
+
+            // Try a simple list call with a non-existent collection (should return empty, not error)
+            const testResponse = await fetch('/api/vector/list', {
+                method: 'POST',
+                headers: getRequestHeaders(),
+                body: JSON.stringify({
+                    collectionId: '_ragbooks_provider_test_' + Date.now(),
+                    source: vectorSettings.source
+                })
+            });
+
+            if (!testResponse.ok) {
+                return {
+                    status: 'error',
+                    message: `Vector API returned ${testResponse.status}`,
+                    userMessage: `Vector API endpoint returned error ${testResponse.status}. Check server logs.`
                 };
             }
 
             return {
                 status: 'pass',
-                message: `Provider reachable (generated ${embedding.length}D embedding)`,
-                userMessage: `Embedding provider is working correctly. Generated ${embedding.length}-dimensional embeddings.`
+                message: `Provider ${provider} is configured and API is responsive`,
+                userMessage: `Embedding provider "${provider}" is configured. Vector API endpoint is responding.`
             };
 
         } catch (error) {
             return {
                 status: 'error',
                 message: `Provider test failed: ${error.message}`,
-                userMessage: `Cannot reach embedding provider: ${error.message}. Check that the provider is running and configured correctly.`,
+                userMessage: `Vector API check failed: ${error.message}`,
                 fixes: [
                     {
                         label: 'Check Provider Settings',
@@ -571,24 +632,41 @@ Diagnostics.registerCheck('embedding-dimension-consistent', {
     description: 'Validates all embeddings have the same dimension',
     category: 'EMBEDDINGS',
     checkFn: async () => {
-        // This check will be more useful once we have chunks stored
-        // For now, just verify expected dimension if known
+        try {
+            // This check will be more useful once we have chunks stored
+            // For now, just verify expected dimension if known
 
-        const expectedDim = getExpectedDimension();
+            const expectedDim = getExpectedDimension();
 
-        if (!expectedDim) {
+            if (!expectedDim) {
+                return {
+                    status: 'info',
+                    message: 'Unknown expected dimension for this provider',
+                    userMessage: 'Cannot validate embedding dimensions - provider dimension is unknown.'
+                };
+            }
+
+            return {
+                status: 'pass',
+                message: `Expected dimension: ${expectedDim}`,
+                userMessage: `Embeddings should be ${expectedDim}-dimensional.`
+            };
+        } catch (error) {
             return {
                 status: 'info',
-                message: 'Unknown expected dimension for this provider',
-                userMessage: 'Cannot validate embedding dimensions - provider dimension is unknown.'
+                message: `Cannot determine embedding dimensions: ${error.message}`,
+                userMessage: 'Embedding dimension check skipped - provider not configured or not accessible.',
+                fixes: [{
+                    label: 'Configure Provider',
+                    description: 'Set up an embedding provider in Vector Storage settings',
+                    action: () => {
+                        if (window.openVectorSettings) {
+                            window.openVectorSettings();
+                        }
+                    }
+                }]
             };
         }
-
-        return {
-            status: 'pass',
-            message: `Expected dimension: ${expectedDim}`,
-            userMessage: `Embeddings should be ${expectedDim}-dimensional.`
-        };
     }
 });
 

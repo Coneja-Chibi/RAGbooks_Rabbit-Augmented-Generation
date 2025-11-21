@@ -1,5 +1,5 @@
 /**
- * Plugin Vector API - Wrapper for rabbit-rag-vectors server plugin
+ * Plugin Vector API - Wrapper for vecthare server plugin
  *
  * WHY: Detect if plugin is available and use it to get vectors with embeddings.
  * Falls back to standard ST API if plugin not installed.
@@ -18,7 +18,7 @@ let pluginAvailable = null;
 let pluginCheckPromise = null;
 
 /**
- * Check if rabbit-rag-vectors plugin is available
+ * Check if vecthare plugin is available
  * Caches result to avoid repeated checks
  * @returns {Promise<boolean>}
  */
@@ -33,28 +33,28 @@ export async function isPluginAvailable() {
 
     pluginCheckPromise = (async () => {
         try {
-            // Try to hit plugin endpoint with invalid data to see if it exists
-            const response = await fetch('/api/plugins/rabbit-rag-vectors/query-with-vectors', {
-                method: 'POST',
-                headers: getRequestHeaders(),
-                body: JSON.stringify({}) // Invalid request
+            // Try to hit the health endpoint
+            const response = await fetch('/api/plugins/vecthare/health', {
+                method: 'GET',
+                headers: getRequestHeaders()
             });
 
-            // If we get 400 (bad request), plugin exists but we sent bad data
-            // If we get 404, plugin doesn't exist
-            if (response.status === 400) {
+            // If we get 200, plugin is loaded and healthy
+            if (response.ok) {
+                const data = await response.json();
                 pluginAvailable = true;
-                logger.log('✅ [RAG:PLUGIN] rabbit-rag-vectors plugin detected');
+                logger.log(`✅ [RAG:PLUGIN] vecthare plugin v${data.version} detected`);
                 return true;
             } else if (response.status === 404) {
                 pluginAvailable = false;
-                logger.warn('⚠️ [RAG:PLUGIN] rabbit-rag-vectors plugin NOT installed');
-                logger.warn('⚠️ [RAG:PLUGIN] Install plugin for client-side similarity with ST-Helpers');
-                logger.warn('⚠️ [RAG:PLUGIN] Falling back to server-side search');
+                logger.warn('⚠️ [RAG:PLUGIN] vecthare plugin NOT installed');
+                logger.warn('⚠️ [RAG:PLUGIN] Install plugin for client-side similarity with Cosine/Jaccard/Hamming');
+                logger.warn('⚠️ [RAG:PLUGIN] Falling back to keyword-only search');
                 return false;
             } else {
                 // Unexpected status - assume not available
                 pluginAvailable = false;
+                logger.warn(`⚠️ [RAG:PLUGIN] Unexpected status ${response.status}`);
                 return false;
             }
         } catch (error) {
@@ -69,7 +69,7 @@ export async function isPluginAvailable() {
 
 /**
  * Query collection with vectors included in results
- * Requires rabbit-rag-vectors plugin to be installed
+ * Requires vecthare plugin to be installed
  *
  * @param {string} collectionId - Collection ID
  * @param {number[]} queryVector - Pre-computed query embedding
@@ -82,11 +82,11 @@ export async function queryWithVectors(collectionId, queryVector, topK = 10, thr
     const available = await isPluginAvailable();
 
     if (!available) {
-        throw new Error('rabbit-rag-vectors plugin is not installed. Cannot get vectors from server.');
+        throw new Error('vecthare plugin is not installed. Cannot get vectors from server.');
     }
 
     try {
-        const response = await fetch('/api/plugins/rabbit-rag-vectors/query-with-vectors', {
+        const response = await fetch('/api/plugins/vecthare/query-with-vectors', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
@@ -116,7 +116,7 @@ export async function queryWithVectors(collectionId, queryVector, topK = 10, thr
 
 /**
  * List all items in collection with vectors included
- * Requires rabbit-rag-vectors plugin to be installed
+ * Requires vecthare plugin to be installed
  *
  * @param {string} collectionId - Collection ID
  * @param {string} source - Vector source (palm, openai, etc.)
@@ -126,11 +126,11 @@ export async function listWithVectors(collectionId, source = 'palm') {
     const available = await isPluginAvailable();
 
     if (!available) {
-        throw new Error('rabbit-rag-vectors plugin is not installed. Cannot get vectors from server.');
+        throw new Error('vecthare plugin is not installed. Cannot get vectors from server.');
     }
 
     try {
-        const response = await fetch('/api/plugins/rabbit-rag-vectors/list-with-vectors', {
+        const response = await fetch('/api/plugins/vecthare/list-with-vectors', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
@@ -157,7 +157,7 @@ export async function listWithVectors(collectionId, source = 'palm') {
 
 /**
  * Get a single item by hash with its vector
- * Requires rabbit-rag-vectors plugin to be installed
+ * Requires vecthare plugin to be installed
  *
  * @param {string} collectionId - Collection ID
  * @param {number} hash - Item hash
@@ -168,11 +168,11 @@ export async function getItemWithVector(collectionId, hash, source = 'palm') {
     const available = await isPluginAvailable();
 
     if (!available) {
-        throw new Error('rabbit-rag-vectors plugin is not installed. Cannot get vectors from server.');
+        throw new Error('vecthare plugin is not installed. Cannot get vectors from server.');
     }
 
     try {
-        const response = await fetch('/api/plugins/rabbit-rag-vectors/get-item', {
+        const response = await fetch('/api/plugins/vecthare/get-item', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({

@@ -104,3 +104,39 @@
     background-color: var(--SmartThemeQuoteColor) !important;
     color: #fff !important;
 }
+
+/* Custom Nested Drawer (Isolated from ST Global Listeners) */
+.ragbooks-drawer {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
+
+.ragbooks-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px;
+    background: var(--black20a);
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.ragbooks-drawer-header:hover {
+    background: var(--black30a);
+}
+
+.ragbooks-drawer-icon {
+    font-size: 0.8em;
+    opacity: 0.7;
+    transition: transform 0.2s;
+}
+
+.ragbooks-drawer-icon.up {
+    transform: rotate(180deg);
+}
+
+.ragbooks-drawer-content {
+    width: 100%;
+}

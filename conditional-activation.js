@@ -176,8 +176,15 @@ function evaluateConditionRule(rule, context) {
 
         case 'emotion':
             // Hybrid emotion detection: Character Expressions → Enhanced Keywords
-            const settings = rule.settings || { values: [rule.value || 'joy'], detectionMethod: 'auto' };
-            const targetEmotions = settings.values || ['joy'];
+            const settings = rule.settings || { values: [], detectionMethod: 'auto' };
+            const targetEmotions = settings.values || [];
+            
+            if (targetEmotions.length === 0) {
+                console.warn('⚠️ [Conditions:Emotion] No target emotions selected. Condition fails.');
+                result = false;
+                break;
+            }
+
             const detectionMethod = settings.detectionMethod || 'auto';
             let detectedEmotion = null;
             let usingExpressions = false;
@@ -363,14 +370,15 @@ export function evaluateConditions(chunk, context) {
 
     const rules = chunk.conditions.rules || [];
     if (rules.length === 0) {
-        return true; // No rules = always activate
+        return true; // Enabled but no rules = active
     }
 
     // Evaluate each rule
     const results = rules.map(rule => evaluateConditionRule(rule, context));
 
-    // Apply AND/OR logic
-    if (chunk.conditions.mode === 'AND') {
+    // Apply AND/OR logic (use 'logic' field, fallback to 'mode' for compatibility)
+    const logic = chunk.conditions.logic || chunk.conditions.mode || 'AND';
+    if (logic === 'AND') {
         return results.every(r => r);
     } else {
         return results.some(r => r);

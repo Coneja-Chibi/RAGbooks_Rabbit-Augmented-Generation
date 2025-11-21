@@ -974,39 +974,64 @@ export function checkTopKSettings(topK) {
 }
 
 /**
- * Check for active collections
+ * Check for active collections across all relevant scopes
+ * WHY: Users need to know what collections are available for the current context
+ * This checks global (always available) + character/chat scopes based on context
  */
 export function checkActiveCollections(ragState, scope, scopeId) {
-    let collections = [];
+    // Collect all available collections for current context
+    const availableCollections = {
+        global: [],
+        character: [],
+        chat: []
+    };
 
-    switch (scope) {
-        case 'global':
-            collections = Object.keys(ragState.libraries?.global || {});
-            break;
-        case 'character':
-            collections = Object.keys(ragState.libraries?.character?.[scopeId] || {});
-            break;
-        case 'chat':
-            collections = Object.keys(ragState.libraries?.chat?.[scopeId] || {});
-            break;
+    // Global collections are always available
+    availableCollections.global = Object.keys(ragState.libraries?.global || {});
+
+    // Character-scoped collections (if character context exists)
+    if (scope === 'character' && scopeId) {
+        availableCollections.character = Object.keys(ragState.libraries?.character?.[scopeId] || {});
+    } else if (scope === 'chat' && scopeId) {
+        // For chat scope, also check if there's a character context
+        // Chat scope inherits from character scope
+        availableCollections.chat = Object.keys(ragState.libraries?.chat?.[scopeId] || {});
     }
 
-    if (collections.length === 0) {
+    // Calculate totals
+    const totalCollections =
+        availableCollections.global.length +
+        availableCollections.character.length +
+        availableCollections.chat.length;
+
+    if (totalCollections === 0) {
         return new DiagnosticResult(
             false,
             SEVERITY.WARNING,
             'No active collections',
-            `No RAG collections found for ${scope} scope. Nothing to search.`,
+            `No RAG collections found in any scope. Nothing to search.`,
             null,
             'Create and vectorize content in RAGBooks to enable search'
         );
+    }
+
+    // Build description showing what's available
+    const scopeDetails = [];
+    if (availableCollections.global.length > 0) {
+        scopeDetails.push(`${availableCollections.global.length} global`);
+    }
+    if (availableCollections.character.length > 0) {
+        scopeDetails.push(`${availableCollections.character.length} character`);
+    }
+    if (availableCollections.chat.length > 0) {
+        scopeDetails.push(`${availableCollections.chat.length} chat`);
     }
 
     return new DiagnosticResult(
         true,
         SEVERITY.INFO,
         'Active collections',
-        `${collections.length} collection(s) available for search`
+        `${totalCollections} collection(s) available: ${scopeDetails.join(', ')}`
     );
 }
 
@@ -1637,6 +1662,7 @@ export async function runDiagnostics(options = {}) {
         search: [],
         configuration: [],
         chunkData: [],
+        productionTests: [],
         summary: {
             total: 0,
             passed: 0,
@@ -1746,7 +1772,8 @@ export async function runDiagnostics(options = {}) {
         ...results.library,
         ...results.search,
         ...results.configuration,
-        ...results.chunkData
+        ...results.chunkData,
+        ...results.productionTests
     ];
 
     results.summary.total = allResults.length;

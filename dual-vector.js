@@ -16,54 +16,58 @@ export function createSummaryChunks(chunks) {
     const summaryChunks = [];
 
     chunks.forEach((chunk, index) => {
-        // Only create summary chunk if:
-        // 1. summaryVectors array has content
-        // 2. summaryVector flag is true (opt-in for dual-vector)
-        // 3. Not already a summary chunk
+        // Only create summary chunks if summaryVectors array has content
+        // and summaryVector flag is true (opt-in for dual-vector)
         if (chunk.summaryVectors && chunk.summaryVectors.length > 0 && chunk.summaryVector && !chunk.isSummaryChunk) {
-            // Use first summary vector (typically AI-generated, but could be user-added)
-            const summaryText = chunk.summaryVectors[0];
-            const summaryHash = getStringHash(`${chunk.hash}_summary`);
+            
+            // Iterate ALL summary vectors
+            chunk.summaryVectors.forEach((summaryText, summaryIndex) => {
+                if (!summaryText || typeof summaryText !== 'string' || !summaryText.trim()) return;
 
-            const summaryChunk = {
-                text: summaryText,
-                hash: summaryHash,
-                index: chunks.length + summaryChunks.length,
-                metadata: {
-                    ...chunk.metadata,
-                    isSummaryFor: chunk.hash
-                },
-                // Core fields
-                section: chunk.section,
-                topic: chunk.topic ? `${chunk.topic} (Summary)` : 'Summary',
-                comment: chunk.comment ? `${chunk.comment} (Summary)` : '',
-                // Keyword system - inherit from parent
-                keywords: chunk.keywords || [],
-                systemKeywords: chunk.systemKeywords || [],
-                customKeywords: chunk.customKeywords || [],
-                customWeights: chunk.customWeights || {},
-                disabledKeywords: chunk.disabledKeywords || [],
-                // Summary flags
-                isSummaryChunk: true,
-                parentHash: chunk.hash,
-                summaryVector: false, // Don't create summary of summary
-                summaryVectors: [], // Summary chunks don't need their own summaries
-                // Link summary to parent (force link so parent always comes with summary)
-                chunkLinks: [{ targetHash: chunk.hash, mode: 'force' }],
-                // Other fields
-                importance: chunk.importance || 100,
-                conditions: chunk.conditions || { enabled: false, mode: 'AND', rules: [] },
-                chunkGroup: chunk.chunkGroup || { name: '', groupKeywords: [], requiresGroupMember: false },
-                inclusionGroup: '',
-                inclusionPrioritize: false,
-                disabled: false
-            };
+                // Unique hash for each summary variant
+                const summaryHash = getStringHash(`${chunk.hash}_summary_${summaryIndex}`);
 
-            summaryChunks.push(summaryChunk);
+                const summaryChunk = {
+                    text: summaryText,
+                    hash: summaryHash,
+                    index: chunks.length + summaryChunks.length,
+                    metadata: {
+                        ...chunk.metadata,
+                        isSummaryFor: chunk.hash,
+                        summaryIndex: summaryIndex
+                    },
+                    // Core fields
+                    section: chunk.section,
+                    topic: chunk.topic ? `${chunk.topic} (Summary ${summaryIndex + 1})` : 'Summary',
+                    comment: chunk.comment ? `${chunk.comment} (Summary ${summaryIndex + 1})` : '',
+                    // Keyword system - inherit from parent
+                    keywords: chunk.keywords || [],
+                    systemKeywords: chunk.systemKeywords || [],
+                    customKeywords: chunk.customKeywords || [],
+                    customWeights: chunk.customWeights || {},
+                    disabledKeywords: chunk.disabledKeywords || [],
+                    // Summary flags
+                    isSummaryChunk: true,
+                    parentHash: chunk.hash,
+                    summaryVector: false, // Don't create summary of summary
+                    summaryVectors: [], 
+                    // Link summary to parent (force link so parent always comes with summary)
+                    chunkLinks: [{ targetHash: chunk.hash, mode: 'force' }],
+                    // Other fields
+                    importance: chunk.importance || 100,
+                    conditions: chunk.conditions || { enabled: false, mode: 'AND', rules: [] },
+                    chunkGroup: chunk.chunkGroup || { name: '', groupKeywords: [], requiresGroupMember: false },
+                    inclusionGroup: '',
+                    inclusionPrioritize: false,
+                    disabled: false
+                };
+
+                summaryChunks.push(summaryChunk);
+            });
         }
     });
 
-    console.log(`📚 [DualVector] Created ${summaryChunks.length} summary chunks from ${chunks.length} chunks`);
+    console.log(`📚 [DualVector] Created ${summaryChunks.length} summary chunks from ${chunks.length} base chunks`);
     return [...chunks, ...summaryChunks];
 }
 

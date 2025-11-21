@@ -10278,8 +10278,8 @@ function renderGroupsTab() {
 
 function initializeKeywordSelect(chunk) {
     const hash = chunk.hash;
-    const $select = $(`.ragbooks-chunk-keywords[data-hash="${hash}"]`);
-    const $textarea = $(`.ragbooks-chunk-keywords-plaintext[data-hash="${hash}"]`);
+    const $select = $(`.rag-chunk-keywords[data-hash="${hash}"]`);
+    const $textarea = $(`.rag-chunk-keywords-plaintext[data-hash="${hash}"]`);
     const $switchBtn = $(`.switch_input_type_icon[data-hash="${hash}"]`);
     if (!$select.length) return;
 
@@ -10854,7 +10854,7 @@ function bindChunkViewerEvents() {
         setTimeout(() => {
             if ($drawer.find('.inline-drawer-content').is(':visible')) {
                 // Chunk was just expanded - lazy initialize select2 if not already done
-                const $select = $drawer.find(`.ragbooks-chunk-keywords[data-hash="${hash}"]`);
+                const $select = $drawer.find(`.rag-chunk-keywords[data-hash="${hash}"]`);
                 if ($select.length && !$select.data('select2')) {
                     initializeKeywordSelect(chunk);
                 }
@@ -10869,7 +10869,7 @@ function bindChunkViewerEvents() {
     });
 
     // Toggle chunk enabled/disabled - optimized with targeted DOM update
-    container.off('click', '.ragbooks-chunk-enabled-toggle').on('click', '.ragbooks-chunk-enabled-toggle', function() {
+    container.off('click', '.rag-chunk-toggle-enabled').on('click', '.rag-chunk-toggle-enabled', function() {
         const $icon = $(this);
         const hash = $icon.data('hash');
         const chunk = currentViewingChunks[hash];
@@ -10903,7 +10903,7 @@ function bindChunkViewerEvents() {
     });
 
     // Edit chunk text
-    container.off('change', '.ragbooks-chunk-text-edit').on('change', '.ragbooks-chunk-text-edit', function() {
+    container.off('change', '.rag-chunk-text-edit').on('change', '.rag-chunk-text-edit', function() {
         const hash = $(this).data('hash');
         const chunk = currentViewingChunks[hash];
         if (chunk) {
@@ -10993,7 +10993,7 @@ function bindChunkViewerEvents() {
     });
 
     // Delete chunk - with immediate save for better UX
-    container.off('click', '.ragbooks-chunk-delete-btn').on('click', '.ragbooks-chunk-delete-btn', async function(e) {
+    container.off('click', '.rag-chunk-delete').on('click', '.rag-chunk-delete', async function(e) {
         e.preventDefault();
         const $btn = $(this);
         const hash = $btn.data('hash');
@@ -11541,11 +11541,11 @@ function bindChunkViewerEventHandlers() {
     // AI summary generation removed - Summary Vectors are now user-defined via Select2
 
     // Importance slider
-    container.off('input', '.ragbooks-importance-slider').on('input', '.ragbooks-importance-slider', function() {
+    container.off('input', '.rag-importance-slider').on('input', '.rag-importance-slider', function() {
         const hash = $(this).data('hash');
         const value = parseInt($(this).val());
 
-        $(`.ragbooks-importance-value[data-hash="${hash}"]`).text(value + '%');
+        $(`.rag-importance-value[data-hash="${hash}"]`).text(value + '%');
 
         if (currentViewingChunks[hash]) {
             currentViewingChunks[hash].importance = value;
@@ -11554,7 +11554,7 @@ function bindChunkViewerEventHandlers() {
     });
 
     // Conditions enabled
-    container.off('change', '.ragbooks-conditions-enabled').on('change', '.ragbooks-conditions-enabled', function() {
+    container.off('change', '.rag-conditions-enable').on('change', '.rag-conditions-enable', function() {
         const hash = $(this).data('hash');
         const enabled = $(this).is(':checked');
 
@@ -11611,7 +11611,7 @@ function bindChunkViewerEventHandlers() {
     });
 
     // Add condition
-    container.off('click', '.ragbooks-condition-add').on('click', '.ragbooks-condition-add', function() {
+    container.off('click', '.rag-add-condition').on('click', '.rag-add-condition', function() {
         const hash = $(this).data('hash');
         const chunk = currentViewingChunks[hash];
 
@@ -11629,7 +11629,7 @@ function bindChunkViewerEventHandlers() {
     });
 
     // Remove condition
-    container.off('click', '.ragbooks-condition-remove').on('click', '.ragbooks-condition-remove', function() {
+    container.off('click', '.rag-condition-remove').on('click', '.rag-condition-remove', function() {
         const hash = $(this).data('hash');
         const idx = $(this).data('idx');
         const chunk = currentViewingChunks[hash];

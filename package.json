@@ -1,0 +1,19 @@
+{
+  "name": "rabbit-rag-vectors",
+  "version": "1.0.0",
+  "description": "Exposes vector embeddings for client-side similarity calculations in RAGBooks",
+  "main": "index.js",
+  "type": "module",
+  "author": "RAGBooks",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "sillytavern",
+    "plugin",
+    "vectors",
+    "embeddings",
+    "rag"
+  ]
+}

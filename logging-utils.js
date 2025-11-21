@@ -417,7 +417,7 @@ export async function checkCollectionExists(collectionId, source) {
                 'Collection is empty in vector database',
                 `Collection "${collectionId}" exists but has no vectors. You need to re-vectorize this content.`,
                 null,
-                'Open the collection and click "Vectorize" to add embeddings to the database'
+                'Open the collection in RAGBooks settings and click the "Re-vectorize" button.'
             );
         }
 

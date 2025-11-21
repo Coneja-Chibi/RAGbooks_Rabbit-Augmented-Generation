@@ -40,6 +40,7 @@ import {
     generateQuietPrompt,
 } from '../../../../script.js';
 import { getStringHash, highlightRegex } from '../../../utils.js';
+import { getTokenCountAsync } from '../../../tokenizers.js';
 import { extension_settings, getContext, saveMetadataDebounced } from '../../../extensions.js';
 import { parseRegexFromString } from '../../../world-info.js';
 import { textgen_types, textgenerationwebui_settings } from '../../../textgen-settings.js';
@@ -54,7 +55,8 @@ import { applyImportanceWeighting, applyImportanceToResults, rankChunksByImporta
 import { evaluateConditions, filterChunksByConditions, buildSearchContext, validateConditions } from './conditional-activation.js';
 import { buildGroupIndex, applyGroupBoosts, enforceRequiredGroups, getGroupStats } from './chunk-groups.js';
 import { applyTemporalDecay, applyDecayToResults, applySceneAwareDecay, getDefaultDecaySettings } from './temporal-decay.js';
-import { performEnhancedSearch, performBasicSearch, buildSearchParams, getSearchFunction } from './search-orchestrator.js';
+import { search as performEnhancedSearch, autoSearch } from './search-orchestrator.js'; // NEW: RabAug Orchestrator
+import { searchByVector, dualVectorSearch } from './search-strategies.js'; // NEW: RabAug Strategies
 import { generateSummariesForChunks, validateSummarySettings, contentTypeSupportsSummarization } from './summarization.js';
 import { cleanText, CLEANING_MODES, CLEANING_PATTERNS, validatePattern } from './text-cleaning.js';
 import {
@@ -7172,41 +7174,24 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {},
             console.log(`   Activation triggers: ${metadata.keywords.join(', ')}`);
         }
 
-        // Run post-vectorization diagnostic to catch issues early (BLOCKING)
-        try {
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for vector DB to process
-
-            const vectorSource = extension_settings.vectors?.source;
-            if (vectorSource) {
-                // Check if collection actually exists in vector DB
-                const existsCheck = await checkCollectionExists(collectionId, vectorSource);
-                if (!existsCheck.passed) {
-                    console.error('⚠️  Post-vectorization check failed:', existsCheck.issue);
-                    // Throw error to prevent showing success message
-                    throw new Error(`Vectorization verification failed: ${existsCheck.issue}\n${existsCheck.description}`);
-                } else {
-                    console.log('✅ Post-vectorization check passed:', existsCheck.description);
-                }
-
-                // Check if summary chunks were properly vectorized (if they exist)
-                const library = ragState.libraries?.[metadata.scope]?.[scopeIdentifier]?.[collectionId] ||
-                               ragState.libraries?.global?.[collectionId];
-                if (library) {
-                    const summaryCount = Object.values(library).filter(c => c.isSummaryChunk).length;
-                    if (summaryCount > 0) {
-                        const hashCheck = await checkHashMismatch(collectionId, library, vectorSource);
-                        if (!hashCheck.passed && hashCheck.severity !== SEVERITY.INFO) {
-                            console.warn('⚠️  Summary vectorization issue detected:', hashCheck.issue);
-                            // Don't throw for summary issues, just warn
-                        }
+        // Run post-vectorization diagnostic to catch issues early (NON-BLOCKING)
+        // We don't await this or let it fail the main process because vector DBs are eventually consistent
+        setTimeout(async () => {
+            try {
+                const vectorSource = extension_settings.vectors?.source;
+                if (vectorSource) {
+                    // Check if collection actually exists in vector DB
+                    const existsCheck = await checkCollectionExists(collectionId, vectorSource);
+                    if (!existsCheck.passed) {
+                        console.warn('⚠️  Post-vectorization check: Collection not yet visible in vector DB (this is normal for eventual consistency)', existsCheck.issue);
+                    } else {
+                        console.log('✅ Post-vectorization check passed:', existsCheck.description);
                     }
                 }
+            } catch (diagError) {
+                console.warn('Post-vectorization diagnostic warning:', diagError);
             }
-        } catch (diagError) {
-            console.error('Post-vectorization diagnostic failed:', diagError);
-            // Re-throw to prevent showing success when verification failed
-            throw diagError;
-        }
+        }, 2000); // Check after 2 seconds
 
         return { success: true, collectionId, chunkCount: finalBaseChunks.length };
     } catch (error) {
@@ -8888,9 +8873,251 @@ function renderChunkCards(chunks, searchTerm = '') {
     const html = filtered.map(chunk => renderChunkCard(chunk)).join('');
     container.html(html);
 
-    // REMOVED: Eager initialization caused race conditions with lazy initialization
-    // Select2 will be initialized lazily when chunk cards are expanded (see chunk card click handler)
-    // This prevents keyword loss when cards are collapsed/expanded or when search filters change
+    // Initialize native UI features
+    setTimeout(() => {
+        if (typeof bindInlineDrawerToggles === 'function') {
+            bindInlineDrawerToggles();
+        }
+        filtered.forEach(chunk => {
+            // Initialize keyword selectors if needed
+            if (chunk._expanded && typeof initializeKeywordSelector === 'function') {
+                initializeKeywordSelector(chunk);
+            }
+        });
+    }, 10);
+}
+
+function renderChunkCard(chunk) {
+    const hash = chunk.hash;
+    const isExpanded = chunk._expanded || false;
+    const isDisabled = chunk.disabled || false;
+    const importance = chunk.importance !== undefined ? chunk.importance : 100;
+
+    const chevronClass = isExpanded ? 'fa-circle-chevron-up up' : 'fa-circle-chevron-down down';
+    const toggleIcon = isDisabled ? 'fa-toggle-off' : 'fa-toggle-on';
+    const disabledClass = isDisabled ? 'chunk-disabled' : '';
+    const toggleColor = isDisabled ? 'var(--grey70)' : 'var(--SmartThemeQuoteColor)';
+
+    // Keyword Preview logic
+    const keywords = chunk.keywords || [];
+    const topKeywords = keywords.slice(0, 5);
+    const remainingCount = Math.max(0, keywords.length - 5);
+
+    const keywordPreview = topKeywords.length > 0
+        ? topKeywords.map(k => `<span class="chunk-keyword-mini-badge" title="${escapeHtml(k)}">${escapeHtml(k)}</span>`).join('') + 
+          (remainingCount > 0 ? `<span class="chunk-keyword-more-badge" title="${remainingCount} more">+${remainingCount}</span>` : '')
+        : '<span class="chunk-keywords-preview empty">No keywords</span>';
+
+    const charCount = chunk.text?.length || 0;
+    const tokenEstimate = Math.ceil(charCount / 4);
+
+    return `
+        <div class="world_entry ${disabledClass}" data-hash="${hash}" style="margin-bottom: 8px;">
+            <form class="world_entry_form wi-card-entry">
+                <div class="inline-drawer wide100p">
+                    <!-- HEADER -->
+                    <div class="inline-drawer-header gap5px padding0" style="display: flex; align-items: center; padding: 8px;">
+                        <span class="drag-handle" style="cursor: grab; margin-right: 8px;">&#9776;</span>
+
+                        <div class="inline-drawer-toggle fa-fw fa-solid ${chevronClass} inline-drawer-icon rag-chunk-expand" 
+                             data-hash="${hash}" 
+                             style="cursor: pointer; margin-right: 8px;"></div>
+
+                        <div class="fa-solid ${toggleIcon} rag-chunk-toggle-enabled" 
+                             data-hash="${hash}" 
+                             style="cursor: pointer; color: ${toggleColor}; font-size: 18px; margin-right: 12px;"></div>
+
+                        <div style="flex: 1; overflow: hidden;">
+                            <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                                <input type="text" class="text_pole chunk-title-field rag-chunk-name-edit" 
+                                       data-hash="${hash}" 
+                                       value="${escapeHtml(chunk.name || chunk.section || 'Untitled')}" 
+                                       style="flex: 1; font-weight: bold; background: transparent; border: none; padding: 0;">
+                                
+                                <div class="chunk-metadata-badges" style="margin-left: 12px; display: flex; gap: 6px;">
+                                    <span class="chunk-meta-badge" title="Character count"><i class="fa-solid fa-font"></i> ${charCount}</span>
+                                    <span class="chunk-meta-badge" title="Token estimate"><i class="fa-solid fa-cube"></i> ~${tokenEstimate}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="chunk-keywords-preview">
+                                ${keywordPreview}
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 8px; margin-left: 12px;">
+                            <i class="menu_button fa-solid fa-copy rag-chunk-copy" data-hash="${hash}" title="Copy Text"></i>
+                            <i class="menu_button fa-solid fa-trash-can rag-chunk-delete" data-hash="${hash}" title="Delete"></i>
+                        </div>
+                    </div>
+
+                    <!-- EXPANDED BODY -->
+                    <div class="inline-drawer-content inline-drawer-outlet wide100p" style="display: ${isExpanded ? 'block' : 'none'}; padding: 16px;">
+                        
+                        <div class="world_entry_form_control flex1" style="margin-bottom: 16px;">
+                            <label><small>Content</small></label>
+                            <textarea class="text_pole autoSetHeight rag-chunk-text-edit" 
+                                      data-hash="${hash}" 
+                                      rows="6"
+                                      style="resize: vertical; width: 100%;">${escapeHtml(chunk.text || '')}</textarea>
+                        </div>
+
+                        <!-- Importance Slider -->
+                        <div class="world_entry_form_control" style="margin-bottom: 16px;">
+                            <small>Importance: <strong class="rag-importance-value" data-hash="${hash}">${importance}%</strong></small>
+                            <input type="range" class="rag-importance-slider" 
+                                   data-hash="${hash}" 
+                                   min="0" max="200" value="${importance}" 
+                                   style="width: 100%;">
+                        </div>
+
+                        <!-- Conditional Activation -->
+                        <div class="inline-drawer wide100p" style="border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 12px;">
+                            <div class="inline-drawer-toggle inline-drawer-header" style="cursor: pointer; font-size: 0.9em;">
+                                <strong><i class="fa-solid fa-filter"></i> Conditional Activation</strong>
+                                <div class="fa-solid fa-circle-chevron-down inline-drawer-icon down"></div>
+                            </div>
+                            <div class="inline-drawer-content" style="display: none; padding: 12px; background: var(--black10a); margin-top: 8px; border-radius: 4px;">
+                                <label class="checkbox_label" style="margin-bottom: 8px;">
+                                    <input type="checkbox" class="rag-conditions-enable" data-hash="${hash}" ${chunk.conditions?.enabled ? 'checked' : ''}>
+                                    Enable Conditions
+                                </label>
+                                <!-- Condition builder logic will go here -->
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </form>
+        </div>
+    `;
+}
+
+function bindInlineDrawerToggles() {
+    // Main chunk expansion
+    $('.inline-drawer-toggle.rag-chunk-expand').off('click').on('click', function(e) {
+        e.stopPropagation();
+        const hash = $(this).data('hash');
+        if (currentViewingChunks[hash]) {
+            currentViewingChunks[hash]._expanded = !currentViewingChunks[hash]._expanded;
+            renderChunkCards(currentViewingChunks, $('#ragbooks_chunk_search').val());
+        }
+    });
+
+    // Nested drawer toggles
+    $('.inline-drawer-toggle.inline-drawer-header').not('.rag-chunk-expand').off('click').on('click', function(e) {
+        const $drawer = $(this).closest('.inline-drawer');
+        const $content = $drawer.find('.inline-drawer-content').first();
+        const $icon = $(this).find('.inline-drawer-icon');
+
+        if ($content.is(':visible')) {
+            $content.slideUp(200);
+            $icon.removeClass('up fa-circle-chevron-up').addClass('down fa-circle-chevron-down');
+        } else {
+            $content.slideDown(200);
+            $icon.removeClass('down fa-circle-chevron-down').addClass('up fa-circle-chevron-up');
+        }
+    });
+}
+
+function initializeKeywordSelector(chunk) {
+    const hash = chunk.hash;
+    const $select = $(`.rag-chunk-keywords[data-hash="${hash}"]`);
+
+    if (!$select.length) return;
+
+    const keywords = ensureArrayValue(chunk.keywords);
+    const customWeights = chunk.customWeights || {};
+
+    function getWeight(keyword) {
+        const normalized = keyword.toLowerCase();
+        return customWeights[normalized] !== undefined ? customWeights[normalized] : 100;
+    }
+
+    // Initialize Select2 with custom templates
+    $select.select2({
+        tags: true,
+        tokenSeparators: [','],
+        placeholder: 'Add keywords...',
+        width: '100%',
+        dropdownParent: $('#ragbooks_chunk_viewer_modal'),
+        templateResult: function(item) {
+            if (item.loading) return item.text;
+            const content = $('<span>').text(item.text);
+            try {
+                new RegExp(item.text); // Check regex validity
+                content.html(highlightRegex(item.text));
+                content.prepend($('<span>').css('opacity', '0.5').text('regex: '));
+            } catch (e) {}
+            return content;
+        },
+        templateSelection: function(item) {
+            const keyword = item.text;
+            const normalized = keyword.toLowerCase();
+            const weight = getWeight(keyword);
+            
+            const $tag = $('<span>');
+            try {
+                new RegExp(keyword);
+                $tag.append($('<span>').css('opacity', '0.5').text('® ')).append($(highlightRegex(keyword)));
+            } catch (e) {
+                $tag.text(keyword);
+            }
+
+            // Weight Badge
+            const $weight = $('<span>')
+                .addClass('keyword-weight-badge')
+                .text(weight)
+                .css({
+                    'margin-left': '5px',
+                    'font-size': '0.8em',
+                    'opacity': '0.8',
+                    'background': 'rgba(0,0,0,0.2)',
+                    'padding': '0 4px',
+                    'border-radius': '3px',
+                    'cursor': 'pointer'
+                })
+                .on('mousedown', e => e.stopPropagation())
+                .on('click', function(e) {
+                    e.stopPropagation();
+                    const newWeight = prompt('Enter new weight (1-200):', weight);
+                    if (newWeight && !isNaN(newWeight)) {
+                        const val = Math.max(1, Math.min(200, parseInt(newWeight)));
+                        if (!chunk.customWeights) chunk.customWeights = {};
+                        chunk.customWeights[normalized] = val;
+                        hasUnsavedChunkChanges = true;
+                        // Hacky refresh
+                        $select.trigger('change.select2'); 
+                    }
+                });
+
+            $tag.append($weight);
+            return $tag;
+        }
+    });
+
+    // Populate options
+    $select.empty();
+    keywords.forEach(kw => {
+        const option = new Option(kw, kw, true, true);
+        $select.append(option);
+    });
+    $select.trigger('change');
+
+    // Handle changes
+    $select.on('change', function(e) {
+        const values = $(this).val() || [];
+        chunk.keywords = values;
+        hasUnsavedChunkChanges = true;
+    });
+}
+
+function ensureArrayValue(value) {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    if (value instanceof Set) return Array.from(value);
+    if (typeof value === 'string') return value.split(',').map(s => s.trim()).filter(Boolean);
+    return [];
 }
 
 // Helper functions for condition rendering
@@ -9408,368 +9635,6 @@ function refreshConditionsList(hash, chunk) {
     (chunk.conditions?.rules || []).forEach((rule, idx) => {
         $list.append(generateConditionRowHTML(hash, rule, idx));
     });
-}
-
-function renderChunkCard(chunk) {
-    const hash = chunk.hash;
-    const keywords = getActiveKeywords(chunk); // Compute keywords on-the-fly
-    const systemKeywords = chunk.systemKeywords || [];
-    const customKeywords = chunk.customKeywords || [];
-    const customWeights = chunk.customWeights || {};
-    const disabledKeywords = chunk.disabledKeywords || [];
-    const chunkLinks = chunk.chunkLinks || [];
-    const isDisabled = chunk.disabled || false;
-
-    // Detect if this is a scene chunk
-    const isSceneChunk = chunk.metadata?.sceneStart !== undefined;
-    const sceneStart = chunk.metadata?.sceneStart;
-    const sceneEnd = chunk.metadata?.sceneEnd;
-    const sceneTitle = chunk.metadata?.sceneTitle || chunk.section;
-    const sceneIndex = chunk.metadata?.sceneIndex;
-
-    // Check if this is an orphaned scene chunk (scene deleted from chat_metadata)
-    const isOrphanedScene = isSceneChunk && sceneIndex !== undefined && (() => {
-        const scenes = getScenes();
-        return !scenes || !scenes[sceneIndex];
-    })();
-
-    // Show top 5 keywords in collapsed header
-    const topKeywords = keywords.slice(0, 5);
-    const remainingCount = Math.max(0, keywords.length - 5);
-
-    const keywordPreview = topKeywords.length > 0
-        ? topKeywords.map(k => {
-            const weight = customWeights[k] || 100;
-            const isCustom = customKeywords.includes(k);
-            const isDisabledKw = disabledKeywords.includes(k);
-            const tagClass = isCustom ? 'chunk-tag chunk-tag--custom' : 'chunk-tag';
-            const disabledTag = isDisabledKw ? ' chunk-tag--disabled' : '';
-            return `<span class="${tagClass}${disabledTag}">${k}<sup class="chunk-tag__weight">${weight}</sup></span>`;
-        }).join('') + (remainingCount > 0 ? `<span class="chunk-tag__overflow">+${remainingCount} more</span>` : '')
-        : '<span class="chunk-keywords-preview empty">No keywords</span>';
-
-    const isExpanded = chunk._expanded || false;
-    const chevronClass = isExpanded ? 'fa-circle-chevron-up up' : 'fa-circle-chevron-down down';
-    const disabledClass = isDisabled ? 'chunk-disabled' : '';
-    const toggleIcon = isDisabled ? 'fa-toggle-off' : 'fa-toggle-on';
-
-    return `
-        <div class="world_entry ${disabledClass}" data-hash="${hash}">
-            <form class="world_entry_form wi-card-entry">
-                <div class="inline-drawer wide100p">
-                    <div class="inline-drawer-header gap5px padding0">
-                        <span class="drag-handle">&#9776;</span>
-                        <div class="gap5px world_entry_thin_controls wide100p alignitemscenter">
-                            <div class="inline-drawer-toggle fa-fw fa-solid ${chevronClass} inline-drawer-icon"></div>
-                            <div class="flex-container alignitemscenter wide100p flexNoGap">
-                                <div class="WIEntryTitleAndStatus flex-container flex1 alignitemscenter">
-                                    <div class="flex-container flex1 alignitemscenter">
-                                        ${isSceneChunk ? `<span class="ragbooks-scene-badge" title="Scene Chunk" style="margin-right: 6px;"><i class="fa-solid fa-clapperboard"></i></span>` : ''}
-                                        ${isOrphanedScene ? `<span class="ragbooks-orphan-badge" title="Scene has been deleted" style="margin-right: 6px; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; background: rgba(231, 76, 60, 0.2); color: #e74c3c; white-space: nowrap;"><i class="fa-solid fa-exclamation-triangle"></i> Scene Deleted</span>` : ''}
-                                        <input type="text"
-                                               class="text_pole ragbooks-chunk-name margin0"
-                                               data-hash="${hash}"
-                                               value="${escapeHtml(chunk.name || '')}"
-                                               placeholder="Auto-generated if empty"
-                                               style="flex: 1; min-width: 100px;">
-                                        ${isSceneChunk ? `<small class="ragbooks-scene-range" title="Scene messages" style="margin-left: 8px; white-space: nowrap;">📍 #${sceneStart} - #${sceneEnd}</small>` : ''}
-                                    </div>
-                                </div>
-                                <div class="chunk-header-right">
-                                    <i class="fa-solid ${toggleIcon} ragbooks-chunk-enabled-toggle interactable"
-                                        data-hash="${hash}"
-                                        title="Toggle chunk enabled/disabled"></i>
-                                    <div class="chunk-keywords-preview">${keywordPreview}</div>
-                                    <div class="chunk-metadata-badges">
-                                        <span class="chunk-meta-badge">${chunk.text?.length || 0} chars</span>
-                                        ${isSceneChunk ? `<span class="chunk-meta-badge ragbooks-scene-meta-badge">Scene ${sceneIndex !== undefined ? sceneIndex + 1 : ''}</span>` : ''}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="inline-drawer-content inline-drawer-outlet wide100p" style="display: ${isExpanded ? 'block' : 'none'};">
-                        <div class="world_entry_edit">
-                            <!-- Primary Keywords Section (SELECT2 - supports keywords AND regexes) -->
-                            <div class="flex-container wide100p alignitemscenter">
-                                <div class="world_entry_form_control keyprimary flex1">
-                                    <small class="textAlignCenter">Primary Keywords</small>
-                                    <select class="keyprimaryselect keyselect ragbooks-chunk-keywords" name="key" data-hash="${hash}" placeholder="Keywords or Regexes" multiple="multiple"></select>
-                                    <textarea class="text_pole keyprimarytextpole ragbooks-chunk-keywords-plaintext" name="key" data-hash="${hash}" rows="2" placeholder="Comma separated list" style="display: none;"></textarea>
-                                    <button type="button" class="switch_input_type_icon" data-hash="${hash}" tabindex="-1" title="Switch to plaintext mode" data-icon-on="✨" data-icon-off="⌨️" data-tooltip-on="Switch to fancy mode" data-tooltip-off="Switch to plaintext mode">⌨️</button>
-                                </div>
-                            </div>
-
-                            <!-- Content Section -->
-                            <div class="world_entry_thin_controls flex-container flexFlowColumn">
-                                <div class="world_entry_form_control flex1">
-                                    <label><small>Content</small></label>
-                                    <textarea class="text_pole autoSetHeight ragbooks-chunk-text-edit"
-                                        data-hash="${hash}"
-                                        style="resize: vertical; min-height: 100px;">${chunk.text || ''}</textarea>
-                                </div>
-                            </div>
-
-                            ${isSceneChunk ? `
-                            <!-- Scene Vectorization Controls -->
-                            <div class="ragbooks-setting-item" style="margin-bottom: 12px; padding: 10px; background: rgba(99, 102, 241, 0.05); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 6px;">
-                                <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; opacity: 0.9;">
-                                    <i class="fa-solid fa-vector-square"></i> Scene Vectorization
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; cursor: pointer;">
-                                    <input type="checkbox"
-                                           class="ragbooks-scene-summary-vector-chunk"
-                                           data-hash="${hash}"
-                                           ${chunk.summaryVector !== false ? 'checked' : ''}>
-                                    <span>Create separate vector for scene summary</span>
-                                </label>
-                                <div class="ragbooks-help-text" style="margin-top: 6px;">When enabled, the scene summary will be vectorized separately for semantic search. Matching this summary will inject the full scene content.</div>
-                            </div>
-                            ` : ''}
-
-                            <!-- Summary Vectors (Searchable, Vectorized) - Universal Feature -->
-                            <div class="ragbooks-setting-item ragbooks-summary-vectors-section"
-                                 data-hash="${hash}"
-                                 style="margin-bottom: 12px;">
-                                <label style="display: block; margin-bottom: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; opacity: 0.7;">
-                                    <i class="fa-solid fa-vector-square"></i> Summary Vectors (Searchable)
-                                </label>
-                                <select class="ragbooks-summary-vectors-select"
-                                        data-hash="${hash}"
-                                        placeholder="Add searchable summaries (any length)..."
-                                        multiple="multiple"></select>
-                                <textarea class="text_pole ragbooks-summary-vectors-plaintext"
-                                          data-hash="${hash}"
-                                          rows="3"
-                                          placeholder="One summary per line"
-                                          style="display: none;"></textarea>
-                                <button type="button" class="switch_summary_input_type_icon" data-hash="${hash}" tabindex="-1" title="Switch to plaintext mode" data-icon-on="✨" data-icon-off="⌨️" data-tooltip-on="Switch to fancy mode" data-tooltip-off="Switch to plaintext mode">⌨️</button>
-                                <div class="ragbooks-help-text">
-                                    Each tag creates a separate searchable vector. Matching any of these will pull the full chunk content. Add as many or as few as you want - each can be any length (word, phrase, sentence, or paragraph).
-                                </div>
-                            </div>
-
-                            <!-- Scoring & Activation Section (Horizontal Split) -->
-                            <div class="ragbooks-horizontal-split" style="margin-bottom: 12px;">
-                                <!-- LEFT: Importance -->
-                                <div class="ragbooks-split-left ragbooks-setting-item">
-                                    <label style="display: block; margin-bottom: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; opacity: 0.7;">
-                                        <i class="fa-solid fa-scale-balanced"></i> Importance
-                                    </label>
-                                    <div style="display: flex; align-items: center; gap: 10px;">
-                                        <input type="range"
-                                               class="ragbooks-importance-slider"
-                                               data-hash="${hash}"
-                                               min="0"
-                                               max="200"
-                                               value="${chunk.importance || 100}"
-                                               style="flex: 1;">
-                                        <span class="ragbooks-importance-value" data-hash="${hash}" style="min-width: 50px; font-weight: 600; color: var(--ragbooks-accent-primary);">
-                                            ${chunk.importance || 100}%
-                                        </span>
-                                    </div>
-                                    <div class="ragbooks-help-text">
-                                        Score multiplier (0-200%)
-                                    </div>
-                                </div>
-
-                                <!-- RIGHT: Conditional Activation -->
-                                <div class="ragbooks-split-right ragbooks-setting-item">
-                                    <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
-                                        <input type="checkbox"
-                                               class="ragbooks-conditions-enabled"
-                                               data-hash="${hash}"
-                                               ${chunk.conditions?.enabled ? 'checked' : ''}>
-                                        <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; opacity: 0.7;">
-                                            <i class="fa-solid fa-filter"></i> Conditional Activation
-                                        </span>
-                                        <i class="fa-solid fa-circle-question ragbooks-condition-help-icon"
-                                           title="Only retrieve this chunk when conditions match (e.g., only when 'dragon' keyword appears in recent messages)"
-                                           style="opacity: 0.5; cursor: help; font-size: 11px;"></i>
-                                    </label>
-                                    <div class="ragbooks-help-text" style="margin-bottom: 4px;">
-                                        Rules-based retrieval filtering
-                                        ${chunk.conditions?.rules?.length > 0 ? `<span class="ragbooks-condition-count">(${chunk.conditions.rules.length} rules)</span>` : ''}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Conditions Panel (Full Width Below) -->
-                            ${chunk.conditions?.enabled ? `
-                            <div class="ragbooks-conditions-panel" data-hash="${hash}" style="margin-bottom: 12px; padding: 12px; background: var(--black10a); border-radius: 6px;">
-                                <div style="margin-bottom: 8px;">
-                                    <label style="font-size: 11px; opacity: 0.7; text-transform: uppercase;">Condition Mode</label>
-                                    <select class="text_pole ragbooks-conditions-mode" data-hash="${hash}" style="width: 100%; padding: 6px;">
-                                        <option value="AND" ${chunk.conditions?.mode === 'AND' ? 'selected' : ''}>ALL conditions must match (AND)</option>
-                                        <option value="OR" ${chunk.conditions?.mode === 'OR' ? 'selected' : ''}>ANY condition can match (OR)</option>
-                                    </select>
-                                </div>
-
-                                <div class="ragbooks-conditions-list" data-hash="${hash}">
-                                    ${(chunk.conditions?.rules || []).map((rule, idx) => generateConditionRowHTML(hash, rule, idx)).join('')}
-                                </div>
-
-                                <button type="button" class="menu_button ragbooks-condition-add" data-hash="${hash}" style="width: 100%; margin-top: 6px;">
-                                    <i class="fa-solid fa-plus"></i> Add Condition
-                                </button>
-                            </div>
-                            ` : ''}
-
-                            <!-- Chunk Grouping Section -->
-                            <div class="ragbooks-unified-groups-section" style="margin-bottom: 12px; padding: 12px; background: var(--black10a); border-radius: 6px;">
-                                <label style="display: block; margin-bottom: 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; opacity: 0.7;">
-                                    <i class="fa-solid fa-layer-group"></i> Chunk Grouping
-                                </label>
-
-                                <!-- Merged: Single Group Name Field -->
-                                <div style="margin-bottom: 8px;">
-                                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">Group Name</label>
-                                    <input type="text"
-                                           class="text_pole ragbooks-group-name"
-                                           data-hash="${hash}"
-                                           value="${escapeHtml(chunk.chunkGroup?.name || '')}"
-                                           placeholder="e.g., 'Combat Abilities', 'character_intro'"
-                                           style="width: 100%;">
-                                </div>
-
-                                <!-- Row 2: Group Keywords (Full Width, shows when group name exists) -->
-                                <div class="ragbooks-group-keywords-section" data-hash="${hash}" style="display: ${chunk.chunkGroup?.name ? 'block' : 'none'}; margin-bottom: 8px;">
-                                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">Group Keywords (trigger boost for all members)</label>
-                                    <input type="text"
-                                           class="text_pole ragbooks-group-keywords"
-                                           data-hash="${hash}"
-                                           value="${escapeHtml((chunk.chunkGroup?.groupKeywords || []).join(', '))}"
-                                           placeholder="combat, fight, battle, attack"
-                                           style="width: 100%;">
-                                </div>
-
-                                <!-- Row 3: Checkboxes (Horizontal) -->
-                                <div class="ragbooks-horizontal-split" style="align-items: center;">
-                                    <label style="display: flex; align-items: center; gap: 4px; margin: 0; font-size: 12px;">
-                                        <input type="checkbox"
-                                               class="ragbooks-group-required"
-                                               data-hash="${hash}"
-                                               ${chunk.chunkGroup?.requiresGroupMember ? 'checked' : ''}>
-                                        <span>Require group member</span>
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 4px; margin: 0; font-size: 12px;">
-                                        <input type="checkbox"
-                                               class="ragbooks-inclusion-prioritize"
-                                               data-hash="${hash}"
-                                               ${chunk.inclusionPrioritize ? 'checked' : ''}>
-                                        <span><i class="fa-solid fa-star"></i> Prioritize inclusion</span>
-                                    </label>
-                                </div>
-
-                                <div class="ragbooks-help-text" style="margin-top: 8px;">
-                                    <strong>Chunk Group:</strong> Boost together when keywords match. <strong>Inclusion Group:</strong> Mutual exclusion (only one activates).
-                                </div>
-                            </div>
-
-                            <!-- Advanced Processing Section -->
-                            <div class="ragbooks-setting-item" style="margin-bottom: 12px;">
-                                <label style="display: block; margin-bottom: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; opacity: 0.7;">
-                                    <i class="fa-solid fa-wand-magic-sparkles"></i> Advanced Processing
-                                </label>
-
-                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-                                    <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; margin: 0;">
-                                        <input type="checkbox"
-                                               class="ragbooks-enable-chunk-summary"
-                                               data-hash="${hash}"
-                                               ${chunk.metadata?.enableSummary ? 'checked' : ''}>
-                                        <span>Enable Summarization</span>
-                                    </label>
-                                    <button type="button"
-                                            class="menu_button ragbooks-generate-summary-now"
-                                            data-hash="${hash}"
-                                            style="padding: 4px 8px; font-size: 11px;"
-                                            title="Generate AI summary for this chunk now">
-                                        <i class="fa-solid fa-wand-magic-sparkles"></i> Generate Now
-                                    </button>
-                                </div>
-
-                                <div class="ragbooks-summary-style-section" data-hash="${hash}" style="display: ${chunk.metadata?.enableSummary ? 'block' : 'none'}; margin-left: 20px; margin-bottom: 6px;">
-                                    <label style="font-size: 11px; opacity: 0.7;">Summary Style</label>
-                                    <select class="text_pole ragbooks-summary-style" data-hash="${hash}" style="width: 100%;">
-                                        <option value="concise" ${chunk.metadata?.summaryStyle === 'concise' ? 'selected' : ''}>Concise (1-2 sentences)</option>
-                                        <option value="detailed" ${chunk.metadata?.summaryStyle === 'detailed' ? 'selected' : ''}>Detailed (paragraph)</option>
-                                        <option value="keywords" ${chunk.metadata?.summaryStyle === 'keywords' ? 'selected' : ''}>Keywords Only</option>
-                                        <option value="extractive" ${chunk.metadata?.summaryStyle === 'extractive' ? 'selected' : ''}>Extractive (key sentences)</option>
-                                    </select>
-                                </div>
-
-                                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px;">
-                                    <input type="checkbox"
-                                           class="ragbooks-enable-chunk-metadata"
-                                           data-hash="${hash}"
-                                           ${chunk.metadata?.enableMetadata ? 'checked' : ''}>
-                                    <span>Enable Metadata Extraction (entities, topics)</span>
-                                </label>
-
-                                <div class="ragbooks-help-text">
-                                    Per-chunk processing overrides (applied when re-vectorizing content)
-                                </div>
-                            </div>
-
-                            <!-- Linked Chunks Panel -->
-                            <div class="inline-drawer wide100p chunk-linked-panel">
-                                <div class="inline-drawer-toggle inline-drawer-header chunk-linked-header">
-                                    <div class="chunk-panel-title">
-                                        <i class="fa-solid fa-link"></i>
-                                        <span>Linked Chunks</span>
-                                        <span class="chunk-panel-count">${chunkLinks.length}</span>
-                                    </div>
-                                    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
-                                </div>
-                                <div class="inline-drawer-content chunk-linked-content">
-                                    ${Object.keys(currentViewingChunks).length <= 1 ? `
-                                        <div class="chunk-linked-empty">
-                                            <i class="fa-solid fa-unlink"></i>
-                                            <p>No other chunks available to link</p>
-                                        </div>
-                                    ` : `
-                                        <div class="chunk-linked-list">
-                                            ${Object.entries(currentViewingChunks)
-                                                .filter(([h]) => h !== hash)
-                                                .map(([h, c]) => {
-                                                    const isLinked = chunkLinks.includes(h);
-                                                    const linkTitle = c.section || c.comment || 'Untitled Chunk';
-                                                    return `
-                                                        <label class="chunk-linked-item">
-                                                            <input type="checkbox"
-                                                                class="ragbooks-chunk-link-checkbox"
-                                                                data-hash="${hash}"
-                                                                data-target="${h}"
-                                                                ${isLinked ? 'checked' : ''}>
-                                                            <span class="chunk-linked-title">${linkTitle}</span>
-                                                            ${isLinked ? '<i class="fa-solid fa-check chunk-linked-check"></i>' : ''}
-                                                        </label>
-                                                    `;
-                                                }).join('')}
-                                        </div>
-                                        <div class="chunk-linked-help">
-                                            <i class="fa-solid fa-info-circle"></i>
-                                            <small>Linked chunks will be injected together when this chunk activates</small>
-                                        </div>
-                                    `}
-                                </div>
-                            </div>
-
-                            <!-- Actions -->
-                            <div class="chunk-actions-row">
-                                <button type="button"
-                                    class="ragbooks-chunk-delete-btn menu_button redWarningBG"
-                                    data-hash="${hash}">
-                                    <i class="fa-solid fa-trash"></i> Delete Chunk
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </form>
-        </div>
-    `;
 }
 
 // ========================================================================
@@ -13440,7 +13305,7 @@ async function handleInlineVectorization() {
         let sourceName, sourceConfig;
 
         switch (sourceType) {
-            case 'lorebook':
+            case 'lorebook': {
                 sourceName = $('#ragbooks_lorebook_select').val();
                 if (!sourceName) {
                     toastr.warning('Please select a lorebook');
@@ -13464,8 +13329,9 @@ async function handleInlineVectorization() {
                     perChunkMetadataControl: $('#ragbooks_lorebook_per_chunk_metadata').is(':checked')
                 };
                 break;
+            }
 
-            case 'character':
+            case 'character': {
                 sourceName = $('#ragbooks_character_select').val();
                 if (!sourceName) {
                     toastr.warning('Please select a character');
@@ -13497,8 +13363,9 @@ async function handleInlineVectorization() {
                     perChunkMetadataControl: $('#ragbooks_character_per_chunk_metadata').is(':checked')
                 };
                 break;
+            }
 
-            case 'url':
+            case 'url': {
                 const urlInput = $('#ragbooks_url_input').val();
                 if (!urlInput || !urlInput.trim()) {
                     toastr.warning('Please enter a URL');
@@ -13536,8 +13403,9 @@ async function handleInlineVectorization() {
                     return;
                 }
                 break;
+            }
 
-            case 'chat':
+            case 'chat': {
                 // Get actual chat name instead of generic "Current Chat"
                 const context = getContext();
                 const chatId = context?.chatId;
@@ -13600,8 +13468,9 @@ async function handleInlineVectorization() {
 
                 console.log('📚 [RAGBooks] Chat vectorization config:', sourceConfig);
                 break;
+            }
 
-            case 'custom':
+            case 'custom': {
                 const inputMethod = $('#ragbooks_input_method').val();
                 let text;
 
@@ -13756,7 +13625,7 @@ async function handleInlineVectorization() {
                     perChunkMetadataControl: $('#ragbooks_custom_per_chunk_metadata').is(':checked')
                 };
                 break;
-        }
+            }
 
         // Read scope selection from UI (applies to all source types)
         const userSelectedScope = $('#ragbooks_scope_selector').val() || null;

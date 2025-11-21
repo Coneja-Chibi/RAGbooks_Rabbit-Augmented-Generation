@@ -12,7 +12,7 @@
  * - Provide unified search API for all consumers
  */
 
-import { logger, Diagnostics, logSearchStart, logSearchEnd } from './core-system.js';
+import { logger, Diagnostics, logSearchStart, logSearchEnd, SearchError } from './core-system.js';
 import { searchByVector, dualVectorSearch, batchVectorSearch, searchByKeywords, matchKeywords } from './search-strategies.js';
 import { evaluateConditions } from './conditional-activation.js';
 import { State } from './core-state.js';

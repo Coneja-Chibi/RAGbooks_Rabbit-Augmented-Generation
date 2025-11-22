@@ -39,7 +39,7 @@ import {
     name2,
     generateQuietPrompt,
 } from '../../../../script.js';
-import { getStringHash, highlightRegex } from '../../../utils.js';
+import { getStringHash, highlightRegex, debounce } from '../../../utils.js';
 import { getTokenCountAsync } from '../../../tokenizers.js';
 import { extension_settings, getContext, saveMetadataDebounced } from '../../../extensions.js';
 import { parseRegexFromString } from '../../../world-info.js';
@@ -51,7 +51,7 @@ import { getGroupMembers, selected_group } from '../../../group-chats.js';
 // Import core-state to register production test diagnostics
 import './core-state.js';
 
-// RAGBooks advanced features modules
+// VectHare advanced features modules
 import { createSummaryChunks, filterChunksBySearchMode, expandSummaryChunks, mergeSearchResults, processScenesToChunks } from './dual-vector.js';
 import { ragLogger, runQuickDiagnostics, checkVectorSource, checkCollectionExists, checkHashMismatch, checkThresholdSettings, checkActiveCollections, SEVERITY } from './logging-utils.js';
 import { applyImportanceWeighting, applyImportanceToResults, rankChunksByImportance, groupChunksByPriorityTier } from './importance-weighting.js';
@@ -67,11 +67,12 @@ import {
     hideProgressModal,
     updateProgressStep,
     updateProgressStats,
-    updateProgressMessage,
+    updateProgressMessageText,
     showProgressError,
     showProgressSuccess,
     createParsingCallback,
-    createSummarizationCallback
+    createSummarizationCallback,
+    isProgressActive
 } from './progress-indicator.js';
 
 import {
@@ -95,7 +96,7 @@ let vectorizationAbortController = null;
 const EXTENSION_NAME = 'ragbooks';
 
 // Dynamically get the actual folder name from the script URL
-// This works regardless of whether users name it 'RAGBooks', 'ragbooks', etc.
+// This works regardless of whether users name it 'VectHare', 'ragbooks', etc.
 const actualFolderName = new URL(import.meta.url).pathname.split('/').slice(-2, -1)[0];
 const MODULE_NAME = actualFolderName;
 
@@ -103,7 +104,7 @@ const MODULE_NAME = actualFolderName;
 const extensionName = EXTENSION_NAME;  // Use lowercase for settings key
 const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
 
-// Collection ID prefix for RAGBooks collections
+// Collection ID prefix for VectHare collections
 const COLLECTION_PREFIX = 'ragbooks_';
 
 // Content source types
@@ -125,7 +126,8 @@ const CHUNKING_STRATEGIES = {
     PARAGRAPH: 'paragraph',        // Split by \n\n
     SMART_MERGE: 'smart_merge',    // Combine related entries
     SEMANTIC: 'semantic',          // AI-powered semantic chunking (embedding similarity)
-    SLIDING_WINDOW: 'sliding'      // Sliding window with sentence-aware boundaries
+    SLIDING_WINDOW: 'sliding',     // Sliding window with sentence-aware boundaries
+    NATURAL: 'natural'             // Alias for by_speaker
 };
 
 // Section header regex for document chunking - LANGUAGE-AGNOSTIC & VERY PERMISSIVE
@@ -410,7 +412,7 @@ function getAvailableCharacters() {
                 }));
             }
         } catch (e) {
-            console.warn('[RAGBooks] Could not get group members:', e);
+            console.warn('[VectHare] Could not get group members:', e);
         }
     }
 
@@ -489,7 +491,7 @@ function deleteScopedSource(collectionId) {
     if (!metadata || !ragState.scopedSources) {
         // No metadata - this might be a ghost collection
         // Search ALL scopes and delete wherever found
-        console.warn(`[RAGBooks] No metadata for ${collectionId}, searching all scopes...`);
+        console.warn(`[VectHare] No metadata for ${collectionId}, searching all scopes...`);
 
         let deleted = false;
 
@@ -530,7 +532,7 @@ function deleteScopedSource(collectionId) {
         }
 
         if (!deleted) {
-            console.warn(`[RAGBooks] Could not find ${collectionId} in any scope`);
+            console.warn(`[VectHare] Could not find ${collectionId} in any scope`);
         }
 
         return;
@@ -1049,7 +1051,7 @@ async function getAdditionalVectorArgs(items) {
 function ensureVectorConfig() {
     const vectors = getVectorSettings();
     if (vectorApiSourcesRequiringUrl.includes(vectors.source) && !vectors.use_alt_endpoint && !vectors.alt_endpoint_url) {
-        console.warn(`RAGBooks: Source "${vectors.source}" usually needs a server URL. Set one in the Vectors extension if you see embedding errors.`);
+        console.warn(`VectHare: Source "${vectors.source}" usually needs a server URL. Set one in the Vectors extension if you see embedding errors.`);
     }
 }
 
@@ -1097,12 +1099,12 @@ async function apiInsertVectorItems(collectionId, items) {
     const validItems = items.filter(item => item.text && item.text.trim().length > 0);
 
     if (validItems.length === 0) {
-        console.warn('[RAGBooks] apiInsertVectorItems called with no valid items (all empty text)');
+        console.warn('[VectHare] apiInsertVectorItems called with no valid items (all empty text)');
         return; // Early return, no items to insert
     }
 
     if (validItems.length < items.length) {
-        console.warn(`[RAGBooks] Filtered ${items.length - validItems.length} items with empty text in apiInsertVectorItems`);
+        console.warn(`[VectHare] Filtered ${items.length - validItems.length} items with empty text in apiInsertVectorItems`);
     }
 
     const args = await getAdditionalVectorArgs(validItems.map(item => item.text));
@@ -1186,8 +1188,6 @@ async function apiDeleteVectorHashes(collectionId, hashes) {
         const errorText = await response.text();
         throw new Error(`Failed to delete vectors from ${collectionId}. Status: ${response.status}. Message: ${errorText}`);
     }
-
-    return await response.json();
 }
 
 /**
@@ -1737,7 +1737,7 @@ function getRAGSettings() {
         keywordFallback: ragState.keywordFallback ?? true,
         keywordFallbackPriority: ragState.keywordFallbackPriority ?? false,
         keywordFallbackLimit: ragState.keywordFallbackLimit ?? 2,
-        sources: ragState.sources ?? {}, // RAGBooks collection metadata
+        sources: ragState.sources ?? {}, // VectHare collection metadata
         // Advanced features
         enableImportance: ragState.enableImportance !== false, // default true
         usePriorityTiers: ragState.usePriorityTiers ?? false,
@@ -1771,7 +1771,7 @@ function saveRAGSettings(ragSettings) {
 function debugLog(message, data = null) {
     const settings = getRAGSettings();
     if (settings.debugMode) {
-        console.log(`🔍 [RAGBooks] ${message}`, data || '');
+        console.log(`🔍 [VectHare] ${message}`, data || '');
     }
 }
 
@@ -3621,7 +3621,7 @@ async function parseLorebook(lorebookName, options = {}, progressCallback = null
             });
         } else if (chunkingStrategy === CHUNKING_STRATEGIES.SEMANTIC) {
             // Semantic chunking using AI embeddings to detect topic shifts
-            console.log(`🧠 [RAGBooks] Using semantic chunking for entry: ${entryName}`);
+            console.log(`🧠 [VectHare] Using semantic chunking for entry: ${entryName}`);
 
             const semanticChunks = await semanticChunkText(entry.content, {
                 similarityThreshold: options.semanticThreshold || 0.5,
@@ -3657,7 +3657,7 @@ async function parseLorebook(lorebookName, options = {}, progressCallback = null
             });
         } else if (chunkingStrategy === CHUNKING_STRATEGIES.SLIDING_WINDOW) {
             // Sliding window with sentence-aware boundaries
-            console.log(`🪟 [RAGBooks] Using sliding window chunking for entry: ${entryName}`);
+            console.log(`🪟 [VectHare] Using sliding window chunking for entry: ${entryName}`);
 
             const windowChunks = slidingWindowChunk(entry.content, {
                 windowSize: options.chunkSize || 500,
@@ -3917,7 +3917,7 @@ async function parseCharacterCard(characterId, options = {}, progressCallback = 
         }
     } else if (config.chunkingStrategy === CHUNKING_STRATEGIES.SEMANTIC) {
         // Semantic chunking for character fields using AI embeddings
-        console.log(`🧠 [RAGBooks] Using semantic chunking for character: ${character.name}`);
+        console.log(`🧠 [VectHare] Using semantic chunking for character: ${character.name}`);
 
         fieldIndex = 0;
         for (const fieldName of config.fields) {
@@ -3965,7 +3965,7 @@ async function parseCharacterCard(characterId, options = {}, progressCallback = 
         }
     } else if (config.chunkingStrategy === CHUNKING_STRATEGIES.SLIDING_WINDOW) {
         // Sliding window for character fields with sentence-aware boundaries
-        console.log(`🪟 [RAGBooks] Using sliding window chunking for character: ${character.name}`);
+        console.log(`🪟 [VectHare] Using sliding window chunking for character: ${character.name}`);
 
         fieldIndex = 0;
         for (const fieldName of config.fields) {
@@ -4115,14 +4115,42 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
         return [];
     }
 
-    // Apply message range filter and exclude system messages/empty messages (like official ST vector extension)
-    const messages = (config.messageRange
-        ? chat.slice(-config.messageRange)
-        : chat).filter(x => !x.is_system);
+    // Text cleaning settings
+    const cleaningMode = options.cleaningMode || 'none'; // Chat defaults to no cleaning (plain text conversations)
+    const customPatterns = options.customPatterns || [];
 
     // Diagnostic logging
     console.log(`💬 Chat Processing:`);
     console.log(`   Total messages in chat: ${chat.length}`);
+    console.log(`   Message Range Config:`, config.messageRange);
+    
+    // Debug: Check first few messages
+    if (chat.length > 0) {
+        console.log('   First message sample:', {
+            name: chat[0].name,
+            is_system: chat[0].is_system,
+            type_is_system: typeof chat[0].is_system,
+            mes_preview: (chat[0].mes || '').substring(0, 20)
+        });
+    }
+
+    // Apply message range filter and exclude system messages/empty messages (like official ST vector extension)
+    const messages = (config.messageRange
+        ? chat.slice(-config.messageRange)
+        : chat).filter(x => {
+            // Relaxed check: Only exclude if explicitly true (bool)
+            const keep = x.is_system !== true;
+            if (!keep) {
+                console.log(`   [VectHare Debug] Filtered system message:`, {
+                    name: x.name,
+                    is_system: x.is_system,
+                    type: typeof x.is_system,
+                    content: (x.mes || '').substring(0, 30)
+                });
+            }
+            return keep;
+        });
+
     console.log(`   After filters (range + system): ${messages.length}`);
     console.log(`   Cleaning mode: ${cleaningMode}`);
     console.log(`   Chunking strategy: ${config.chunkingStrategy}`);
@@ -4137,10 +4165,6 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
     const summaryDelay = options.summaryDelay || 1000;
     const perChunkSummaryControl = options.perChunkSummaryControl || false;
 
-    // Text cleaning settings
-    const cleaningMode = options.cleaningMode || 'none'; // Chat defaults to no cleaning (plain text conversations)
-    const customPatterns = options.customPatterns || [];
-
     // Determine name format based on settings
     const useMacros = config.nameFormat === 'macros';
     const getUserName = () => useMacros ? '{{user}}' : userName;
@@ -4149,7 +4173,7 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
     let messageIndex = 0;
     const totalMessages = messages.length;
 
-    if (config.chunkingStrategy === CHUNKING_STRATEGIES.BY_SPEAKER) {
+    if (config.chunkingStrategy === CHUNKING_STRATEGIES.BY_SPEAKER || config.chunkingStrategy === CHUNKING_STRATEGIES.NATURAL) {
         // Group consecutive messages by the same speaker
         let currentSpeaker = null;
         let currentGroup = [];
@@ -4163,8 +4187,28 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
             }
             const speaker = msg.is_user ? getUserName() : getCharName();
             // Clean the message text (with safe string conversion like base ST extension)
-            const messageText = String(substituteParams(msg.mes || ''));
+            const originalText = msg.mes || '';
+            const messageText = String(substituteParams(originalText));
+            
+            // DEBUG: Log message content processing
+            if (messageIndex <= 5) {
+                console.log(`[VectHare Debug] Msg ${messageIndex} (${speaker}):`, {
+                    original: originalText.substring(0, 50),
+                    substituted: messageText.substring(0, 50),
+                    cleaningMode: cleaningMode
+                });
+            }
+
             const cleanedMessage = cleanText(messageText, cleaningMode, customPatterns);
+
+            // DEBUG: Log cleaning result
+            if (messageIndex <= 5) {
+                console.log(`[VectHare Debug] Msg ${messageIndex} cleaned:`, {
+                    result: cleanedMessage.substring(0, 50),
+                    length: cleanedMessage.length,
+                    isEmpty: cleanedMessage.trim().length === 0
+                });
+            }
 
             // Skip messages that are empty after cleaning (image-only, deleted, etc.)
             if (!cleanedMessage || cleanedMessage.trim().length === 0) {
@@ -4559,7 +4603,7 @@ async function parseCustomDocument(text, metadata = {}, options = {}, progressCa
         }
     } else if (config.chunkingStrategy === CHUNKING_STRATEGIES.SEMANTIC) {
         // Semantic chunking using AI embeddings to detect topic shifts
-        console.log(`🧠 [RAGBooks] Using semantic chunking for document: ${baseMetadata.documentName}`);
+        console.log(`🧠 [VectHare] Using semantic chunking for document: ${baseMetadata.documentName}`);
 
         const semanticChunks = await semanticChunkText(text, {
             similarityThreshold: options.semanticThreshold || 0.5,
@@ -4591,7 +4635,7 @@ async function parseCustomDocument(text, metadata = {}, options = {}, progressCa
         });
     } else if (config.chunkingStrategy === CHUNKING_STRATEGIES.SLIDING_WINDOW) {
         // Sliding window with sentence-aware boundaries
-        console.log(`🪟 [RAGBooks] Using sliding window chunking for document: ${baseMetadata.documentName}`);
+        console.log(`🪟 [VectHare] Using sliding window chunking for document: ${baseMetadata.documentName}`);
 
         const windowChunks = slidingWindowChunk(text, {
             windowSize: options.chunkSize || 500,
@@ -5458,33 +5502,25 @@ async function collectionExists(collectionId) {
  * @returns {Promise<Array>} Array of relevant chunks with scores
  */
 /**
- * Query all active RAGBooks collections and return relevant chunks
+ * Query all active VectHare collections and return relevant chunks
  * @param {string} queryText - The query string (usually recent conversation context)
  * @returns {Promise<Array>} Array of relevant chunks from all active sources
  */
-async function queryAllRAGBooksCollections(queryText) {
-    const settings = getRAGSettings();
+async function queryAllVectHareCollections(queryText, options = {}) {
+    const settings = options.settings || getRAGSettings();
 
     if (!settings.enabled || !settings.sources) {
-        debugLog('RAGBooks disabled or no sources, skipping query');
+        debugLog('VectHare disabled or no sources, skipping query');
         return [];
     }
 
     // ============================================================================
     // COLLECTION ACTIVATION SYSTEM
     // Determines WHICH collections to query based on activation triggers
-    // (Similar to how lorebook entries activate based on triggers)
     // ============================================================================
 
     const queryLower = queryText.toLowerCase();
-    const queryWords = queryLower.split(/\s+/);
-
-    console.log('🔍 [RAGBooks] Query analysis:', {
-        queryLower: queryLower.substring(0, 100),
-        wordCount: queryWords.length,
-        firstFewWords: queryWords.slice(0, 10)
-    });
-
+    
     // Get collection metadata (contains activation triggers)
     ensureRagState();
     const ragState = extension_settings[extensionName].rag;
@@ -5499,252 +5535,129 @@ async function queryAllRAGBooksCollections(queryText) {
         .map(([collectionId, sourceData]) => ({ collectionId, sourceData }));
 
     if (activeCollectionsList.length === 0) {
-        debugLog('No active RAGBooks collections in current scope');
+        debugLog('No active VectHare collections in current scope');
         return [];
     }
 
     // Check each collection to see if it should be activated based on triggers
     for (const { collectionId, sourceData } of activeCollectionsList) {
-        const metadata = collectionMetadata[collectionId];
+        let metadata = collectionMetadata[collectionId];
 
-        // BUG FIX: Initialize missing metadata for legacy collections instead of skipping
+        // Initialize missing metadata for legacy collections
         if (!metadata) {
-            console.log(`⚠️ [RAGBooks] Collection ${collectionId} has no metadata - initializing with defaults`);
-            // Create default metadata for backward compatibility
             collectionMetadata[collectionId] = {
-                alwaysActive: true,  // Default legacy collections to always active
+                alwaysActive: true,
                 keywords: [],
                 scope: 'global',
                 name: collectionId
             };
             metadata = collectionMetadata[collectionId];
-            console.log(`✅ [RAGBooks] Initialized ${collectionId} as always-active (legacy collection)`);
         }
 
-        // Check if collection is always active (ignores triggers)
+        // Check if collection is always active
         if (metadata.alwaysActive) {
-            console.log(`✅ [RAGBooks] Collection ${collectionId} is ALWAYS ACTIVE - activating`);
             activatedCollections.add(collectionId);
             continue;
         }
 
         // Check if conditionals are enabled (advanced activation)
         if (metadata.conditions?.enabled) {
-            console.log(`🔧 [RAGBooks] Collection ${collectionId} uses CONDITIONAL ACTIVATION`);
-            // Note: Actual condition evaluation would happen here
-            // For now, we'll treat conditional collections as always active
-            // Full condition evaluation requires context (speaker, emotion, etc.)
-            console.log(`⚠️ [RAGBooks] Conditional activation not yet fully implemented - treating as always active`);
+            // Condition logic should be handled by orchestrator per-chunk, but collection-level conditions could go here.
+            // For now, we activate it and let per-chunk conditions filter.
             activatedCollections.add(collectionId);
             continue;
         }
 
-        // Check if any activation triggers match (case-insensitive)
+        // Check triggers
         const triggers = metadata.keywords || [];
-
-        console.log(`🔍 [RAGBooks] Checking collection ${sourceData.name}:`, {
-            triggers: triggers,
-            triggerCount: triggers.length
-        });
-
-        // No triggers = collection won't activate
         if (triggers.length === 0) {
-            console.log(`⚠️ [RAGBooks] Collection ${collectionId} has no triggers - skipping`);
             continue;
         }
 
         // Check if any trigger appears in query
-        let matched = false;
         for (const trigger of triggers) {
             const triggerLower = trigger.toLowerCase().trim();
             if (queryLower.includes(triggerLower)) {
-                console.log(`✅ [RAGBooks] Collection "${sourceData.name}" activated! Trigger "${trigger}" found in query`);
                 activatedCollections.add(collectionId);
-                matched = true;
                 break;
             }
         }
-
-        if (!matched) {
-            console.log(`❌ [RAGBooks] Collection "${sourceData.name}" NOT activated - no triggers matched`);
-        }
     }
 
-    debugLog(`Collection activation based on triggers:`, {
-        queryText: queryText,
-        totalCollections: activeCollectionsList.length,
-        activatedCollections: activatedCollections.size,
-        activatedList: Array.from(activatedCollections)
-    });
-
     if (activatedCollections.size === 0) {
-        console.log('📚 [RAGBooks] No collections activated by triggers');
+        console.log('📚 [VectHare] No collections activated by triggers');
         return [];
     }
 
-    console.log(`📚 [RAGBooks] Querying ${activatedCollections.size} activated collections`);
-
-    // Query only activated collections - get PRIMARY chunks
-    const allResults = [];
-
-    for (const { collectionId, sourceData } of activeCollectionsList) {
-        // Skip if not activated
-        if (!activatedCollections.has(collectionId)) {
-            continue;
-        }
-
-        try {
-            console.log(`📖 [RAGBooks] Querying collection: ${sourceData.name} (${sourceData.type})`);
-
-            // Retrieve extra chunks (topK + 13) to allow keyword boosting to rerank
-            // This ensures chunks with high keyword relevance aren't filtered out by semantic search alone
-            const retrieveCount = settings.topK + 13;
-            const results = await apiQueryCollection(collectionId, queryText, retrieveCount);
-
-            if (results && results.length > 0) {
-                // Filter by threshold (fix: should be >= not <=) and add collection metadata
-                const filteredResults = results
-                    .filter(r => r.score >= settings.threshold)
-                    .map(r => ({
-                        ...r,
-                        collectionId: collectionId,
-                        collectionName: sourceData.name,
-                        collectionType: sourceData.type
-                    }));
-
-                console.log(`   ✅ Found ${filteredResults.length} relevant chunks (threshold: ${settings.threshold})`);
-                allResults.push(...filteredResults);
-            }
-        } catch (error) {
-            console.error(`   ❌ Error querying collection ${collectionId}:`, error);
-        }
-    }
-
-    // Get recent messages for keyword context checking
-    // Instead of extracting keywords FROM messages, we check if chunk keywords appear IN messages
-    const contextWindow = settings.contextWindow || 5;
-    const recentMessages = chat.slice(-contextWindow).map(m => m.mes || '').join(' ').toLowerCase();
-
-    // Get merged library for all collections
-    const mergedLibrary = {};
-    for (const { collectionId } of activeCollectionsList) {
-        if (activatedCollections.has(collectionId)) {
-            const library = getContextualLibrary(collectionId);
-            Object.assign(mergedLibrary, library);
-        }
-    }
+    console.log(`📚 [VectHare] Activated ${activatedCollections.size} collections`);
 
     // ============================================================================
-    // APPLY KEYWORD WEIGHT BOOSTS
-    // Check if chunk keywords appear in recent conversation context
+    // ORCHESTRATED SEARCH
     // ============================================================================
-    console.log('🎯 [RAGBooks] Applying keyword weight boosts...');
-    for (const result of allResults) {
-        const libraryEntry = mergedLibrary[result.hash];
-        if (!libraryEntry) continue;
 
-        const { boost: keywordBoost, matches } = calculateKeywordBoost(result, recentMessages, libraryEntry);
-        const semanticScore = result.score ?? 0;
-        const boostedScore = semanticScore + (keywordBoost / 100); // Normalize boost
+    // Gather ALL chunks from activated collections
+    // We rely on the Orchestrator to filter, rank, and select the best ones
+    const allChunks = [];
+    const library = getAllContextualLibraries(); // Helper to get merged library for current scope
 
-        result.semanticScore = semanticScore;
-        result.keywordBoost = keywordBoost;
-        result.keywordMatches = matches;
-        result.score = boostedScore;
-
-        if (matches.length > 0) {
-            console.log(`  📊 Chunk ${result.hash}: semantic=${semanticScore.toFixed(3)}, keywordBoost=${keywordBoost}, final=${boostedScore.toFixed(3)}`);
-        }
-    }
-
-    // Sort by boosted score (descending - highest scores first) BEFORE taking top-K
-    allResults.sort((a, b) => b.score - a.score);
-
-    // ============================================================================
-    // RESOLVE LINKED CHUNKS
-    // Chunks can specify other chunks to always inject together
-    // ============================================================================
-    const primaryResults = allResults.slice(0, settings.topK);
-    const linkedChunks = [];
-    const seen = new Set(primaryResults.map(r => r.hash));
-
-    console.log('🔗 [RAGBooks] Resolving linked chunks...');
-    for (const result of primaryResults) {
-        const libraryEntry = mergedLibrary[result.hash];
-        if (!libraryEntry || !libraryEntry.chunkLinks) continue;
-
-        for (const targetHash of libraryEntry.chunkLinks) {
-            if (seen.has(targetHash)) continue;
-
-            const linkedEntry = mergedLibrary[targetHash];
-            if (!linkedEntry || linkedEntry.disabled) continue;
-
-            // Add linked chunk
-            linkedChunks.push({
-                hash: targetHash,
-                text: linkedEntry.text,
-                score: result.score, // Inherit score from parent
-                collectionId: result.collectionId,
-                collectionName: result.collectionName,
-                collectionType: result.collectionType,
-                isLinked: true,
-                linkedFrom: result.hash
+    for (const collectionId of activatedCollections) {
+        const collectionChunks = library[collectionId];
+        if (collectionChunks) {
+            Object.values(collectionChunks).forEach(chunk => {
+                // Add context metadata needed for search features
+                allChunks.push({
+                    ...chunk,
+                    collectionId: collectionId,
+                    // Ensure embedding is present for vector search
+                    // If missing, orchestrator will use keyword/hybrid fallback or fetch from server if configured
+                });
             });
-            seen.add(targetHash);
-            console.log(`  🔗 Linked chunk ${targetHash} (from ${result.hash})`);
         }
     }
 
-    // Combine primary and linked chunks
-    const combined = [...primaryResults, ...linkedChunks];
-
-    // ============================================================================
-    // APPLY INCLUSION GROUP FILTERING
-    // Only one chunk per inclusion group can activate
-    // ============================================================================
-    const inclusionGroups = {};
-    const filteredByInclusion = [];
-
-    console.log('🎯 [RAGBooks] Applying inclusion group filtering...');
-    for (const chunk of combined) {
-        const libraryEntry = mergedLibrary[chunk.hash];
-        const group = libraryEntry?.inclusionGroup;
-
-        if (!group || group.trim() === '') {
-            // No inclusion group - always include
-            filteredByInclusion.push(chunk);
-            continue;
-        }
-
-        if (!inclusionGroups[group]) {
-            // First chunk with this group - include it
-            inclusionGroups[group] = chunk;
-            filteredByInclusion.push(chunk);
-            console.log(`  📌 Inclusion group "${group}": selected chunk ${chunk.hash}`);
-        } else {
-            // Another chunk with same group exists
-            const existing = inclusionGroups[group];
-            const existingEntry = mergedLibrary[existing.hash];
-            const currentPrioritize = libraryEntry.inclusionPrioritize || false;
-            const existingPrioritize = existingEntry?.inclusionPrioritize || false;
-
-            // If this chunk is prioritized and existing isn't, replace it
-            if (currentPrioritize && !existingPrioritize) {
-                const existingIndex = filteredByInclusion.indexOf(existing);
-                if (existingIndex !== -1) {
-                    filteredByInclusion[existingIndex] = chunk;
-                }
-                inclusionGroups[group] = chunk;
-                console.log(`  🔄 Inclusion group "${group}": replaced with prioritized chunk ${chunk.hash}`);
-            } else {
-                console.log(`  ⏭️  Inclusion group "${group}": skipped chunk ${chunk.hash} (group already filled)`);
-            }
-        }
+    if (allChunks.length === 0) {
+        console.warn('⚠️ [VectHare] Activated collections have no chunks');
+        return [];
     }
 
-    console.log(`📚 [RAGBooks] Final results: ${filteredByInclusion.length} chunks (${primaryResults.length} primary + ${linkedChunks.length} linked, after inclusion filtering)`);
+    // Import Orchestrator
+    const { autoSearch } = await import('./search-orchestrator.js');
 
-    return filteredByInclusion;
+    // Build search context
+    const context = {
+        chat: getContext().chat,
+        characterId: getContext().characterId,
+        currentMessageId: (getContext().chat || []).length, // For decay
+        scenes: getScenes(), // For scene-aware decay
+        metadata: chat_metadata // For advanced conditionals
+    };
+
+    try {
+        // Execute search via Orchestrator
+        // This handles: Vector Search (Server/Client), Keyword Search, Hybrid RRF,
+        // Importance Weighting, Conditional Activation, Chunk Groups, Temporal Decay
+        const searchResult = await autoSearch(queryText, allChunks, {
+            topK: settings.topK,
+            threshold: settings.threshold,
+            
+            // Feature flags from settings (passed via options or defaults)
+            applyDecay: options.applyDecay !== undefined ? options.applyDecay : settings.enableTemporalDecay,
+            applyImportance: options.applyImportance !== undefined ? options.applyImportance : settings.enableImportance,
+            applyConditions: options.applyConditions !== undefined ? options.applyConditions : settings.enableConditions,
+            applyGroups: options.applyGroups !== undefined ? options.applyGroups : settings.enableGroups,
+            
+            // Advanced settings
+            dualVector: settings.enableDualVector,
+            
+            settings: settings // Pass full settings for granular configs
+        }, context);
+
+        return searchResult.results;
+
+    } catch (error) {
+        console.error('❌ [VectHare] Search Orchestrator failed:', error);
+        return [];
+    }
 }
 
 /**
@@ -5802,13 +5715,13 @@ async function performCollectionSearch(collectionId, queryText, allChunks, setti
 
     if (!enableEnhanced) {
         // Use basic search if no features enabled
-        console.log(`🔍 [RAGBooks] Using basic search for ${collectionId}`);
+        console.log(`🔍 [VectHare] Using basic search for ${collectionId}`);
         const chunksArray = Object.values(allChunks);
         return await searchFunction(queryText, chunksArray, settings.topK, settings.scoreThreshold);
     }
 
     // Use enhanced search with orchestrator
-    console.log(`🔍 [RAGBooks] Using enhanced search for ${collectionId}`);
+    console.log(`🔍 [VectHare] Using enhanced search for ${collectionId}`);
 
     const context = getContext();
 
@@ -5897,7 +5810,7 @@ async function queryRAG(characterName, queryText) {
 
     const queryKeywords = extractKeywords(queryText);
 
-    console.log('🔑 [RAGBooks] Extracted keywords from query:', queryKeywords);
+    console.log('🔑 [VectHare] Extracted keywords from query:', queryKeywords);
 
     // ============================================================================
     // COLLECTION ACTIVATION SYSTEM
@@ -5909,7 +5822,7 @@ async function queryRAG(characterName, queryText) {
     const queryLower = queryText.toLowerCase();
     const queryWords = queryLower.split(/\s+/); // Split into words for whole-word matching
 
-    console.log('🔍 [RAGBooks] Query analysis:', {
+    console.log('🔍 [VectHare] Query analysis:', {
         queryLower: queryLower.substring(0, 100),
         wordCount: queryWords.length,
         firstFewWords: queryWords.slice(0, 10)
@@ -5935,7 +5848,7 @@ async function queryRAG(characterName, queryText) {
 
         // BUG FIX: Initialize missing metadata for legacy collections instead of skipping
         if (!metadata) {
-            console.log(`⚠️ [RAGBooks] Collection ${collectionId} has no metadata - initializing with defaults`);
+            console.log(`⚠️ [VectHare] Collection ${collectionId} has no metadata - initializing with defaults`);
             // Create default metadata for backward compatibility
             collectionMetadata[collectionId] = {
                 alwaysActive: true,  // Default legacy collections to always active
@@ -5944,23 +5857,23 @@ async function queryRAG(characterName, queryText) {
                 name: collectionId
             };
             metadata = collectionMetadata[collectionId];
-            console.log(`✅ [RAGBooks] Initialized ${collectionId} as always-active (legacy collection)`);
+            console.log(`✅ [VectHare] Initialized ${collectionId} as always-active (legacy collection)`);
         }
 
         // Check if collection is always active (ignores triggers)
         if (metadata.alwaysActive) {
-            console.log(`✅ [RAGBooks] Collection ${collectionId} is ALWAYS ACTIVE - activating`);
+            console.log(`✅ [VectHare] Collection ${collectionId} is ALWAYS ACTIVE - activating`);
             activatedCollections.add(collectionId);
             continue;
         }
 
         // Check if conditionals are enabled (advanced activation)
         if (metadata.conditions?.enabled) {
-            console.log(`🔧 [RAGBooks] Collection ${collectionId} uses CONDITIONAL ACTIVATION`);
+            console.log(`🔧 [VectHare] Collection ${collectionId} uses CONDITIONAL ACTIVATION`);
             // Note: Actual condition evaluation would happen here
             // For now, we'll treat conditional collections as always active
             // Full condition evaluation requires context (speaker, emotion, etc.)
-            console.log(`⚠️ [RAGBooks] Conditional activation not yet fully implemented - treating as always active`);
+            console.log(`⚠️ [VectHare] Conditional activation not yet fully implemented - treating as always active`);
             activatedCollections.add(collectionId);
             continue;
         }
@@ -5968,14 +5881,14 @@ async function queryRAG(characterName, queryText) {
         // Check if any activation triggers match (case-insensitive)
         const triggers = metadata.keywords || []; // NOTE: Still called 'keywords' in data for backwards compatibility
 
-        console.log(`🔍 [RAGBooks] Checking collection ${collectionId}:`, {
+        console.log(`🔍 [VectHare] Checking collection ${collectionId}:`, {
             triggers: triggers,
             triggerCount: triggers.length
         });
 
         // BUG FIX: Auto-enable alwaysActive for collections without triggers
         if (triggers.length === 0) {
-            console.log(`⚠️ [RAGBooks] Collection ${collectionId} has no triggers - enabling alwaysActive`);
+            console.log(`⚠️ [VectHare] Collection ${collectionId} has no triggers - enabling alwaysActive`);
             metadata.alwaysActive = true;
             activatedCollections.add(collectionId);
 
@@ -5983,7 +5896,7 @@ async function queryRAG(characterName, queryText) {
             if (typeof toastr !== 'undefined' && !metadata._autoActivateWarned) {
                 toastr.info(
                     `Collection "${metadata.name || collectionId}" has no activation triggers and was automatically set to "Always Active". You can change this in collection settings.`,
-                    'RAGBooks: Auto-Activated Collection',
+                    'VectHare: Auto-Activated Collection',
                     { timeOut: 5000, preventDuplicates: true }
                 );
                 metadata._autoActivateWarned = true;
@@ -5997,7 +5910,7 @@ async function queryRAG(characterName, queryText) {
             const triggerLower = trigger.toLowerCase().trim();
             // Support both substring and whole-word matching
             if (queryLower.includes(triggerLower)) {
-                console.log(`✅ [RAGBooks] Collection ${collectionId} activated! Trigger "${trigger}" found in query`);
+                console.log(`✅ [VectHare] Collection ${collectionId} activated! Trigger "${trigger}" found in query`);
                 activatedCollections.add(collectionId);
                 matched = true;
                 break;
@@ -6005,7 +5918,7 @@ async function queryRAG(characterName, queryText) {
         }
 
         if (!matched) {
-            console.log(`❌ [RAGBooks] Collection ${collectionId} NOT activated - no triggers matched`);
+            console.log(`❌ [VectHare] Collection ${collectionId} NOT activated - no triggers matched`);
         }
     }
 
@@ -6087,7 +6000,7 @@ async function queryRAG(characterName, queryText) {
                         if (typeof toastr !== 'undefined') {
                             toastr.error(
                                 `Failed to query collection "${sourceData.name || currentCollectionId}": ${error.message}\n\nCheck console for details.`,
-                                'RAGBooks: Query Failed',
+                                'VectHare: Query Failed',
                                 { timeOut: 8000, closeButton: true, preventDuplicates: true }
                             );
                         }
@@ -6109,8 +6022,8 @@ async function queryRAG(characterName, queryText) {
 
             if (!hasAnyCollections) {
                 toastr.error(
-                    '🔴 No RAG Collections Found\n\nNo collections exist in your library. You need to:\n1. Create content (character cards, lorebooks, etc.)\n2. Open RAGBooks and click "Chunk Document"\n3. Click "Vectorize" to add to vector database',
-                    'RAGBooks: No Content',
+                    '🔴 No RAG Collections Found\n\nNo collections exist in your library. You need to:\n1. Create content (character cards, lorebooks, etc.)\n2. Open VectHare and click "Chunk Document"\n3. Click "Vectorize" to add to vector database',
+                    'VectHare: No Content',
                     {
                         timeOut: 0,
                         extendedTimeOut: 0,
@@ -6122,7 +6035,7 @@ async function queryRAG(characterName, queryText) {
             } else if (activatedCount === 0) {
                 toastr.warning(
                     `⚠️  No Collections Activated\n\nYou have ${allCollectionNames.length} collection(s), but none activated for this query.\n\nCollections activate when:\n• Activation triggers in the collection match words in your query\n• Collection is set to "Always Active"\n\nCheck your collection settings and ensure activation triggers are configured.`,
-                    'RAGBooks: No Active Collections',
+                    'VectHare: No Active Collections',
                     {
                         timeOut: 10000,
                         closeButton: true,
@@ -6310,7 +6223,7 @@ async function queryRAG(characterName, queryText) {
 
         // Apply keyword weight boosts to all chunks before ranking
         // This combines semantic similarity scores with custom keyword weights
-        console.log('🎯 [RAGBooks] Applying keyword weight boosts...');
+        console.log('🎯 [VectHare] Applying keyword weight boosts...');
         for (const chunk of finalResults) {
             const libraryEntry = mergedLibrary[chunk.hash];
             if (!libraryEntry) continue;
@@ -6376,7 +6289,7 @@ async function queryRAG(characterName, queryText) {
 
         // BUG FIX: Detect when chunks were found but all filtered out
         if (finalResults.length === 0 && (primaryChunks.length > 0 || combined.length > 0)) {
-            console.warn(`⚠️  RAGBooks: Found ${primaryChunks.length} chunks but all filtered out`);
+            console.warn(`⚠️  VectHare: Found ${primaryChunks.length} chunks but all filtered out`);
 
             if (typeof toastr !== 'undefined') {
                 const reasons = [];
@@ -6391,15 +6304,15 @@ async function queryRAG(characterName, queryText) {
                 }
 
                 toastr.warning(
-                    `RAGBooks found ${primaryChunks.length} matching chunks, but all were filtered out.\n\nReasons:\n• ${reasons.join('\n• ')}\n\nThreshold: ${ragState.threshold}`,
-                    'RAGBooks: Results Filtered',
+                    `VectHare found ${primaryChunks.length} matching chunks, but all were filtered out.\n\nReasons:\n• ${reasons.join('\n• ')}\n\nThreshold: ${ragState.threshold}`,
+                    'VectHare: Results Filtered',
                     { timeOut: 8000, closeButton: true, preventDuplicates: true }
                 );
             }
         }
 
         if (finalResults.length === 0) {
-            console.warn('⚠️  RAGBooks: No results found - running diagnostics...');
+            console.warn('⚠️  VectHare: No results found - running diagnostics...');
 
             // Run quick diagnostics to identify the problem
             (async () => {
@@ -6458,7 +6371,7 @@ async function queryRAG(characterName, queryText) {
                         const message = `${icon} No RAG Results\n\n${topIssue.issue}\n${topIssue.description}\n\n${topIssue.manualFix || ''}`;
 
                         if (typeof toastr !== 'undefined') {
-                            toastr.error(message, 'RAGBooks: Search Failed', {
+                            toastr.error(message, 'VectHare: Search Failed', {
                                 timeOut: 0,
                                 extendedTimeOut: 0,
                                 closeButton: true,
@@ -6467,7 +6380,7 @@ async function queryRAG(characterName, queryText) {
                             });
                         }
 
-                        console.error('🔴 RAGBooks Diagnostic:', topIssue.issue);
+                        console.error('🔴 VectHare Diagnostic:', topIssue.issue);
                         console.error('   Description:', topIssue.description);
                         console.error('   Fix:', topIssue.manualFix || 'See toaster for details');
                     } else {
@@ -6475,7 +6388,7 @@ async function queryRAG(characterName, queryText) {
                         if (typeof toastr !== 'undefined') {
                             toastr.warning(
                                 `No chunks matched your query with threshold ${(ragState.threshold || 0.80).toFixed(2)}.\n\nTry:\n• Lower your relevance threshold\n• Use more general search terms\n• Check if collection activation triggers match your query`,
-                                'RAGBooks: No Matches',
+                                'VectHare: No Matches',
                                 {
                                     timeOut: 8000,
                                     closeButton: true,
@@ -6486,7 +6399,7 @@ async function queryRAG(characterName, queryText) {
                         }
                     }
                 } catch (diagError) {
-                    console.error('RAGBooks diagnostic check failed:', diagError);
+                    console.error('VectHare diagnostic check failed:', diagError);
                 }
             })();
         }
@@ -6527,7 +6440,7 @@ function buildQueryContext(messageCount = 3) {
         .join('\n\n');
 
     // Enhanced debug logging
-    console.log('🔍 [RAGBooks] Building query context:', {
+    console.log('🔍 [VectHare] Building query context:', {
         totalMessages: chat.length,
         activeMessages: activeMessages.length,
         selectedMessages: recentMessages.length,
@@ -6537,7 +6450,7 @@ function buildQueryContext(messageCount = 3) {
 
     // Log each selected message for debugging
     recentMessages.forEach((msg, idx) => {
-        console.log(`📝 [RAGBooks] Message ${idx + 1}/${recentMessages.length}:`, {
+        console.log(`📝 [VectHare] Message ${idx + 1}/${recentMessages.length}:`, {
             name: msg.name,
             is_user: msg.is_user,
             is_system: msg.is_system,
@@ -6545,7 +6458,7 @@ function buildQueryContext(messageCount = 3) {
         });
     });
 
-    console.log('📋 [RAGBooks] Final queryText:', queryText);
+    console.log('📋 [VectHare] Final queryText:', queryText);
 
     return queryText;
 }
@@ -6648,7 +6561,7 @@ async function injectRAGResults(characterName, results) {
     });
 
     if (settings.debugMode) {
-        console.log('[RAGBooks] Injection', { characterName, injectedChunks: uniqueChunks.length });
+        console.log('[VectHare] Injection', { characterName, injectedChunks: uniqueChunks.length });
         console.log(formatted);
     }
 }
@@ -7403,7 +7316,7 @@ function removeAllRAGButtons() {
  * Initialize the RAG system
  */
 function initializeRAG() {
-    debugLog('Initializing RAGBooks system');
+    debugLog('Initializing VectHare system');
 
     // Register RAG interceptor for generation events
     eventSource.on(event_types.GENERATION_STARTED, carrotKernelRagInterceptor);
@@ -7437,7 +7350,7 @@ function initializeRAG() {
         addRAGButtonsToAllMessages();
     }, 1000);
 
-    debugLog('✅ RAGBooks system initialized');
+    debugLog('✅ VectHare system initialized');
 }
 
 /**
@@ -7475,8 +7388,8 @@ async function autoVectorizeMessage(messageId) {
 }
 
 /**
- * RAGBooks interceptor for chat generation
- * Queries all active RAGBooks collections and injects relevant content
+ * VectHare interceptor for chat generation
+ * Queries all active VectHare collections and injects relevant content
  */
 async function ragbooksInterceptor(chatArray, contextSize, abort, type) {
     const settings = getRAGSettings();
@@ -7487,24 +7400,24 @@ async function ragbooksInterceptor(chatArray, contextSize, abort, type) {
     setExtensionPrompt(RAG_PROMPT_TAG, '', extension_prompt_types.IN_PROMPT, settings.injectionDepth, false, promptRole);
 
     if (!settings.enabled) {
-        console.log('❌ [RAGBooks] RAG is DISABLED - skipping');
+        console.log('❌ [VectHare] RAG is DISABLED - skipping');
         return false;
     }
 
     // Skip quiet generations
     if (type === 'quiet') {
-        console.log(`⏭️ [RAGBooks] Skipping quiet generation`);
+        console.log(`⏭️ [VectHare] Skipping quiet generation`);
         return false;
     }
 
     // Only run during user-initiated generation
     if (!is_send_press) {
-        console.log(`⏭️ [RAGBooks] Skipping - not user-initiated (is_send_press=false)`);
+        console.log(`⏭️ [VectHare] Skipping - not user-initiated (is_send_press=false)`);
         return false;
     }
 
     // Start grouped logging
-    console.group('📚 [RAGBooks] RAG Interceptor');
+    console.group('📚 [VectHare] RAG Interceptor');
 
     try {
         const context = getContext();
@@ -7530,8 +7443,17 @@ async function ragbooksInterceptor(chatArray, contextSize, abort, type) {
 
         console.log(`🔍 Query: "${queryText.substring(0, 100)}${queryText.length > 100 ? '...' : ''}"`);
 
-        // Query all active RAGBooks collections
-        const ragChunks = await queryAllRAGBooksCollections(queryText);
+        // Query all active VectHare collections using Search Orchestrator via queryAllVectHareCollections wrapper
+        // Pass settings for advanced features (decay, importance, etc.)
+        const searchOptions = {
+            applyDecay: settings.recencyWeighting || settings.enableTemporalDecay || false,
+            applyImportance: settings.enableImportance !== false, // Default true
+            applyConditions: settings.enableConditions !== false, // Default true
+            applyGroups: settings.enableGroups !== false, // Default true
+            settings: settings // Pass full settings object for granular config (half-life, weights, etc.)
+        };
+
+        const ragChunks = await queryAllVectHareCollections(queryText, searchOptions);
 
         if (ragChunks.length > 0) {
             console.log(`✅ Found ${ragChunks.length} relevant chunk${ragChunks.length > 1 ? 's' : ''}`);
@@ -7563,7 +7485,7 @@ async function ragbooksInterceptor(chatArray, contextSize, abort, type) {
 }
 
 async function carrotKernelRagInterceptor(chatArray, contextSize, abort, type) {
-    console.log('📚📚📚 [RAGBooks] Interceptor called!', {
+    console.log('📚📚📚 [VectHare] Interceptor called!', {
         chatArrayLength: chatArray?.length,
         contextSize,
         type,
@@ -7572,7 +7494,7 @@ async function carrotKernelRagInterceptor(chatArray, contextSize, abort, type) {
     });
 
     const settings = getRAGSettings();
-    console.log('⚙️ [RAGBooks] Settings loaded:', {
+    console.log('⚙️ [VectHare] Settings loaded:', {
         enabled: settings.enabled,
         queryContext: settings.queryContext,
         injectionDepth: settings.injectionDepth,
@@ -7586,7 +7508,7 @@ async function carrotKernelRagInterceptor(chatArray, contextSize, abort, type) {
     setExtensionPrompt(RAG_PROMPT_TAG, '', extension_prompt_types.IN_PROMPT, settings.injectionDepth, false, promptRole);
 
     if (!settings.enabled) {
-        console.log('❌ [RAGBooks] RAG is DISABLED - skipping');
+        console.log('❌ [VectHare] RAG is DISABLED - skipping');
         return false;
     }
 
@@ -7594,7 +7516,7 @@ async function carrotKernelRagInterceptor(chatArray, contextSize, abort, type) {
     // Normal generations have type=undefined
     // 'continue', 'regenerate', 'swipe', 'impersonate' are all valid generation types we should process
     if (type === 'quiet') {
-        console.log(`⏭️ [RAGBooks] Skipping quiet generation`);
+        console.log(`⏭️ [VectHare] Skipping quiet generation`);
         return false;
     }
 
@@ -7602,7 +7524,7 @@ async function carrotKernelRagInterceptor(chatArray, contextSize, abort, type) {
     // is_send_press is true when user clicks Send or presses Enter
     // Deletions, UI updates, etc. have is_send_press=false
     if (!is_send_press) {
-        console.log(`⏭️ [RAGBooks] Skipping - not user-initiated (is_send_press=false)`);
+        console.log(`⏭️ [VectHare] Skipping - not user-initiated (is_send_press=false)`);
         return false;
     }
 
@@ -8732,18 +8654,18 @@ function closeChunkViewer() {
 
 async function saveChunkViewerChanges() {
     if (!currentViewingCollection) {
-        toastr.error('No collection to save', 'RAGBooks');
+        toastr.error('No collection to save', 'VectHare');
         return;
     }
 
     if (!hasUnsavedChunkChanges) {
-        toastr.info('No changes to save', 'RAGBooks');
+        toastr.info('No changes to save', 'VectHare');
         return;
     }
 
     try {
         // Show saving indicator
-        toastr.info('Saving changes...', 'RAGBooks', { timeOut: 0, extendedTimeOut: 0 });
+        toastr.info('Saving changes...', 'VectHare', { timeOut: 0, extendedTimeOut: 0 });
 
         // Log chunks before save for debugging
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -8826,7 +8748,7 @@ async function saveChunkViewerChanges() {
 
         // Clear the "saving" toastr and show success
         toastr.clear();
-        toastr.success(`Saved ${Object.keys(currentViewingChunks).length} chunks successfully`, 'RAGBooks', { timeOut: 2000 });
+        toastr.success(`Saved ${Object.keys(currentViewingChunks).length} chunks successfully`, 'VectHare', { timeOut: 2000 });
 
     } catch (error) {
         console.error('❌ [Chunk Save] Save failed:', error);
@@ -8834,121 +8756,224 @@ async function saveChunkViewerChanges() {
 
         // Clear the "saving" toastr and show error
         toastr.clear();
-        toastr.error(`Failed to save chunks: ${error.message}`, 'RAGBooks', { timeOut: 5000 });
+        toastr.error(`Failed to save chunks: ${error.message}`, 'VectHare', { timeOut: 5000 });
 
         // Don't mark as saved if there was an error
         throw error;
     }
 }
 
-function renderChunkCards(chunks, searchTerm = '') {
-    const chunkArray = Object.entries(chunks || {})
-        .map(([hash, data]) => ({
-            hash,
-            ...data
-        }))
-        // FILTER OUT SUMMARY CHUNKS - they should only exist in the backend
-        .filter(chunk => !chunk.isSummaryChunk);
+// --- Chunk Viewer State ---
+const chunkViewerState = {
+    filterText: '',
+    filterImportance: 'all', // all, critical, high, normal, low
+    filterStatus: 'all',     // all, enabled, disabled
+    sortMode: 'index',       // index, importance
+    visibleLimit: 50,        // Pagination limit
+    selectedHashes: new Set()
+};
 
-    // Filter by search term
-    const normalizedSearch = (searchTerm || '').toLowerCase().trim();
-    const filtered = normalizedSearch
-        ? chunkArray.filter(chunk => {
-            const text = (chunk.text || '').toLowerCase();
-            const keywords = (chunk.keywords || []).map(k => k.toLowerCase());
-            return text.includes(normalizedSearch) || keywords.some(k => k.includes(normalizedSearch));
-        })
-        : chunkArray;
+function renderChunkCards(chunkMap, searchText = '') {
+    chunkViewerState.filterText = (searchText || '').toLowerCase().trim();
+    
+    const chunkArray = Object.values(chunkMap).sort((a, b) => a.index - b.index);
+
+    // Filter Chunks
+    const filtered = chunkArray.filter(chunk => {
+        // Text Search
+        const text = (chunk.text || '').toLowerCase();
+        const name = (chunk.name || chunk.section || '').toLowerCase();
+        const keywords = (chunk.keywords || []).map(k => k.toLowerCase());
+        const matchesText = !chunkViewerState.filterText || 
+            text.includes(chunkViewerState.filterText) || 
+            name.includes(chunkViewerState.filterText) || 
+            keywords.some(k => k.includes(chunkViewerState.filterText));
+
+        if (!matchesText) return false;
+
+        // Importance Filter
+        if (chunkViewerState.filterImportance !== 'all') {
+            const imp = chunk.importance !== undefined ? chunk.importance : 100;
+            let tier = 'low';
+            if (imp >= 175) tier = 'critical';
+            else if (imp >= 125) tier = 'high';
+            else if (imp >= 75) tier = 'normal';
+            
+            if (tier !== chunkViewerState.filterImportance) return false;
+        }
+
+        // Status Filter
+        if (chunkViewerState.filterStatus === 'enabled' && chunk.disabled) return false;
+        if (chunkViewerState.filterStatus === 'disabled' && !chunk.disabled) return false;
+
+        return true;
+    });
+
+    // Sort Chunks
+    if (chunkViewerState.sortMode === 'importance') {
+        filtered.sort((a, b) => (b.importance || 100) - (a.importance || 100));
+    }
 
     // Calculate stats
     const totalChars = filtered.reduce((sum, c) => sum + (c.text?.length || 0), 0);
     const avgChars = filtered.length ? Math.round(totalChars / filtered.length) : 0;
 
-    // Update stats
+    // Update stats UI
     $('#ragbooks_chunk_stats').html(`
         <div class="chunk-stat">
-            <i class="fa-solid fa-layer-group"></i>
-            <span class="chunk-stat__label">Showing</span>
-            <span class="chunk-stat__value">${filtered.length}</span>
-            <span class="chunk-stat__divider">/</span>
-            <span class="chunk-stat__value">${chunkArray.length}</span>
+            <i class="fa-solid fa-filter"></i>
+            <span class="chunk-stat__value">${filtered.length}</span> / ${chunkArray.length}
         </div>
         <div class="chunk-stat">
-            <i class="fa-solid fa-ruler-horizontal"></i>
-            <span class="chunk-stat__label">Average</span>
-            <span class="chunk-stat__value">${avgChars} chars</span>
+            <i class="fa-solid fa-text-width"></i>
+            <span class="chunk-stat__value">~${avgChars} chars</span>
         </div>
     `);
 
+    // Update Bulk Actions Bar
+    updateBulkActionsUI();
+
     const container = $('#ragbooks_chunks_container');
-    if (!filtered.length) {
-        container.html('<div class="chunk-empty-state"><i class="fa-solid fa-eye-slash"></i><p>No chunks match your search</p></div>');
+    
+    if (filtered.length === 0) {
+        container.html(`
+            <div class="chunk-empty-state" style="grid-column: 1/-1; text-align: center; padding: 40px; opacity: 0.6;">
+                <i class="fa-solid fa-filter-circle-xmark" style="font-size: 48px; margin-bottom: 16px;"></i>
+                <p>No chunks match your filters</p>
+                <button class="menu_button" onclick="$('#ragbooks_chunk_search').val('').trigger('input')">Clear Search</button>
+            </div>
+        `);
         return;
     }
 
-    const html = filtered.map(chunk => renderChunkCard(chunk)).join('');
+    // Pagination: Render only visible limit
+    const visibleChunks = filtered.slice(0, chunkViewerState.visibleLimit);
+    const html = visibleChunks.map(chunk => renderChunkCard(chunk)).join('');
+    
     container.html(html);
 
-    // Initialize native UI features
+    // "Load More" Button
+    if (filtered.length > chunkViewerState.visibleLimit) {
+        const remaining = filtered.length - chunkViewerState.visibleLimit;
+        container.append(`
+            <div class="rag-load-more">
+                <button id="ragbooks_load_more" class="menu_button" style="width: 100%; padding: 12px;">
+                    Load ${Math.min(50, remaining)} More (${remaining} remaining)
+                </button>
+            </div>
+        `);
+        
+        $('#ragbooks_load_more').off('click').on('click', function() {
+            chunkViewerState.visibleLimit += 50;
+            renderChunkCards(chunkMap, searchText); // Re-render with higher limit
+        });
+    }
+
+    // Initialize UI interactions
     setTimeout(() => {
-        if (typeof bindInlineDrawerToggles === 'function') {
-            bindInlineDrawerToggles();
-        }
-        filtered.forEach(chunk => {
-            // Initialize keyword selectors if needed
-            if (chunk._expanded && typeof initializeKeywordSelector === 'function') {
-                initializeKeywordSelector(chunk);
+        if (typeof bindInlineDrawerToggles === 'function') bindInlineDrawerToggles();
+        
+        // Bind selection checkboxes
+        $('.rag-select-checkbox').off('change').on('change', function(e) {
+            e.stopPropagation();
+            const hash = $(this).closest('.rag-sleek-card').data('hash');
+            if (this.checked) {
+                chunkViewerState.selectedHashes.add(hash);
+                $(this).closest('.rag-sleek-card').addClass('selected');
+            } else {
+                chunkViewerState.selectedHashes.delete(hash);
+                $(this).closest('.rag-sleek-card').removeClass('selected');
             }
+            updateBulkActionsUI();
         });
     }, 10);
+}
+
+function updateBulkActionsUI() {
+    let $bar = $('.rag-bulk-actions');
+    if ($bar.length === 0) {
+        $('body').append(`
+            <div class="rag-bulk-actions">
+                <span class="rag-bulk-count">0 selected</span>
+                <button class="rag-icon-btn" id="rag_bulk_enable" title="Enable Selected"><i class="fa-solid fa-check"></i></button>
+                <button class="rag-icon-btn" id="rag_bulk_disable" title="Disable Selected"><i class="fa-solid fa-ban"></i></button>
+                <div class="rag-bulk-divider"></div>
+                <button class="rag-icon-btn danger" id="rag_bulk_delete" title="Delete Selected"><i class="fa-solid fa-trash"></i></button>
+                <button class="rag-icon-btn" id="rag_bulk_close" title="Clear Selection"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+        `);
+        $bar = $('.rag-bulk-actions');
+        
+        // Bind bulk actions
+        $('#rag_bulk_close').off('click').on('click', () => {
+            chunkViewerState.selectedHashes.clear();
+            $('.rag-sleek-card').removeClass('selected').find('.rag-select-checkbox').prop('checked', false);
+            updateBulkActionsUI();
+        });
+        
+        // Add logic handlers for other buttons here if needed (omitted for brevity, can be added in bind events)
+    }
+
+    const count = chunkViewerState.selectedHashes.size;
+    $bar.find('.rag-bulk-count').text(`${count} selected`);
+    
+    if (count > 0) {
+        $bar.addClass('visible');
+    } else {
+        $bar.removeClass('visible');
+    }
 }
 
 function renderChunkCard(chunk) {
     const hash = chunk.hash;
     const isExpanded = chunk._expanded || false;
     const isDisabled = chunk.disabled || false;
+    const isSelected = chunkViewerState.selectedHashes.has(hash);
     const importance = chunk.importance !== undefined ? chunk.importance : 100;
-
-    // Dynamic classes
-    const cardClass = `rag-sleek-card ${isDisabled ? 'disabled' : ''} ${isExpanded ? 'expanded' : ''}`;
-    const toggleIcon = isDisabled ? 'fa-toggle-off' : 'fa-toggle-on';
-    const toggleColor = isDisabled ? 'var(--grey70)' : 'var(--ragbooks-primary)';
+    
+    // Determine Importance Tier for styling
+    let tier = 'low';
+    if (importance >= 175) tier = 'critical';
+    else if (importance >= 125) tier = 'high';
+    else if (importance >= 75) tier = 'normal';
 
     // Keyword Preview (Pills)
     const keywords = chunk.keywords || [];
-    const topKeywords = keywords.slice(0, 4);
-    const remaining = Math.max(0, keywords.length - 4);
+    const topKeywords = keywords.slice(0, 3);
+    const remaining = Math.max(0, keywords.length - 3);
     
-    const keywordPills = topKeywords.map(k => {
-        const weight = getKeywordWeight(chunk, k);
-        const isCustom = (chunk.customKeywords || []).includes(k);
-        return `<span class="rag-sleek-tag ${isCustom ? 'custom' : ''}">${escapeHtml(k)}</span>`;
-    }).join('') + (remaining > 0 ? `<span class="rag-sleek-tag">+${remaining}</span>` : '');
-
-    // Metadata
-    const tokenCount = Math.ceil((chunk.text?.length || 0) / 4);
+    const keywordPills = topKeywords.map(k => 
+        `<span class="rag-sleek-tag">${escapeHtml(k)}</span>`
+    ).join('') + (remaining > 0 ? `<span class="rag-sleek-tag">+${remaining}</span>` : '');
 
     return `
-        <div class="${cardClass}" data-hash="${hash}">
+        <div class="rag-sleek-card ${isDisabled ? 'disabled' : ''} ${isExpanded ? 'expanded' : ''} ${isSelected ? 'selected' : ''}" 
+             data-hash="${hash}" data-importance="${tier}">
+            
+            <div class="rag-importance-bar"></div>
+
             <!-- Header -->
             <div class="rag-sleek-header rag-chunk-expand" data-hash="${hash}">
-                <div class="rag-sleek-title" title="${escapeHtml(chunk.name || chunk.section || 'Untitled')}">
-                    ${escapeHtml(chunk.name || chunk.section || 'Untitled Chunk')}
-                </div>
+                <input type="checkbox" class="rag-select-checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation()">
                 
-                <div class="rag-sleek-meta">
-                    <span title="Tokens"><i class="fa-solid fa-cube"></i> ${tokenCount}</span>
-                    ${chunk.conditions?.enabled ? '<span title="Conditional" style="color:#a5b4fc"><i class="fa-solid fa-filter"></i></span>' : ''}
+                <div class="rag-header-content">
+                    <div class="rag-sleek-title" title="${escapeHtml(chunk.name || chunk.section)}">
+                        ${escapeHtml(chunk.name || chunk.section || 'Untitled')}
+                    </div>
+                    <div class="rag-sleek-meta">
+                        <span class="rag-meta-badge"><i class="fa-solid fa-cube"></i> ${Math.ceil((chunk.text?.length||0)/4)}</span>
+                        ${chunk.isSummaryChunk ? '<span class="rag-meta-badge" style="color:#f472b6"><i class="fa-solid fa-bolt"></i> Summary</span>' : ''}
+                        ${chunk.conditions?.enabled ? '<span class="rag-meta-badge" style="color:#a5b4fc"><i class="fa-solid fa-filter"></i> Rule</span>' : ''}
+                    </div>
                 </div>
 
-                <div class="rag-sleek-actions" style="margin-top: 0; opacity: 1; margin-left: 12px;">
-                    <button class="rag-icon-btn rag-chunk-toggle-enabled" data-hash="${hash}" onclick="event.stopPropagation()">
-                        <i class="fa-solid ${toggleIcon}" style="color: ${toggleColor}"></i>
-                    </button>
-                </div>
+                <label class="rag-toggle-switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" class="rag-chunk-toggle-enabled" data-hash="${hash}" ${!isDisabled ? 'checked' : ''}>
+                    <span class="rag-slider"></span>
+                </label>
             </div>
 
-            <!-- Collapsed Preview (Text snippet) -->
+            <!-- Collapsed Preview -->
             ${!isExpanded ? `
                 <div class="rag-sleek-preview rag-chunk-expand" data-hash="${hash}">
                     ${escapeHtml(chunk.text || '')}
@@ -8958,26 +8983,25 @@ function renderChunkCard(chunk) {
                 </div>
             ` : ''}
 
-            <!-- Expanded Body -->
+            <!-- Expanded Body (Full Editor) -->
             <div class="rag-sleek-body" style="display: ${isExpanded ? 'block' : 'none'}">
                 
-                <!-- Main Text Editor -->
+                <!-- Text Editor -->
                 <div style="margin-bottom: 16px;">
-                    <label style="font-size: 0.8em; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">Content</label>
                     <textarea class="rag-sleek-textarea rag-chunk-text-edit" data-hash="${hash}">${escapeHtml(chunk.text || '')}</textarea>
                 </div>
 
-                <!-- Keywords (Select2) -->
+                <!-- Keywords Select2 -->
                 <div style="margin-bottom: 16px;">
-                    <label style="font-size: 0.8em; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">Keywords</label>
+                    <label style="font-size: 0.8em; opacity: 0.7; margin-bottom: 4px; display:block;">Keywords</label>
                     <select class="rag-chunk-keywords" data-hash="${hash}" multiple="multiple" style="width: 100%;"></select>
                 </div>
 
                 <!-- Importance Slider -->
                 <div class="rag-sleek-slider-container">
-                    <span style="font-size: 0.9em; font-weight: 600;">Importance</span>
+                    <span style="font-size: 0.9em; font-weight: 600; min-width: 80px;">Importance</span>
                     <input type="range" class="rag-sleek-slider rag-importance-slider" data-hash="${hash}" min="0" max="200" value="${importance}">
-                    <span class="rag-importance-value" data-hash="${hash}" style="font-family: monospace; background: var(--black20a); padding: 2px 6px; border-radius: 4px;">${importance}%</span>
+                    <span class="rag-importance-value" style="min-width: 45px; text-align: right;">${importance}%</span>
                 </div>
 
                 <!-- Nested Drawer: Conditional Activation -->
@@ -9079,14 +9103,66 @@ function renderConditionsList(rules) {
     }
 
     return rules.map((rule, index) => `
-        <div class="rag-sleek-tag" style="margin-bottom: 4px; background: var(--black30a); padding: 6px 10px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
-            <span>
-                <strong style="color: #a5b4fc; text-transform: uppercase; font-size: 0.8em; margin-right: 6px;">${rule.negate ? 'NOT' : 'IS'}</strong>
-                ${escapeHtml(rule.type)}
-            </span>
-            <i class="fa-solid fa-trash rag-icon-btn danger rag-condition-remove" data-index="${index}" style="font-size: 0.8em; cursor: pointer;"></i>
+        <div class="ragbooks-condition-row" style="background: var(--black20a); padding: 8px; margin-bottom: 8px; border-radius: 6px; border: 1px solid var(--SmartThemeBorderColor);">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <select class="ragbooks-condition-type text_pole" data-idx="${index}" style="flex: 1; margin-right: 8px; padding: 4px;">
+                    <option value="keyword" ${rule.type === 'keyword' ? 'selected' : ''}>Keyword Match</option>
+                    <option value="emotion" ${rule.type === 'emotion' ? 'selected' : ''}>Emotion (Expr/Text)</option>
+                    <option value="timeOfDay" ${rule.type === 'timeOfDay' ? 'selected' : ''}>Time of Day</option>
+                    <option value="messageCount" ${rule.type === 'messageCount' ? 'selected' : ''}>Message Count</option>
+                    <option value="randomChance" ${rule.type === 'randomChance' ? 'selected' : ''}>Random Chance</option>
+                    <option value="characterPresent" ${rule.type === 'characterPresent' ? 'selected' : ''}>Character Present</option>
+                    <option value="speaker" ${rule.type === 'speaker' ? 'selected' : ''}>Last Speaker</option>
+                    <option value="swipeCount" ${rule.type === 'swipeCount' ? 'selected' : ''}>Swipe Count</option>
+                    <option value="generationType" ${rule.type === 'generationType' ? 'selected' : ''}>Gen Type</option>
+                    <option value="chunkActive" ${rule.type === 'chunkActive' ? 'selected' : ''}>Other Chunk Active</option>
+                    <option value="isGroupChat" ${rule.type === 'isGroupChat' ? 'selected' : ''}>Is Group Chat</option>
+                </select>
+                <button class="ragbooks-condition-negate-toggle menu_button" data-idx="${index}" style="width: 40px; margin-right: 8px; font-size: 0.8em; ${rule.negate ? 'background: var(--red); color: white;' : ''}">
+                    ${rule.negate ? 'NOT' : 'IS'}
+                </button>
+                <i class="fa-solid fa-trash rag-icon-btn danger rag-condition-remove" data-index="${index}" style="padding: 6px;"></i>
+            </div>
+            
+            <div class="ragbooks-condition-settings-container" data-idx="${index}">
+                ${renderConditionSettingsInputs(rule.type, rule.settings || {}, index)}
+            </div>
         </div>
     `).join('');
+}
+
+function renderConditionSettingsInputs(type, settings, index) {
+    let html = '';
+    const val = (v) => escapeHtml(v || '');
+
+    switch (type) {
+        case 'keyword':
+            html = `<input type="text" class="ragbooks-condition-setting text_pole ragbooks-condition-setting-value" value="${val(settings.value || settings.values?.join(','))}" placeholder="keywords, separated, by, comma" style="width: 100%;">`;
+            break;
+        case 'emotion':
+            html = `<select class="ragbooks-condition-setting-values text_pole" multiple style="width: 100%;">
+                ${['joy', 'sadness', 'anger', 'fear', 'surprise', 'disgust', 'neutral'].map(e => 
+                    `<option value="${e}" ${(settings.values || []).includes(e) ? 'selected' : ''}>${e}</option>`
+                ).join('')}
+            </select>`;
+            break;
+        case 'randomChance':
+            html = `<div style="display:flex; align-items:center; gap:8px;">
+                <input type="range" class="ragbooks-condition-setting-probability" min="0" max="100" value="${settings.probability || 50}" style="flex:1;">
+                <span class="ragbooks-confidence-value">${settings.probability || 50}%</span>
+            </div>`;
+            break;
+        case 'timeOfDay':
+            html = `<div style="display:flex; gap:4px;">
+                <input type="time" class="ragbooks-condition-setting-startTime text_pole" value="${settings.startTime || '09:00'}" style="flex:1;">
+                <span style="align-self:center;">-</span>
+                <input type="time" class="ragbooks-condition-setting-endTime text_pole" value="${settings.endTime || '17:00'}" style="flex:1;">
+            </div>`;
+            break;
+        default:
+            html = `<input type="text" class="ragbooks-condition-setting-value text_pole" value="${val(settings.value)}" placeholder="Value..." style="width: 100%;">`;
+    }
+    return html;
 }
 
 function bindInlineDrawerToggles() {
@@ -9146,7 +9222,7 @@ function bindInlineDrawerToggles() {
         }
     });
 
-    // Nested drawers (Custom RAGBooks Drawer)
+    // Nested drawers (Custom VectHare Drawer)
     container.off('click', '.ragbooks-drawer-toggle').on('click', '.ragbooks-drawer-toggle', function(e) {
         e.preventDefault();
         e.stopPropagation();
@@ -9183,91 +9259,6 @@ function bindInlineDrawerToggles() {
             }
         }
     });
-
-    // --- Advanced Processing Handlers ---
-
-    // Toggle Summarization
-    container.off('change', '.ragbooks-enable-chunk-summary').on('change', '.ragbooks-enable-chunk-summary', function() {
-        const hash = $(this).data('hash');
-        const enabled = $(this).is(':checked');
-        if (currentViewingChunks[hash]) {
-            if (!currentViewingChunks[hash].metadata) currentViewingChunks[hash].metadata = {};
-            currentViewingChunks[hash].metadata.enableSummary = enabled;
-            hasUnsavedChunkChanges = true;
-            
-            // Toggle visibility of style dropdown
-            $(this).closest('.ragbooks-drawer-content').find('.ragbooks-summary-style').parent().toggle(enabled);
-        }
-    });
-
-    // Generate Summary Now
-    container.off('click', '.ragbooks-generate-summary-now').on('click', '.ragbooks-generate-summary-now', async function(e) {
-        e.stopPropagation();
-        const hash = $(this).data('hash');
-        const chunk = currentViewingChunks[hash];
-        if (!chunk) return;
-
-        const $btn = $(this);
-        $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i>');
-
-        try {
-            const style = chunk.metadata?.summaryStyle || 'concise';
-            const prompt = `Summarize this text (${style}):\n${chunk.text}`;
-
-            // Generate
-            const summary = await generateQuietPrompt(prompt, true); // true = skip WIAN/instruct to keep it raw
-
-            if (summary) {
-                const trimmedSummary = summary.trim();
-
-                // Add to chunk's summaryVectors array
-                if (!chunk.summaryVectors) chunk.summaryVectors = [];
-                chunk.summaryVectors.push(trimmedSummary);
-                hasUnsavedChunkChanges = true;
-
-                // Update UI - find the Select2 or textarea
-                const $select = $(`.ragbooks-summary-vectors-select[data-hash="${hash}"]`);
-                const $textarea = $(`.ragbooks-summary-vectors-plaintext[data-hash="${hash}"]`);
-
-                if ($select.length && $select.data('select2')) {
-                    // Add to Select2
-                    const option = new Option(trimmedSummary, trimmedSummary, true, true);
-                    $select.append(option).trigger('change');
-                } else if ($textarea.is(':visible')) {
-                    // Add to textarea (one per line)
-                    const currentVal = $textarea.val();
-                    const newVal = currentVal ? currentVal + '\n' + trimmedSummary : trimmedSummary;
-                    $textarea.val(newVal);
-                }
-
-                toastr.success('Summary generated and added');
-            }
-        } catch (err) {
-            toastr.error('Generation failed: ' + err.message);
-        } finally {
-            $btn.prop('disabled', false).html('<i class="fa-solid fa-play"></i>');
-        }
-    });
-
-    // Summary Style Change
-    container.off('change', '.ragbooks-summary-style').on('change', '.ragbooks-summary-style', function() {
-        const hash = $(this).data('hash');
-        if (currentViewingChunks[hash]) {
-            if (!currentViewingChunks[hash].metadata) currentViewingChunks[hash].metadata = {};
-            currentViewingChunks[hash].metadata.summaryStyle = $(this).val();
-            hasUnsavedChunkChanges = true;
-        }
-    });
-
-    // Metadata Extraction Toggle
-    container.off('change', '.ragbooks-enable-chunk-metadata').on('change', '.ragbooks-enable-chunk-metadata', function() {
-        const hash = $(this).data('hash');
-        if (currentViewingChunks[hash]) {
-            if (!currentViewingChunks[hash].metadata) currentViewingChunks[hash].metadata = {};
-            currentViewingChunks[hash].metadata.enableMetadata = $(this).is(':checked');
-            hasUnsavedChunkChanges = true;
-        }
-    });
 }
 
 function initializeKeywordSelector(chunk) {
@@ -9275,6 +9266,11 @@ function initializeKeywordSelector(chunk) {
     const $select = $(`.rag-chunk-keywords[data-hash="${hash}"]`);
 
     if (!$select.length) return;
+
+    // Prevent re-initialization
+    if ($select.data('select2')) {
+        return;
+    }
 
     const keywords = ensureArrayValue(chunk.keywords);
     const customWeights = chunk.customWeights || {};
@@ -9333,11 +9329,15 @@ function initializeKeywordSelector(chunk) {
                     const newWeight = prompt('Enter new weight (1-200):', weight);
                     if (newWeight && !isNaN(newWeight)) {
                         const val = Math.max(1, Math.min(200, parseInt(newWeight)));
-                        if (!chunk.customWeights) chunk.customWeights = {};
-                        chunk.customWeights[normalized] = val;
-                        hasUnsavedChunkChanges = true;
+                        // Get the actual chunk from currentViewingChunks
+                        const actualChunk = currentViewingChunks[hash] || currentViewingChunks[String(hash)];
+                        if (actualChunk) {
+                            if (!actualChunk.customWeights) actualChunk.customWeights = {};
+                            actualChunk.customWeights[normalized] = val;
+                            hasUnsavedChunkChanges = true;
+                        }
                         // Hacky refresh
-                        $select.trigger('change.select2'); 
+                        $select.trigger('change.select2');
                     }
                 });
 
@@ -9357,8 +9357,16 @@ function initializeKeywordSelector(chunk) {
     // Handle changes
     $select.on('change', function(e) {
         const values = $(this).val() || [];
-        chunk.keywords = values;
-        hasUnsavedChunkChanges = true;
+
+        // Get the actual chunk from currentViewingChunks (not the closure reference)
+        const actualChunk = currentViewingChunks[hash] || currentViewingChunks[String(hash)];
+        if (actualChunk) {
+            actualChunk.keywords = values;
+            hasUnsavedChunkChanges = true;
+            console.log('[Keywords] Updated for chunk:', hash, 'keywords:', values.length, values);
+        } else {
+            console.error('[Keywords] Chunk not found in currentViewingChunks:', hash);
+        }
     });
 }
 
@@ -9880,7 +9888,12 @@ function generateConditionRowHTML(hash, rule, idx) {
 }
 
 function refreshConditionsList(hash, chunk) {
-    const $list = $(`.ragbooks-conditions-list[data-hash="${hash}"]`);
+    // Try both class names - static HTML uses .rag-conditions-list, dynamic panel uses .ragbooks-conditions-list
+    let $list = $(`.ragbooks-conditions-list[data-hash="${hash}"]`);
+    if (!$list.length) {
+        $list = $(`.rag-conditions-list[data-hash="${hash}"]`);
+    }
+    console.log('[VectHare DEBUG] refreshConditionsList - list found:', $list.length, 'for hash:', hash);
     $list.empty();
     (chunk.conditions?.rules || []).forEach((rule, idx) => {
         $list.append(generateConditionRowHTML(hash, rule, idx));
@@ -10539,7 +10552,7 @@ function initializeSummaryVectorsSelect(chunk) {
     // Check if Select2 is available
     if (typeof $.fn.select2 !== 'function') {
         console.error('[SummaryVectors] Select2 is not loaded! Cannot initialize summary vectors input.');
-        toastr.error('Select2 library not available', 'RAGBooks');
+        toastr.error('Select2 library not available', 'VectHare');
         return;
     }
 
@@ -10665,8 +10678,8 @@ function initializeSummaryVectorsSelect(chunk) {
  */
 function createNewChunk() {
     if (!currentViewingCollection) {
-        console.error('[RAGBooks] No collection is currently open');
-        toastr.error('No collection is currently open', 'RAGBooks');
+        console.error('[VectHare] No collection is currently open');
+        toastr.error('No collection is currently open', 'VectHare');
         return;
     }
 
@@ -10732,8 +10745,8 @@ function createNewChunk() {
         initializeSummaryVectorsSelect(newChunk);
     }, 100);
 
-    console.log('[RAGBooks] Created new chunk:', newHash);
-    toastr.success('New chunk created. Don\'t forget to save!', 'RAGBooks');
+    console.log('[VectHare] Created new chunk:', newHash);
+    toastr.success('New chunk created. Don\'t forget to save!', 'VectHare');
 }
 
 function bindChunkViewerEvents() {
@@ -10773,301 +10786,164 @@ function bindChunkViewerEvents() {
         }
     });
 
-    // Search - optimized with show/hide instead of re-render
-    $('#ragbooks_chunk_search').off('input').on('input', function() {
-        const searchTerm = $(this).val().toLowerCase().trim();
-        const $chunks = container.find('.world_entry');
+    // Search and Filter Handlers
+    const refreshView = () => renderChunkCards(currentViewingChunks, $('#ragbooks_chunk_search').val());
 
-        let visibleCount = 0;
+    $('#ragbooks_chunk_search').off('input').on('input', debounce(() => {
+        refreshView();
+    }, 300));
 
-        $chunks.each(function() {
-            const $entry = $(this);
-            const hash = $entry.data('hash');
-            const chunk = currentViewingChunks[hash];
-
-            if (!chunk) {
-                $entry.hide();
-                return;
-            }
-
-            // Check if chunk matches search term
-            const text = (chunk.text || '').toLowerCase();
-            const keywords = (chunk.keywords || []).map(k => k.toLowerCase());
-            const matches = !searchTerm ||
-                text.includes(searchTerm) ||
-                keywords.some(k => k.includes(searchTerm));
-
-            if (matches) {
-                $entry.show();
-                visibleCount++;
-            } else {
-                $entry.hide();
-            }
-        });
-
-        // Update stats
-        const totalChunks = Object.keys(currentViewingChunks).length;
-        const visibleChunks = $chunks.filter(':visible');
-        const totalChars = visibleChunks.toArray().reduce((sum, el) => {
-            const hash = $(el).data('hash');
-            const chunk = currentViewingChunks[hash];
-            return sum + (chunk?.text?.length || 0);
-        }, 0);
-        const avgChars = visibleCount ? Math.round(totalChars / visibleCount) : 0;
-
-        $('#ragbooks_chunk_stats').html(`
-            <div class="chunk-stat">
-                <i class="fa-solid fa-layer-group"></i>
-                <span class="chunk-stat__label">Showing</span>
-                <span class="chunk-stat__value">${visibleCount}</span>
-                <span class="chunk-stat__divider">/</span>
-                <span class="chunk-stat__value">${totalChunks}</span>
-            </div>
-            <div class="chunk-stat">
-                <i class="fa-solid fa-ruler-horizontal"></i>
-                <span class="chunk-stat__label">Average</span>
-                <span class="chunk-stat__value">${avgChars} chars</span>
-            </div>
-        `);
-
-        // Show/hide empty state
-        if (visibleCount === 0) {
-            if (!container.find('.chunk-empty-state').length) {
-                container.append('<div class="chunk-empty-state"><i class="fa-solid fa-eye-slash"></i><p>No chunks match your search</p></div>');
-            }
-        } else {
-            container.find('.chunk-empty-state').remove();
-        }
+    $('#ragbooks_filter_importance').off('change').on('change', function() {
+        chunkViewerState.filterImportance = $(this).val();
+        refreshView();
     });
 
-    // Handle inline-drawer toggle clicks to lazy-initialize select2
-    container.off('click', '.inline-drawer-toggle').on('click', '.inline-drawer-toggle', function(e) {
-        const $toggle = $(this);
-        const $drawer = $toggle.closest('.inline-drawer');
-        const $entry = $drawer.closest('.world_entry');
-        const hash = $entry.data('hash');
-        const chunk = currentViewingChunks[hash];
-
-        if (!chunk) return;
-
-        // Wait for CSS animation to complete, then check if expanded
-        setTimeout(() => {
-            if ($drawer.find('.inline-drawer-content').is(':visible')) {
-                // Chunk was just expanded - lazy initialize select2 if not already done
-                const $select = $drawer.find(`.rag-chunk-keywords[data-hash="${hash}"]`);
-                if ($select.length && !$select.data('select2')) {
-                    initializeKeywordSelect(chunk);
-                }
-
-                // Also initialize summary vectors select2
-                const $summarySelect = $drawer.find(`.ragbooks-summary-vectors-select[data-hash="${hash}"]`);
-                if ($summarySelect.length && !$summarySelect.data('select2')) {
-                    initializeSummaryVectorsSelect(chunk);
-                }
-            }
-        }, 50);
+    $('#ragbooks_filter_status').off('change').on('change', function() {
+        chunkViewerState.filterStatus = $(this).val();
+        refreshView();
     });
 
-    // Toggle chunk enabled/disabled - optimized with targeted DOM update
-    container.off('click', '.rag-chunk-toggle-enabled').on('click', '.rag-chunk-toggle-enabled', function() {
-        const $icon = $(this);
-        const hash = $icon.data('hash');
-        const chunk = currentViewingChunks[hash];
-
-        if (chunk) {
-            chunk.disabled = !chunk.disabled;
-            hasUnsavedChunkChanges = true;
-
-            // Update DOM directly without re-rendering
-            const $entry = $icon.closest('.world_entry');
-            if (chunk.disabled) {
-                $entry.addClass('chunk-disabled');
-                $icon.removeClass('fa-toggle-on').addClass('fa-toggle-off');
-            } else {
-                $entry.removeClass('chunk-disabled');
-                $icon.removeClass('fa-toggle-off').addClass('fa-toggle-on');
-            }
-
-            toastr.info(chunk.disabled ? 'Chunk disabled' : 'Chunk enabled');
-        }
+    $('#ragbooks_sort_mode').off('change').on('change', function() {
+        chunkViewerState.sortMode = $(this).val();
+        refreshView();
     });
 
-    // Edit chunk comment
-    container.off('change', '.ragbooks-chunk-comment-input').on('change', '.ragbooks-chunk-comment-input', function() {
-        const hash = $(this).data('hash');
-        const chunk = currentViewingChunks[hash];
-        if (chunk) {
-            chunk.comment = $(this).val().trim();
-            hasUnsavedChunkChanges = true;
-        }
-    });
+    // --- Content Editing Listeners ---
 
-    // Edit chunk text
+    // Text Edit
     container.off('change', '.rag-chunk-text-edit').on('change', '.rag-chunk-text-edit', function() {
         const hash = $(this).data('hash');
         const chunk = currentViewingChunks[hash];
         if (chunk) {
             chunk.text = $(this).val();
             hasUnsavedChunkChanges = true;
-            toastr.info('Text changed - will re-vectorize on save');
+            // Update preview text if collapsed
+            const preview = $(this).closest('.rag-sleek-card').find('.rag-sleek-preview');
+            if (preview.length) preview.text(chunk.text);
         }
     });
 
-    // Edit inclusion group
-    container.off('change', '.ragbooks-inclusion-group-input').on('change', '.ragbooks-inclusion-group-input', function() {
+    // Importance Slider
+    container.off('input change', '.rag-importance-slider').on('input change', '.rag-importance-slider', function() {
+        const hash = $(this).data('hash');
+        const val = parseInt($(this).val());
+        const chunk = currentViewingChunks[hash];
+        
+        // Update value display
+        $(this).next('.rag-importance-value').text(`${val}%`);
+        
+        // Update state on change (commit)
+        if (chunk && chunk.importance !== val) {
+            chunk.importance = val;
+            hasUnsavedChunkChanges = true;
+            
+            // Update visual tier bar
+            let tier = 'low';
+            if (val >= 175) tier = 'critical';
+            else if (val >= 125) tier = 'high';
+            else if (val >= 75) tier = 'normal';
+            
+            $(this).closest('.rag-sleek-card').attr('data-importance', tier);
+        }
+    });
+
+    // Condition Toggle
+    container.off('change', '.rag-conditions-enable').on('change', '.rag-conditions-enable', function() {
         const hash = $(this).data('hash');
         const chunk = currentViewingChunks[hash];
         if (chunk) {
-            chunk.inclusionGroup = $(this).val().trim();
+            if (!chunk.conditions) chunk.conditions = { enabled: false, rules: [] };
+            chunk.conditions.enabled = $(this).is(':checked');
             hasUnsavedChunkChanges = true;
-        }
-    });
-
-    // Edit inclusion prioritize
-    container.off('change', '.ragbooks-inclusion-prioritize').on('change', '.ragbooks-inclusion-prioritize', function() {
-        const hash = $(this).data('hash');
-        const chunk = currentViewingChunks[hash];
-        if (chunk) {
-            chunk.inclusionPrioritize = $(this).is(':checked');
-            hasUnsavedChunkChanges = true;
-        }
-    });
-
-
-    // Linked chunks checkbox handler - optimized (no re-render needed)
-    container.off('change', '.ragbooks-chunk-link-checkbox').on('change', '.ragbooks-chunk-link-checkbox', async function() {
-        const hash = $(this).data('hash');
-        const targetHash = $(this).data('target');
-        const chunk = currentViewingChunks[hash];
-        if (!chunk) return;
-
-        if (!chunk.chunkLinks) chunk.chunkLinks = [];
-
-        if ($(this).is(':checked')) {
-            // Add link if not already present
-            if (!chunk.chunkLinks.includes(targetHash)) {
-                chunk.chunkLinks.push(targetHash);
-                toastr.success('Chunk linked');
-            }
-        } else {
-            // Remove link
-            chunk.chunkLinks = chunk.chunkLinks.filter(h => h !== targetHash);
-
-            // SPECIAL CASE: If this is a summary chunk unlinking from its parent, delete the summary chunk
-            if (chunk.isSummaryChunk && chunk.parentHash === targetHash) {
-                if (confirm('This is a summary chunk. Unlinking it from its parent will delete it. Continue?')) {
-                    // Delete the summary chunk
-                    delete currentViewingChunks[hash];
-                    console.log(`🗑️ [RAGBooks] Deleted summary chunk after unlinking: ${hash}`);
-
-                    // Remove from DOM
-                    $(this).closest('.world_entry').fadeOut(200, function() {
-                        $(this).remove();
-
-                        // Update stats
-                        const remainingCount = container.find('.world_entry:visible').length;
-                        const totalCount = Object.keys(currentViewingChunks).length;
-                        $('#ragbooks_chunk_stats .chunk-stat__value').first().text(remainingCount);
-                        $('#ragbooks_chunk_stats .chunk-stat__value').eq(2).text(totalCount);
-                    });
-
-                    toastr.warning('Summary chunk deleted');
-                } else {
-                    // User cancelled - restore the link
-                    $(this).prop('checked', true);
-                    if (!chunk.chunkLinks.some(link =>
-                        (typeof link === 'string' && link === targetHash) ||
-                        (typeof link === 'object' && link.targetHash === targetHash)
-                    )) {
-                        chunk.chunkLinks.push({ targetHash, mode: 'force' });
-                    }
-                    return;
+            
+            // Update badge in header
+            const badge = $(this).closest('.rag-sleek-card').find('.rag-meta-badge:contains("Rule")');
+            if (chunk.conditions.enabled) {
+                if (badge.length === 0) {
+                    // Add badge if missing
+                    $(this).closest('.rag-sleek-card').find('.rag-sleek-meta').append('<span class="rag-meta-badge" style="color:#a5b4fc"><i class="fa-solid fa-filter"></i> Rule</span>');
                 }
             } else {
-                toastr.info('Chunk unlinked');
+                badge.remove();
             }
         }
-
-        hasUnsavedChunkChanges = true;
-        // No re-render needed - checkbox state already updated by browser
     });
 
-    // Delete chunk - with immediate save for better UX
-    container.off('click', '.rag-chunk-delete').on('click', '.rag-chunk-delete', async function(e) {
-        e.preventDefault();
-        const $btn = $(this);
-        const hash = $btn.data('hash');
+    // Enable Summary
+    container.off('change', '.ragbooks-enable-chunk-summary').on('change', '.ragbooks-enable-chunk-summary', function() {
+        const hash = $(this).data('hash');
         const chunk = currentViewingChunks[hash];
-        if (!chunk) return;
-
-        if (!confirm(`Delete this chunk permanently?\n\n"${chunk.section || 'Chunk'}"\n\nThis cannot be undone.`)) {
-            return;
+        if (chunk) {
+            if (!chunk.metadata) chunk.metadata = {};
+            chunk.metadata.enableSummary = $(this).is(':checked');
+            hasUnsavedChunkChanges = true;
+            // Toggle style dropdown visibility
+            $(this).closest('.ragbooks-drawer-content').find('.ragbooks-summary-style').parent().toggle(chunk.metadata.enableSummary);
         }
+    });
 
-        // Find associated summary chunk if this is a parent chunk
-        const summaryHash = chunk.isSummaryChunk ? null : Object.keys(currentViewingChunks).find(h => {
-            const c = currentViewingChunks[h];
-            return c.isSummaryChunk && c.parentHash === hash;
-        });
+    // Generate Summary Now
+    container.off('click', '.ragbooks-generate-summary-now').on('click', '.ragbooks-generate-summary-now', async function(e) {
+        e.preventDefault();
+        const hash = $(this).data('hash');
+        const chunk = currentViewingChunks[hash];
+        const $btn = $(this);
+        
+        if (!chunk || !chunk.text) return;
 
-        // Collect hashes to delete (parent + summary if exists)
-        const hashesToDelete = [parseInt(hash)];
-        if (summaryHash) {
-            hashesToDelete.push(parseInt(summaryHash));
-        }
-
-        // Delete from memory (parent chunk)
-        delete currentViewingChunks[hash];
-
-        // Delete summary chunk from memory if exists
-        if (summaryHash) {
-            delete currentViewingChunks[summaryHash];
-            console.log(`🗑️ [RAGBooks] Deleted associated summary chunk: ${summaryHash}`);
-        }
-
-        // Remove DOM element with animation
-        const $entry = $btn.closest('.world_entry');
-        $entry.fadeOut(200, async function() {
-            $(this).remove();
-
-            // Also remove summary chunk DOM if exists
-            if (summaryHash) {
-                $(`.world_entry[data-hash="${summaryHash}"]`).fadeOut(200, function() {
-                    $(this).remove();
-                });
+        $btn.html('<i class="fa-solid fa-spinner fa-spin"></i>');
+        
+        try {
+            // Dynamically import summarization
+            const { generateSummaryForChunk } = await import('./summarization.js');
+            const style = chunk.metadata?.summaryStyle || 'concise';
+            
+            const summary = await generateSummaryForChunk(chunk.text, style);
+            
+            if (summary) {
+                // Add to summary vectors
+                if (!chunk.summaryVectors) chunk.summaryVectors = [];
+                chunk.summaryVectors.unshift(summary);
+                chunk.summaryVector = true;
+                hasUnsavedChunkChanges = true;
+                
+                // Refresh UI (specifically the summary vectors dropdown/list)
+                // Ideally re-render just the summary section, but full re-render of card works
+                const newCard = renderChunkCard(chunk);
+                $btn.closest('.rag-sleek-card').replaceWith(newCard);
+                
+                toastr.success('Summary generated');
+            } else {
+                toastr.warning('Failed to generate summary');
+                $btn.html('<i class="fa-solid fa-play"></i>');
             }
+        } catch (error) {
+            console.error(error);
+            toastr.error('Error generating summary');
+            $btn.html('<i class="fa-solid fa-play"></i>');
+        }
+    });
 
-            // Update stats
-            const remainingCount = container.find('.world_entry:visible').length;
-            const totalCount = Object.keys(currentViewingChunks).length;
-            $('#ragbooks_chunk_stats .chunk-stat__value').first().text(remainingCount);
-            $('#ragbooks_chunk_stats .chunk-stat__value').eq(2).text(totalCount);
+    // Summary Style
+    container.off('change', '.ragbooks-summary-style').on('change', '.ragbooks-summary-style', function() {
+        const hash = $(this).data('hash');
+        const chunk = currentViewingChunks[hash];
+        if (chunk) {
+            if (!chunk.metadata) chunk.metadata = {};
+            chunk.metadata.summaryStyle = $(this).val();
+            hasUnsavedChunkChanges = true;
+        }
+    });
 
-            // CRITICAL: Delete from library AND vector DB
-            try {
-                console.log(`🗑️ [Delete] Removing ${hashesToDelete.length} chunk(s) from library and vector DB...`);
-
-                // 1. Delete from library
-                const library = getContextualLibrary(currentViewingCollection);
-                if (library[currentViewingCollection]) {
-                    hashesToDelete.forEach(h => {
-                        delete library[currentViewingCollection][h];
-                    });
-                    saveSettingsDebounced(); // Save library immediately
-                }
-
-                // 2. Delete from vector DB
-                await apiDeleteVectorHashes(currentViewingCollection, hashesToDelete);
-
-                hasUnsavedChunkChanges = false; // Mark as saved
-                toastr.success(summaryHash ? 'Chunk and summary deleted' : 'Chunk deleted');
-                console.log(`✅ [Delete] Successfully deleted ${hashesToDelete.length} chunk(s)`);
-            } catch (error) {
-                console.error('❌ [Delete] Failed:', error);
-                toastr.error('Delete failed - chunk may reappear on refresh');
-                hasUnsavedChunkChanges = true; // Mark as unsaved due to error
-            }
-        });
+    // Enable Metadata
+    container.off('change', '.ragbooks-enable-chunk-metadata').on('change', '.ragbooks-enable-chunk-metadata', function() {
+        const hash = $(this).data('hash');
+        const chunk = currentViewingChunks[hash];
+        if (chunk) {
+            if (!chunk.metadata) chunk.metadata = {};
+            chunk.metadata.enableMetadata = $(this).is(':checked');
+            hasUnsavedChunkChanges = true;
+        }
     });
 
     // Bind all content/feature event handlers
@@ -11190,39 +11066,45 @@ function changeScopeForCollection(collectionId, sourceData, newScope) {
     ragState.collectionMetadata[collectionId] = metadata;
 
     // Save to new scope (uses updated metadata and actual sourceData)
-    saveScopedSource(collectionId, actualSourceData);
+    if (!ragState.scopedSources) ragState.scopedSources = { global: {}, character: {}, chat: {} };
+    
+    if (newScope === 'global') {
+        if (!ragState.scopedSources.global) ragState.scopedSources.global = {};
+        ragState.scopedSources.global[collectionId] = actualSourceData;
+    } else if (newScope === 'character') {
+        if (!ragState.scopedSources.character) ragState.scopedSources.character = {};
+        if (!ragState.scopedSources.character[newScopeIdentifier]) ragState.scopedSources.character[newScopeIdentifier] = {};
+        ragState.scopedSources.character[newScopeIdentifier][collectionId] = actualSourceData;
+    } else if (newScope === 'chat') {
+        if (!ragState.scopedSources.chat) ragState.scopedSources.chat = {};
+        if (!ragState.scopedSources.chat[newScopeIdentifier]) ragState.scopedSources.chat[newScopeIdentifier] = {};
+        ragState.scopedSources.chat[newScopeIdentifier][collectionId] = actualSourceData;
+    }
 
-    // Move chunks to new library (NOW uses updated metadata)
+    // Save chunks to new library
     if (chunks) {
-        const newLibrary = getContextualLibrary(collectionId); // Uses NEW scope from metadata
-        newLibrary[collectionId] = chunks;
-        console.log(`✅ [Scope Change] Chunks successfully moved to ${newScope} library`);
+        let newLibrary = null;
+        if (newScope === 'global') {
+            if (!ragState.library.global) ragState.library.global = {};
+            newLibrary = ragState.library.global;
+        } else if (newScope === 'character') {
+            if (!ragState.library.character) ragState.library.character = {};
+            if (!ragState.library.character[newScopeIdentifier]) ragState.library.character[newScopeIdentifier] = {};
+            newLibrary = ragState.library.character[newScopeIdentifier];
+        } else if (newScope === 'chat') {
+            if (!ragState.library.chat) ragState.library.chat = {};
+            if (!ragState.library.chat[newScopeIdentifier]) ragState.library.chat[newScopeIdentifier] = {};
+            newLibrary = ragState.library.chat[newScopeIdentifier];
+        }
+        
+        if (newLibrary) {
+            newLibrary[collectionId] = chunks;
+        }
     }
 
-    // Save settings
     saveSettingsDebounced();
-
-    // Smart scope filter update: If user has a filter active that doesn't match new scope,
-    // update it so the moved collection is immediately visible
-    if (ragState.scopeFilter && ragState.scopeFilter !== 'all' && ragState.scopeFilter !== newScope) {
-        console.log(`📚 [Scope Change] Updating filter from "${ragState.scopeFilter}" to "${newScope}" to show moved collection`);
-        ragState.scopeFilter = newScope;
-
-        // Update UI filter buttons
-        $('.ragbooks-scope-filter-btn').removeClass('active');
-        $(`.ragbooks-scope-filter-btn[data-scope="${newScope}"]`).addClass('active');
-    }
-
-    // Re-render collections
+    toastr.success(`Moved to ${newScope} scope`);
     renderCollections();
-
-    // Toast notification
-    const scopeLabels = {
-        global: 'Global',
-        character: 'Character',
-        chat: 'Chat'
-    };
-    toastr.success(`Collection moved to ${scopeLabels[newScope]} scope`);
 }
 
 /**
@@ -11253,13 +11135,13 @@ async function deleteCollection(collectionId) {
 
         // Force cleanup of ghost collection
         try {
-            console.warn(`[RAGBooks] Force deleting ghost collection: ${collectionId}`);
+            console.warn(`[VectHare] Force deleting ghost collection: ${collectionId}`);
 
             // Try to delete from vector database (may fail if doesn't exist)
             try {
                 await apiDeleteCollection(collectionId);
             } catch (e) {
-                console.warn(`[RAGBooks] Could not delete from vector DB (may not exist):`, e);
+                console.warn(`[VectHare] Could not delete from vector DB (may not exist):`, e);
             }
 
             // Delete from local library
@@ -11283,7 +11165,7 @@ async function deleteCollection(collectionId) {
             renderCollections();
             return;
         } catch (error) {
-            console.error('[RAGBooks] Failed to clean up ghost collection:', error);
+            console.error('[VectHare] Failed to clean up ghost collection:', error);
             toastr.error('Failed to clean up ghost collection');
             return;
         }
@@ -11610,21 +11492,51 @@ function bindChunkViewerEventHandlers() {
         }
     });
 
-    // Add condition
-    container.off('click', '.rag-add-condition').on('click', '.rag-add-condition', function() {
+    // Add condition (for .rag-add-condition class)
+    container.off('click', '.rag-add-condition').on('click', '.rag-add-condition', function(e) {
+        console.log('[VectHare DEBUG] .rag-add-condition clicked', { element: this, event: e });
         const hash = $(this).data('hash');
+        console.log('[VectHare DEBUG] hash:', hash);
         const chunk = currentViewingChunks[hash];
+        console.log('[VectHare DEBUG] chunk:', chunk);
 
         if (chunk) {
-            if (!chunk.conditions) chunk.conditions = { enabled: true, mode: 'AND', rules: [] };
+            if (!chunk.conditions) chunk.conditions = { enabled: true, rules: [] };
+            if (!chunk.conditions.rules) chunk.conditions.rules = [];
+
+            // Add default rule with proper structure for new UI
             chunk.conditions.rules.push({ type: 'keyword', negate: false, settings: {} });
             hasUnsavedChunkChanges = true;
-            refreshConditionsList(hash, chunk);
 
-            // Bind handlers for the newly added condition
-            const $conditionsPanel = $(`.ragbooks-conditions-panel[data-hash="${hash}"]`);
-            const newIdx = chunk.conditions.rules.length - 1;
-            bindChunkConditionSettingsHandlers($conditionsPanel, hash, newIdx);
+            // Re-render list using the proper function that generates full condition UI
+            refreshConditionsList(hash, chunk);
+            console.log('[VectHare DEBUG] refreshConditionsList called');
+        } else {
+            console.log('[VectHare DEBUG] No chunk found for hash:', hash);
+        }
+    });
+
+    // Add condition (for .ragbooks-condition-add class in dynamic panel)
+    container.off('click', '.ragbooks-condition-add').on('click', '.ragbooks-condition-add', function(e) {
+        console.log('[VectHare DEBUG] .ragbooks-condition-add clicked', { element: this, event: e });
+        const hash = $(this).data('hash');
+        console.log('[VectHare DEBUG] hash:', hash);
+        const chunk = currentViewingChunks[hash];
+        console.log('[VectHare DEBUG] chunk:', chunk);
+
+        if (chunk) {
+            if (!chunk.conditions) chunk.conditions = { enabled: true, rules: [] };
+            if (!chunk.conditions.rules) chunk.conditions.rules = [];
+
+            // Add default rule with proper structure for new UI
+            chunk.conditions.rules.push({ type: 'keyword', negate: false, settings: {} });
+            hasUnsavedChunkChanges = true;
+
+            // Re-render list using the proper function that generates full condition UI
+            refreshConditionsList(hash, chunk);
+            console.log('[VectHare DEBUG] refreshConditionsList called');
+        } else {
+            console.log('[VectHare DEBUG] No chunk found for hash:', hash);
         }
     });
 
@@ -11888,12 +11800,12 @@ function bindChunkViewerEventHandlers() {
         const chunk = currentViewingChunks[hash];
 
         if (!chunk) {
-            toastr.error('Chunk not found', 'RAGBooks');
+            toastr.error('Chunk not found', 'VectHare');
             return;
         }
 
         if (!chunk.text || chunk.text.trim().length === 0) {
-            toastr.warning('Cannot generate summary for empty chunk', 'RAGBooks');
+            toastr.warning('Cannot generate summary for empty chunk', 'VectHare');
             return;
         }
 
@@ -11906,7 +11818,7 @@ function bindChunkViewerEventHandlers() {
         $button.html('<i class="fa-solid fa-spinner fa-spin"></i> Generating...');
 
         try {
-            console.log(`[RAGBooks] Generating ${style} summary for chunk ${hash}...`);
+            console.log(`[VectHare] Generating ${style} summary for chunk ${hash}...`);
 
             // Import and call the summarization function
             const { generateSummaryForChunk } = await import('./summarization.js');
@@ -11928,14 +11840,14 @@ function bindChunkViewerEventHandlers() {
                 }
 
                 hasUnsavedChunkChanges = true;
-                toastr.success(`Summary generated: "${summary.substring(0, 50)}..."`, 'RAGBooks');
-                console.log(`[RAGBooks] Summary generated:`, summary);
+                toastr.success(`Summary generated: "${summary.substring(0, 50)}..."`, 'VectHare');
+                console.log(`[VectHare] Summary generated:`, summary);
             } else {
-                toastr.error('Failed to generate summary', 'RAGBooks');
+                toastr.error('Failed to generate summary', 'VectHare');
             }
         } catch (error) {
-            console.error('[RAGBooks] Error generating summary:', error);
-            toastr.error(`Error: ${error.message}`, 'RAGBooks');
+            console.error('[VectHare] Error generating summary:', error);
+            toastr.error(`Error: ${error.message}`, 'VectHare');
         } finally {
             // Restore button state
             $button.prop('disabled', false);
@@ -12855,25 +12767,6 @@ function getInlineConfigForm(sourceType) {
                         <div class="ragbooks-help-text">Delay between API requests to prevent rate limiting (0-5000ms, recommended: 1000ms)</div>
                     </div>
 
-                    <!-- Recency Weighting -->
-                    <div class="ragbooks-setting-item">
-                        <label class="ragbooks-toggle">
-                            <input type="checkbox" id="ragbooks_recency_weighting" ${chatVectorSettings.recencyWeighting === true ? 'checked' : ''}>
-                            <span class="ragbooks-toggle-slider"></span>
-                            <span class="ragbooks-toggle-label">⏰ Recency Weighting</span>
-                        </label>
-                        <div class="ragbooks-help-text">Boost relevance of more recent messages (newer = higher score)</div>
-                    </div>
-
-                    <div class="ragbooks-setting-item ragbooks-slider-container" id="ragbooks_recency_decay_setting" style="${chatVectorSettings.recencyWeighting === true ? '' : 'display: none;'}">
-                        <div class="ragbooks-slider-header">
-                            <span class="ragbooks-slider-icon">📉</span>
-                            <span class="ragbooks-slider-title">Recency Decay: <span id="ragbooks_recency_decay_value">${chatVectorSettings.recencyDecay || 0.95}</span></span>
-                        </div>
-                        <div class="ragbooks-slider-hint">How quickly older messages lose relevance (0.9 = fast decay, 0.99 = slow decay)</div>
-                        <input type="range" id="ragbooks_recency_decay" class="ragbooks-slider" min="0.85" max="0.99" step="0.01" value="${chatVectorSettings.recencyDecay || 0.95}">
-                    </div>
-
                     <!-- Auto Re-Vectorization -->
                     <div class="ragbooks-setting-item">
                         <label class="ragbooks-toggle">
@@ -13262,17 +13155,17 @@ async function fetchTextFromUrl(url) {
         scripts.forEach(el => el.remove());
 
         // Get text content
-        const cleanText = doc.body ? doc.body.innerText : doc.documentElement.textContent;
+        const extractedText = doc.body ? doc.body.innerText : doc.documentElement.textContent;
 
         // Ensure we have a valid string
-        if (!cleanText || typeof cleanText !== 'string') {
+        if (!extractedText || typeof extractedText !== 'string') {
             throw new Error('No text content found in the fetched page');
         }
 
-        console.log(`📄 [RAGBooks] Fetched ${cleanText.length} characters from URL: ${url}`);
-        return cleanText.trim();
+        console.log(`📄 [VectHare] Fetched ${extractedText.length} characters from URL: ${url}`);
+        return extractedText.trim();
     } catch (error) {
-        console.error('📄 [RAGBooks] URL fetch failed:', error);
+        console.error('📄 [VectHare] URL fetch failed:', error);
         throw new Error(`Failed to fetch URL: ${error.message}`);
     }
 }
@@ -13302,7 +13195,7 @@ async function readFileAsText(file) {
 
         reader.onload = (event) => {
             const text = event.target.result;
-            console.log(`📄 [RAGBooks] Read ${text.length} characters from file: ${file.name}`);
+            console.log(`📄 [VectHare] Read ${text.length} characters from file: ${file.name}`);
             resolve(text);
         };
 
@@ -13332,7 +13225,7 @@ async function isWikiPluginAvailable(wikiType) {
 
         return response.ok;
     } catch (error) {
-        console.debug(`📖 [RAGBooks] Wiki plugin probe failed for ${wikiType}:`, error);
+        console.debug(`📖 [VectHare] Wiki plugin probe failed for ${wikiType}:`, error);
         return false;
     }
 }
@@ -13377,10 +13270,10 @@ async function scrapeWikiPage(wikiType, url, filter = '') {
             `${String(page.title).trim()}\n\n${String(page.content).trim()}`
         ).join('\n\n\n\n');
 
-        console.log(`📖 [RAGBooks] Scraped ${data.length} pages from ${wikiType} wiki: ${combinedContent.length} characters`);
+        console.log(`📖 [VectHare] Scraped ${data.length} pages from ${wikiType} wiki: ${combinedContent.length} characters`);
         return combinedContent;
     } catch (error) {
-        console.error('📖 [RAGBooks] Wiki scraping failed:', error);
+        console.error('📖 [VectHare] Wiki scraping failed:', error);
         throw new Error(`Failed to scrape wiki: ${error.message}`);
     }
 }
@@ -13438,10 +13331,10 @@ async function fetchYouTubeTranscript(videoUrl, lang = '') {
         }
 
         const transcript = await response.text();
-        console.log(`📺 [RAGBooks] Fetched transcript for video ${id}: ${transcript.length} characters`);
+        console.log(`📺 [VectHare] Fetched transcript for video ${id}: ${transcript.length} characters`);
         return transcript;
     } catch (error) {
-        console.error('📺 [RAGBooks] YouTube transcript fetch failed:', error);
+        console.error('📺 [VectHare] YouTube transcript fetch failed:', error);
         throw new Error(`Failed to fetch YouTube transcript: ${error.message}`);
     }
 }
@@ -13478,7 +13371,7 @@ async function fetchGitHubRepo(repoUrl, filter = '', branch = '') {
             }
 
             const content = await response.text();
-            console.log(`📦 [RAGBooks] Fetched README from ${owner}/${repoName}: ${content.length} characters`);
+            console.log(`📦 [VectHare] Fetched README from ${owner}/${repoName}: ${content.length} characters`);
             return content;
         }
 
@@ -13501,7 +13394,7 @@ async function fetchGitHubRepo(repoUrl, filter = '', branch = '') {
         const treeData = await treeResponse.json();
         return await fetchMatchingFiles(owner, repoName, treeData.tree, filter);
     } catch (error) {
-        console.error('📦 [RAGBooks] GitHub fetch failed:', error);
+        console.error('📦 [VectHare] GitHub fetch failed:', error);
         throw new Error(`Failed to fetch from GitHub: ${error.message}`);
     }
 }
@@ -13530,7 +13423,7 @@ async function fetchMatchingFiles(owner, repo, tree, filter) {
         throw new Error(`No files matched filter: ${filter}`);
     }
 
-    console.log(`📦 [RAGBooks] Found ${matchedFiles.length} matching files`);
+    console.log(`📦 [VectHare] Found ${matchedFiles.length} matching files`);
 
     // Fetch content for each file
     const contents = [];
@@ -13552,7 +13445,7 @@ async function fetchMatchingFiles(owner, repo, tree, filter) {
     }
 
     const combined = contents.join('\n');
-    console.log(`📦 [RAGBooks] Fetched ${contents.length} files: ${combined.length} characters total`);
+    console.log(`📦 [VectHare] Fetched ${contents.length} files: ${combined.length} characters total`);
     return combined;
 }
 
@@ -13640,7 +13533,7 @@ async function handleInlineVectorization() {
 
                 sourceName = $('#ragbooks_url_name').val() || extractDomainFromUrl(urlInput);
 
-                toastr.info('Fetching URL...', 'RAGBooks', { timeOut: 0 });
+                toastr.info('Fetching URL...', 'VectHare', { timeOut: 0 });
                 try {
                     const text = await fetchTextFromUrl(urlInput);
                     toastr.clear();
@@ -13716,23 +13609,18 @@ async function handleInlineVectorization() {
                     summaryStyle: $('#ragbooks_summary_style').val() || 'concise',
                     summaryDelay: parseInt($('#ragbooks_summary_delay').val()) || 1000,
 
-                    // Recency weighting
-                    recencyWeighting: $('#ragbooks_recency_weighting').is(':checked'),
-                    recencyDecay: parseFloat($('#ragbooks_recency_decay').val()) || 0.95,
-
-                    // Auto re-vectorization
-                    autoRevector: $('#ragbooks_auto_revector').is(':checked'),
-                    revectorInterval: $('#ragbooks_revector_interval').val() || '10',
-
-                    // Metadata extraction
-                    extractMetadata: $('#ragbooks_extract_metadata').is(':checked')
-                };
+                                        // Auto re-vectorization
+                                        autoRevector: $('#ragbooks_auto_revector').is(':checked'),
+                                        revectorInterval: $('#ragbooks_revector_interval').val() || '10',
+                                        
+                                        // Metadata extraction
+                                        extractMetadata: $('#ragbooks_extract_metadata').is(':checked')                };
 
                 // Store config in chat_metadata for persistence
                 chat_metadata.ragbooks_vector_config = sourceConfig;
                 saveMetadataDebounced();
 
-                console.log('📚 [RAGBooks] Chat vectorization config:', sourceConfig);
+                console.log('📚 [VectHare] Chat vectorization config:', sourceConfig);
                 break;
             }
 
@@ -13756,7 +13644,7 @@ async function handleInlineVectorization() {
                             toastr.warning('Please enter a URL');
                             return;
                         }
-                        toastr.info('Fetching URL...', 'RAGBooks', { timeOut: 0 });
+                        toastr.info('Fetching URL...', 'VectHare', { timeOut: 0 });
                         try {
                             text = await fetchTextFromUrl(url);
                             toastr.clear();
@@ -13789,7 +13677,7 @@ async function handleInlineVectorization() {
                             return;
                         }
 
-                        toastr.info('Scraping wiki...', 'RAGBooks', { timeOut: 0 });
+                        toastr.info('Scraping wiki...', 'VectHare', { timeOut: 0 });
                         try {
                             text = await scrapeWikiPage(wikiType, wikiUrl, wikiFilter);
                             toastr.clear();
@@ -13810,7 +13698,7 @@ async function handleInlineVectorization() {
                             return;
                         }
 
-                        toastr.info('Fetching YouTube transcript...', 'RAGBooks', { timeOut: 0 });
+                        toastr.info('Fetching YouTube transcript...', 'VectHare', { timeOut: 0 });
                         try {
                             text = await fetchYouTubeTranscript(youtubeUrl, youtubeLang);
                             toastr.clear();
@@ -13833,7 +13721,7 @@ async function handleInlineVectorization() {
                             return;
                         }
 
-                        toastr.info('Fetching from GitHub...', 'RAGBooks', { timeOut: 0 });
+                        toastr.info('Fetching from GitHub...', 'VectHare', { timeOut: 0 });
                         try {
                             text = await fetchGitHubRepo(githubUrl, githubFilter, githubBranch);
                             toastr.clear();
@@ -13921,12 +13809,12 @@ async function handleInlineVectorization() {
         showProgressModal(`Vectorizing ${sourceTypeLabel}`, sourceName, {
             cancelable: true,
             onCancel: () => {
-                console.log('[RAGBooks] User cancelled vectorization');
+                console.log('[VectHare] User cancelled vectorization');
                 if (vectorizationAbortController) {
                     vectorizationAbortController.abort();
                     vectorizationAbortController = null;
                 }
-                toastr.info('Vectorization cancelled', 'RAGBooks');
+                toastr.info('Vectorization cancelled', 'VectHare');
             }
         });
 
@@ -13971,7 +13859,7 @@ function cancelInlineForm() {
 // ============================================================================
 
 /**
- * Load and apply RAGBooks settings to UI
+ * Load and apply VectHare settings to UI
  */
 function loadSettings() {
     ensureRagState();
@@ -13995,7 +13883,7 @@ function loadSettings() {
         isPluginAvailable().then(available => {
             if (available) {
                 $('#ragbooks_algorithm_container').show();
-                console.log('📚 [RAGBooks] Plugin detected - algorithm selection enabled');
+                console.log('📚 [VectHare] Plugin detected - algorithm selection enabled');
             } else {
                 $('#ragbooks_algorithm_container').hide();
             }
@@ -14048,7 +13936,7 @@ function loadSettings() {
     // Apply orange mode class to chunk modal
     applyOrangeMode(settings.orangeMode);
 
-    console.log('📚 [RAGBooks] Settings loaded:', settings);
+    console.log('📚 [VectHare] Settings loaded:', settings);
 }
 
 /**
@@ -14058,10 +13946,10 @@ function applyOrangeMode(enabled) {
     // Apply to body so CSS variables cascade properly
     if (enabled) {
         $('body').addClass('ragbooks-orange-mode');
-        console.log('🍊 [RAGBooks] Orange Mode: ENABLED - body class added');
+        console.log('🍊 [VectHare] Orange Mode: ENABLED - body class added');
     } else {
         $('body').removeClass('ragbooks-orange-mode');
-        console.log('🎨 [RAGBooks] Orange Mode: DISABLED - using theme colors');
+        console.log('🎨 [VectHare] Orange Mode: DISABLED - using theme colors');
     }
 }
 
@@ -14084,7 +13972,7 @@ async function checkWikiPluginStatus() {
         }
     } catch (error) {
         $status.html('<span style="color: #f87171;">❌ Could not check plugin status</span>');
-        console.error('📖 [RAGBooks] Plugin status check failed:', error);
+        console.error('📖 [VectHare] Plugin status check failed:', error);
     }
 }
 
@@ -14171,7 +14059,7 @@ async function toggleSceneStart(messageId) {
     if (sceneIndex >= 0) {
         // Toggle off - remove this scene
         deleteScene(sceneIndex);
-        console.log(`📚 [RAGBooks] Removed scene starting at ${messageId}`);
+        console.log(`📚 [VectHare] Removed scene starting at ${messageId}`);
         updateAllSceneStates();
         return;
     }
@@ -14196,7 +14084,7 @@ async function toggleSceneStart(messageId) {
                 keywords: []         // NEW: Scene-specific keywords
             });
             toastr.success(`Split scene at message ${messageId}`);
-            console.log(`📚 [RAGBooks] Split scene at ${messageId}`);
+            console.log(`📚 [VectHare] Split scene at ${messageId}`);
         } else {
             return; // User cancelled
         }
@@ -14206,7 +14094,7 @@ async function toggleSceneStart(messageId) {
         const openScene = getOpenScene();
         if (openScene && openScene.start < messageId) {
             openScene.end = messageId - 1;
-            console.log(`📚 [RAGBooks] Auto-closed previous scene at ${messageId - 1}`);
+            console.log(`📚 [VectHare] Auto-closed previous scene at ${messageId - 1}`);
         }
 
         scenes.push({
@@ -14217,7 +14105,7 @@ async function toggleSceneStart(messageId) {
             summaryVector: true, // NEW: Create separate embedding (default ON)
             keywords: []         // NEW: Scene-specific keywords
         });
-        console.log(`📚 [RAGBooks] Created scene starting at ${messageId}`);
+        console.log(`📚 [VectHare] Created scene starting at ${messageId}`);
     }
 
     saveScenes();
@@ -14240,7 +14128,7 @@ async function toggleSceneEnd(messageId) {
     // Check if toggling off (clicking same end)
     if (openScene.end === messageId) {
         openScene.end = null;
-        console.log(`📚 [RAGBooks] Reopened scene ${openScene.start}`);
+        console.log(`📚 [VectHare] Reopened scene ${openScene.start}`);
         saveScenes();
         updateAllSceneStates();
         return;
@@ -14268,7 +14156,7 @@ async function toggleSceneEnd(messageId) {
                 if (idx >= 0) scenes.splice(idx, 1);
             });
             toastr.success(`Merged ${conflictingScenes.length} conflicting scenes`);
-            console.log(`📚 [RAGBooks] Merged ${conflictingScenes.length} scenes`);
+            console.log(`📚 [VectHare] Merged ${conflictingScenes.length} scenes`);
         } else {
             return; // User cancelled
         }
@@ -14293,7 +14181,7 @@ async function toggleSceneEnd(messageId) {
     // Close the scene
     const oldEnd = openScene.end;
     openScene.end = messageId;
-    console.log(`📚 [RAGBooks] Closed scene ${openScene.start}-${messageId}`);
+    console.log(`📚 [VectHare] Closed scene ${openScene.start}-${messageId}`);
 
     // Warn if vectorized and boundaries changed
     if (hasVectorizedChunks && oldEnd !== messageId) {
@@ -14311,7 +14199,7 @@ function clearAllScenes() {
     chat_metadata.ragbooks_scenes = [];
     saveScenes();
     updateAllSceneStates();
-    console.log(`📚 [RAGBooks] Cleared all scenes`);
+    console.log(`📚 [VectHare] Cleared all scenes`);
 }
 
 /**
@@ -14323,13 +14211,13 @@ function attachSceneButtons($message) {
     const messageId = parseInt(messageElement.getAttribute('mesid'));
 
     if (isNaN(messageId)) {
-        console.warn('📚 [RAGBooks] Invalid mesid for message:', messageElement);
+        console.warn('📚 [VectHare] Invalid mesid for message:', messageElement);
         return;
     }
 
     // Check if already attached
     if (messageElement.hasAttribute('data-ragbooks-buttons-attached')) {
-        console.log(`📚 [RAGBooks] Buttons already attached to message ${messageId}`);
+        console.log(`📚 [VectHare] Buttons already attached to message ${messageId}`);
         return;
     }
     messageElement.setAttribute('data-ragbooks-buttons-attached', 'true');
@@ -14337,11 +14225,11 @@ function attachSceneButtons($message) {
     // Find the mes_buttons container
     const mesButtons = messageElement.querySelector('.mes_buttons');
     if (!mesButtons) {
-        console.warn(`📚 [RAGBooks] No mes_buttons found in message ${messageId}`, messageElement);
+        console.warn(`📚 [VectHare] No mes_buttons found in message ${messageId}`, messageElement);
         return;
     }
 
-    console.log(`📚 [RAGBooks] Attaching buttons to message ${messageId}`);
+    console.log(`📚 [VectHare] Attaching buttons to message ${messageId}`);
 
     // Create START button
     const startButton = document.createElement('div');
@@ -14448,7 +14336,7 @@ function updateMessageSceneState(messageElement, messageId) {
  */
 function attachAllSceneButtons() {
     const $messages = $('#chat .mes[mesid]');
-    console.log(`📚 [RAGBooks] Attaching scene buttons to ${$messages.length} messages`);
+    console.log(`📚 [VectHare] Attaching scene buttons to ${$messages.length} messages`);
 
     $messages.each(function() {
         attachSceneButtons($(this));
@@ -14484,7 +14372,7 @@ function initChatObserver() {
 
     const chatContainer = document.querySelector('#chat');
     if (!chatContainer) {
-        console.warn('📚 [RAGBooks] #chat container not found, cannot initialize observer');
+        console.warn('📚 [VectHare] #chat container not found, cannot initialize observer');
         return;
     }
 
@@ -14496,7 +14384,7 @@ function initChatObserver() {
                 if (node.nodeType === Node.ELEMENT_NODE) {
                     // Check if the node itself is a message
                     if (node.matches && node.matches('.mes[mesid]')) {
-                        console.log(`📚 [RAGBooks] New message detected: mesid=${node.getAttribute('mesid')}`);
+                        console.log(`📚 [VectHare] New message detected: mesid=${node.getAttribute('mesid')}`);
                         attachSceneButtons($(node));
                         newMessagesFound = true;
                     }
@@ -14504,7 +14392,7 @@ function initChatObserver() {
                     else if (node.querySelectorAll) {
                         const messages = node.querySelectorAll('.mes[mesid]');
                         if (messages.length > 0) {
-                            console.log(`📚 [RAGBooks] ${messages.length} new messages found in added node`);
+                            console.log(`📚 [VectHare] ${messages.length} new messages found in added node`);
                             messages.forEach(msg => attachSceneButtons($(msg)));
                             newMessagesFound = true;
                         }
@@ -14525,7 +14413,7 @@ function initChatObserver() {
         subtree: true
     });
 
-    console.log('📚 [RAGBooks] MutationObserver initialized and watching #chat');
+    console.log('📚 [VectHare] MutationObserver initialized and watching #chat');
 
     // Attach to existing messages immediately
     attachAllSceneButtons();
@@ -14553,7 +14441,7 @@ jQuery(async function () {
     // This ensures settings structure exists before tests or UI interactions
     ensureRagState();
 
-    console.log('📚 RAGBooks extension initializing...');
+    console.log('📚 VectHare extension initializing...');
 
     // Load progress indicator CSS
     if (!document.getElementById('ragbooks-progress-indicator-styles')) {
@@ -14736,7 +14624,7 @@ jQuery(async function () {
         const ragState = ensureRagState();
         ragState.enabled = $(this).prop('checked');
         saveSettingsDebounced();
-        console.log('📚 [RAGBooks] Enabled:', ragState.enabled);
+        console.log('📚 [VectHare] Enabled:', ragState.enabled);
     });
 
     // Scope filter buttons
@@ -14758,7 +14646,7 @@ jQuery(async function () {
         // Re-render collections with filter
         renderCollections();
 
-        console.log('📚 [RAGBooks] Scope filter:', scope);
+        console.log('📚 [VectHare] Scope filter:', scope);
     });
 
     // Close dropdown when clicking outside
@@ -14770,7 +14658,7 @@ jQuery(async function () {
 
     // Recover lost collections button
     $(document).on('click', '#ragbooks_recover_btn', function() {
-        console.log('🔧 [RAGBooks] Starting collection recovery...');
+        console.log('🔧 [VectHare] Starting collection recovery...');
         toastr.info('Scanning for lost collections...');
 
         const result = recoverOrphanedCollections();
@@ -14821,7 +14709,7 @@ jQuery(async function () {
         ragState.orangeMode = $(this).prop('checked');
         applyOrangeMode(ragState.orangeMode);
         saveSettingsDebounced();
-        console.log('📚 [RAGBooks] Orange Mode:', ragState.orangeMode);
+        console.log('📚 [VectHare] Orange Mode:', ragState.orangeMode);
     });
 
     $('#ragbooks_topk').on('input', function () {
@@ -14845,7 +14733,7 @@ jQuery(async function () {
         const ragState = ensureRagState();
         ragState.similarityAlgorithm = $(this).val();
         saveSettingsDebounced();
-        console.log('📚 [RAGBooks] Similarity Algorithm:', ragState.similarityAlgorithm);
+        console.log('📚 [VectHare] Similarity Algorithm:', ragState.similarityAlgorithm);
     });
 
     $('#ragbooks_depth').on('input', function () {
@@ -14866,7 +14754,7 @@ jQuery(async function () {
         $('#ragbooks_importance_display_mode').toggle(enabled);
 
         saveSettingsDebounced();
-        console.log('📚 [RAGBooks] Importance Weighting:', ragState.enableImportance);
+        console.log('📚 [VectHare] Importance Weighting:', ragState.enableImportance);
     });
 
     $('#ragbooks_importance_mode').on('change', function () {
@@ -14877,21 +14765,21 @@ jQuery(async function () {
         ragState.usePriorityTiers = (mode === 'tiers');
 
         saveSettingsDebounced();
-        console.log('📚 [RAGBooks] Importance Display Mode:', mode, '(usePriorityTiers:', ragState.usePriorityTiers, ')');
+        console.log('📚 [VectHare] Importance Display Mode:', mode, '(usePriorityTiers:', ragState.usePriorityTiers, ')');
     });
 
     $('#ragbooks_enable_conditions').on('change', function () {
         const ragState = ensureRagState();
         ragState.enableConditions = $(this).prop('checked');
         saveSettingsDebounced();
-        console.log('📚 [RAGBooks] Conditional Activation:', ragState.enableConditions);
+        console.log('📚 [VectHare] Conditional Activation:', ragState.enableConditions);
     });
 
     $('#ragbooks_enable_groups').on('change', function () {
         const ragState = ensureRagState();
         ragState.enableGroups = $(this).prop('checked');
         saveSettingsDebounced();
-        console.log('📚 [RAGBooks] Chunk Groups:', ragState.enableGroups);
+        console.log('📚 [VectHare] Chunk Groups:', ragState.enableGroups);
     });
 
     $('#ragbooks_group_boost_multiplier').on('input', function () {
@@ -14931,7 +14819,7 @@ jQuery(async function () {
         ragState.temporalDecay.enabled = enabled;
         $('#ragbooks_decay_settings').toggle(enabled);
         saveSettingsDebounced();
-        console.log('📚 [RAGBooks] Temporal Decay:', enabled);
+        console.log('📚 [VectHare] Temporal Decay:', enabled);
     });
 
     $('#ragbooks_decay_mode').on('change', function () {
@@ -14950,7 +14838,7 @@ jQuery(async function () {
         }
 
         saveSettingsDebounced();
-        console.log('📚 [RAGBooks] Decay Mode:', mode);
+        console.log('📚 [VectHare] Decay Mode:', mode);
     });
 
     $('#ragbooks_half_life').on('input', function () {
@@ -14985,7 +14873,7 @@ jQuery(async function () {
         if (!ragState.temporalDecay) ragState.temporalDecay = {};
         ragState.temporalDecay.sceneAware = $(this).prop('checked');
         saveSettingsDebounced();
-        console.log('📚 [RAGBooks] Scene-Aware Decay:', ragState.temporalDecay.sceneAware);
+        console.log('📚 [VectHare] Scene-Aware Decay:', ragState.temporalDecay.sceneAware);
     });
 
     // Bind source type dropdown
@@ -15218,7 +15106,7 @@ jQuery(async function () {
             // Render results by category
             renderDiagnosticResults(contextResults);
 
-            console.log(`[RAGBooks] Diagnostics complete: ${contextResults.summary.total} checks (${contextResults.summary.passed} passed, ${contextResults.summary.failed} failed)`);
+            console.log(`[VectHare] Diagnostics complete: ${contextResults.summary.total} checks (${contextResults.summary.passed} passed, ${contextResults.summary.failed} failed)`);
 
         } catch (error) {
             console.error('Failed to run diagnostics:', error);
@@ -15554,7 +15442,7 @@ jQuery(async function () {
         }
 
         if (totalCollections === 0) {
-            toastr.info('No collections found to purge', 'RAGBooks');
+            toastr.info('No collections found to purge', 'VectHare');
             return;
         }
 
@@ -15601,12 +15489,12 @@ jQuery(async function () {
         `, 'confirm', '', { okButton: 'PURGE EVERYTHING', cancelButton: 'Cancel' });
 
         if (!confirmed) {
-            toastr.info('Purge cancelled', 'RAGBooks');
+            toastr.info('Purge cancelled', 'VectHare');
             return;
         }
 
         try {
-            toastr.info('Purging all collections... This may take a moment.', 'RAGBooks', { timeOut: 0 });
+            toastr.info('Purging all collections... This may take a moment.', 'VectHare', { timeOut: 0 });
 
             // Delete from vector DB first
             const vectorSource = extension_settings.vectors?.source;
@@ -15665,12 +15553,12 @@ jQuery(async function () {
 
             toastr.clear();
             toastr.success(
-                `Successfully purged ${totalCollections} collections and ${totalChunks} chunks.\n\nRAGBooks has been reset to factory state.`,
+                `Successfully purged ${totalCollections} collections and ${totalChunks} chunks.\n\nVectHare has been reset to factory state.`,
                 'Purge Complete',
                 { timeOut: 10000 }
             );
 
-            console.log('✅ RAGBooks purge complete');
+            console.log('✅ VectHare purge complete');
 
             // Refresh the UI
             setTimeout(() => {
@@ -15845,7 +15733,7 @@ jQuery(async function () {
         const config = getChatVectorConfig();
         config.sceneMode = $(this).val();
         saveMetadataDebounced();
-        console.log('📚 [RAGBooks] Chat scene mode:', config.sceneMode);
+        console.log('📚 [VectHare] Chat scene mode:', config.sceneMode);
     });
 
     // Chunking strategy
@@ -15864,7 +15752,7 @@ jQuery(async function () {
         const config = getChatVectorConfig();
         config.chunkingStrategy = strategy;
         saveMetadataDebounced();
-        console.log('📚 [RAGBooks] Chat chunking strategy:', config.chunkingStrategy);
+        console.log('📚 [VectHare] Chat chunking strategy:', config.chunkingStrategy);
     });
 
     // Chunk size slider
@@ -15922,7 +15810,7 @@ jQuery(async function () {
         }
 
         saveMetadataDebounced();
-        console.log('📚 [RAGBooks] Message type filters updated:', {
+        console.log('📚 [VectHare] Message type filters updated:', {
             user: config.includeUser,
             char: config.includeChar,
             system: config.includeSystem,
@@ -15946,7 +15834,7 @@ jQuery(async function () {
         }
 
         saveMetadataDebounced();
-        console.log('📚 [RAGBooks] Summarize chunks:', isChecked);
+        console.log('📚 [VectHare] Summarize chunks:', isChecked);
     });
 
     // Summary style
@@ -15954,7 +15842,7 @@ jQuery(async function () {
         const config = getChatVectorConfig();
         config.summaryStyle = $(this).val();
         saveMetadataDebounced();
-        console.log('📚 [RAGBooks] Summary style:', config.summaryStyle);
+        console.log('📚 [VectHare] Summary style:', config.summaryStyle);
     });
 
     // Summary delay slider
@@ -15964,32 +15852,6 @@ jQuery(async function () {
 
         const config = getChatVectorConfig();
         config.summaryDelay = parseInt(delayValue);
-        saveMetadataDebounced();
-    });
-
-    // Recency weighting toggle
-    $(document).on('change', '#ragbooks_recency_weighting', function() {
-        const config = getChatVectorConfig();
-        const isChecked = $(this).is(':checked');
-        config.recencyWeighting = isChecked;
-
-        // Show/hide recency decay slider
-        if (isChecked) {
-            $('#ragbooks_recency_decay_setting').slideDown(200);
-        } else {
-            $('#ragbooks_recency_decay_setting').slideUp(200);
-        }
-
-        saveMetadataDebounced();
-        console.log('📚 [RAGBooks] Recency weighting:', isChecked);
-    });
-
-    // Recency decay slider
-    $(document).on('input', '#ragbooks_recency_decay', function() {
-        const value = $(this).val();
-        $('#ragbooks_recency_decay_value').text(value);
-        const config = getChatVectorConfig();
-        config.recencyDecay = parseFloat(value);
         saveMetadataDebounced();
     });
 
@@ -16007,7 +15869,7 @@ jQuery(async function () {
         }
 
         saveMetadataDebounced();
-        console.log('📚 [RAGBooks] Auto re-vectorize:', isChecked);
+        console.log('📚 [VectHare] Auto re-vectorize:', isChecked);
     });
 
     // Re-vectorize interval
@@ -16015,7 +15877,7 @@ jQuery(async function () {
         const config = getChatVectorConfig();
         config.revectorInterval = $(this).val();
         saveMetadataDebounced();
-        console.log('📚 [RAGBooks] Re-vectorize interval:', config.revectorInterval);
+        console.log('📚 [VectHare] Re-vectorize interval:', config.revectorInterval);
     });
 
     // Extract metadata toggle
@@ -16023,7 +15885,7 @@ jQuery(async function () {
         const config = getChatVectorConfig();
         config.extractMetadata = $(this).is(':checked');
         saveMetadataDebounced();
-        console.log('📚 [RAGBooks] Extract metadata:', config.extractMetadata);
+        console.log('📚 [VectHare] Extract metadata:', config.extractMetadata);
     });
 
     // =========================================================================
@@ -16040,7 +15902,7 @@ jQuery(async function () {
             } else {
                 $(`#ragbooks_${sourceType}_summary_settings`).slideUp(200);
             }
-            console.log(`📚 [RAGBooks] ${sourceType} summarize chunks:`, isChecked);
+            console.log(`📚 [VectHare] ${sourceType} summarize chunks:`, isChecked);
         });
 
         // Metadata extraction toggle
@@ -16051,7 +15913,7 @@ jQuery(async function () {
             } else {
                 $(`#ragbooks_${sourceType}_metadata_settings`).slideUp(200);
             }
-            console.log(`📚 [RAGBooks] ${sourceType} extract metadata:`, isChecked);
+            console.log(`📚 [VectHare] ${sourceType} extract metadata:`, isChecked);
         });
 
         // Summary delay slider
@@ -16063,14 +15925,14 @@ jQuery(async function () {
 
     // Register RAG interceptor for chat generation
     eventSource.on(event_types.GENERATION_STARTED, ragbooksInterceptor);
-    console.log('📚 [RAGBooks] Registered generation interceptor');
+    console.log('📚 [VectHare] Registered generation interceptor');
 
     // Initialize MutationObserver for chat messages
     initChatObserver();
 
     // Hook into CHAT_CHANGED to reinitialize on chat switch
     eventSource.on(event_types.CHAT_CHANGED, () => {
-        console.log('📚 [RAGBooks] Chat changed - reattaching scene buttons');
+        console.log('📚 [VectHare] Chat changed - reattaching scene buttons');
         setTimeout(() => {
             attachAllSceneButtons();
         }, 500);
@@ -16103,6 +15965,6 @@ jQuery(async function () {
         }
     };
 
-    console.log('✅ RAGBooks extension initialized');
+    console.log('✅ VectHare extension initialized');
     console.log('💡 Debug commands: window.ragbooks_debug.checkMessages(), window.ragbooks_debug.attachBookmarks()');
 });

@@ -3,7 +3,7 @@
 <div id="ragbooks_settings" class="ragbooks-extension-settings">
     <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b>📚 RAGBooks</b>
+            <b>📚 VectHare</b>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
@@ -22,7 +22,7 @@
                             <label class="ragbooks-toggle">
                                 <input type="checkbox" id="ragbooks_enabled" checked>
                                 <span class="ragbooks-toggle-slider"></span>
-                                <span class="ragbooks-toggle-label">Enable RAGBooks</span>
+                                <span class="ragbooks-toggle-label">Enable VectHare</span>
                             </label>
                             <div class="ragbooks-help-text">Master toggle for all RAG-based context injection</div>
                         </div>
@@ -310,13 +310,13 @@
             <!-- How It Works Card -->
             <div class="ragbooks-card">
                 <div class="ragbooks-card-header">
-                    <h3>💡 How RAGBooks Works</h3>
+                    <h3>💡 How VectHare Works</h3>
                 </div>
                 <div class="ragbooks-card-body">
                     <div class="ragbooks-tutorial-content">
-                        <h4>What is RAGBooks?</h4>
+                        <h4>What is VectHare?</h4>
                         <p>
-                            RAGBooks vectorizes your lorebooks, character cards, and custom documents, then intelligently
+                            VectHare vectorizes your lorebooks, character cards, and custom documents, then intelligently
                             injects only the most relevant sections based on your conversation. This saves 80-90% of context!
                         </p>
 
@@ -349,7 +349,7 @@
 
                         <p style="margin-bottom: 0;">
                             <strong>Example:</strong> If you mention "dragons" in chat and your lorebook has a dragon entry,
-                            RAGBooks finds and injects it automatically. Works with any vectorized content!
+                            VectHare finds and injects it automatically. Works with any vectorized content!
                         </p>
                     </div>
                 </div>
@@ -387,10 +387,33 @@
             </div>
 
             <div class="chunk-modal__toolbar flex-container alignitemscenter">
-                <input type="text" id="ragbooks_chunk_search" class="text_pole textarea_compact chunk-search-input" placeholder="Search chunks...">
+                <div class="rag-filter-group" style="flex: 1; display: flex; gap: 8px;">
+                    <input type="text" id="ragbooks_chunk_search" class="text_pole textarea_compact chunk-search-input" placeholder="Search chunks..." style="flex: 1;">
+                    
+                    <!-- New Filters -->
+                    <select id="ragbooks_filter_importance" class="text_pole" style="width: auto; max-width: 110px;" title="Filter by Importance">
+                        <option value="all">All Imp.</option>
+                        <option value="critical">Critical</option>
+                        <option value="high">High</option>
+                        <option value="normal">Normal</option>
+                        <option value="low">Low</option>
+                    </select>
+
+                    <select id="ragbooks_filter_status" class="text_pole" style="width: auto; max-width: 100px;" title="Filter by Status">
+                        <option value="all">All Status</option>
+                        <option value="enabled">Active</option>
+                        <option value="disabled">Disabled</option>
+                    </select>
+
+                    <select id="ragbooks_sort_mode" class="text_pole" style="width: auto; max-width: 100px;" title="Sort Order">
+                        <option value="index">Natural</option>
+                        <option value="importance">Importance</option>
+                    </select>
+                </div>
+
                 <button id="ragbooks_create_chunk" class="menu_button" type="button" title="Create a new empty chunk">
                     <i class="fa-solid fa-plus"></i>
-                    <span>New Chunk</span>
+                    <span>New</span>
                 </button>
                 <button id="ragbooks_format_toggle" class="menu_button chunk-format-toggle" type="button" title="Toggle formatted text display">
                     <i class="fa-solid fa-align-left"></i>
@@ -510,7 +533,7 @@
             <header class="chunk-modal__header flex-container alignitemscenter spaceBetween">
                 <div class="chunk-modal__title flex-container flexFlowColumn">
                     <h2 id="ragbooks_diagnostics_title" class="chunk-modal__heading">
-                        <i class="fa-solid fa-stethoscope"></i> RAGBooks Diagnostics
+                        <i class="fa-solid fa-stethoscope"></i> VectHare Diagnostics
                     </h2>
                     <p id="ragbooks_diagnostics_subtitle" class="chunk-modal__subtitle">System health check results</p>
                 </div>

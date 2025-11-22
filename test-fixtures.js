@@ -1,5 +1,5 @@
 /**
- * RAGBooks Test Fixtures
+ * VectHare Test Fixtures
  *
  * WHY: Provides a standardized test database with all features configured
  * for reliable production testing. Ships with the extension.
@@ -24,7 +24,7 @@ const EMBEDDING_SUMMARY_1 = new Array(384).fill(0).map((_, i) => Math.sin(i * 0.
 const EMBEDDING_SUMMARY_2 = new Array(384).fill(0).map((_, i) => Math.cos(i * 0.12) * 0.1);
 
 /**
- * Test collection with all RAGBooks features
+ * Test collection with all VectHare features
  */
 export const TEST_COLLECTION = {
     // ==================== BASIC CHUNK ====================
@@ -283,11 +283,11 @@ export const TEST_COLLECTION = {
  */
 export const TEST_COLLECTION_METADATA = {
     'ragbooks_test_collection': {
-        name: 'RAGBooks Test Collection',
+        name: 'VectHare Test Collection',
         alwaysActive: true,
         keywords: [],
         scope: 'global',
-        description: 'Test fixtures for RAGBooks production testing',
+        description: 'Test fixtures for VectHare production testing',
         created: Date.now(),
         chunkCount: Object.keys(TEST_COLLECTION).length
     }

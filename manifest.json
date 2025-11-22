@@ -1,5 +1,5 @@
 {
-    "display_name": "RAGBooks",
+    "display_name": "VectHare",
     "loading_order": 100,
     "requires": [],
     "optional": [],
@@ -7,6 +7,6 @@
     "css": "style.css",
     "author": "Coneja Chibi",
     "version": "1.0.0",
-    "homePage": "https://github.com/Coneja-Chibi/RAGBooks",
+    "homePage": "https://github.com/Coneja-Chibi/VectHare",
     "description": "Universal RAG system for vectorizing and intelligently injecting any text content - lorebooks, character cards, world info, or custom documents."
 }

@@ -453,9 +453,9 @@ try {
     // Dynamic import of expressions extension (may not be available)
     const module = await import('../../expressions/index.js');
     expressionsExtension = module;
-    console.log('✅ [RAGBooks Conditions] Character Expressions extension loaded for emotion detection');
+    console.log('✅ [VectHare Conditions] Character Expressions extension loaded for emotion detection');
 } catch (e) {
-    console.log('ℹ️ [RAGBooks Conditions] Character Expressions extension not available, using keyword-based emotion detection');
+    console.log('ℹ️ [VectHare Conditions] Character Expressions extension not available, using keyword-based emotion detection');
 }
 
 // Enhanced emotion keywords - expanded to include all expressions extension terminology
@@ -1816,7 +1816,7 @@ export async function generateSummaryForChunk(chunkText, style = 'concise', opti
     try {
         // Validate inputs
         if (!chunkText || typeof chunkText !== 'string') {
-            console.warn('[RAGBooks Summarization] Invalid chunk text');
+            console.warn('[VectHare Summarization] Invalid chunk text');
             return null;
         }
 
@@ -1834,7 +1834,7 @@ export async function generateSummaryForChunk(chunkText, style = 'concise', opti
 
         // Validate and clean response
         if (!summary || typeof summary !== 'string') {
-            console.warn('[RAGBooks Summarization] Empty or invalid summary response');
+            console.warn('[VectHare Summarization] Empty or invalid summary response');
             return null;
         }
 
@@ -1848,7 +1848,7 @@ export async function generateSummaryForChunk(chunkText, style = 'concise', opti
         return cleanSummary;
 
     } catch (error) {
-        console.error('[RAGBooks Summarization] Failed to generate summary:', error);
+        console.error('[VectHare Summarization] Failed to generate summary:', error);
         return null;
     }
 }
@@ -1872,7 +1872,7 @@ export async function generateSummariesForChunks(chunks, style = 'concise', prog
         throw new Error('Operation cancelled by user');
     }
 
-    console.log(`[RAGBooks Summarization] Generating ${style} summaries for ${chunks.length} chunks...`);
+    console.log(`[VectHare Summarization] Generating ${style} summaries for ${chunks.length} chunks...`);
 
     const chunksToSummarize = chunks.filter(chunk =>
         chunk.metadata?.enableSummary === true &&
@@ -1897,13 +1897,13 @@ export async function generateSummariesForChunks(chunks, style = 'concise', prog
 
     if (chunksToSummarize.length === 0) {
         const reason = skipReasons.length > 0 ? skipReasons.join(', ') : 'no chunks eligible';
-        console.warn(`[RAGBooks Summarization] ⚠️ Skipped all chunks: ${reason}`);
+        console.warn(`[VectHare Summarization] ⚠️ Skipped all chunks: ${reason}`);
         return chunks;
     }
 
-    console.log(`[RAGBooks Summarization] ${chunksToSummarize.length} chunks eligible for summarization`);
+    console.log(`[VectHare Summarization] ${chunksToSummarize.length} chunks eligible for summarization`);
     if (skipReasons.length > 0) {
-        console.warn(`[RAGBooks Summarization] ⚠️ Skipped ${skipReasons.join(', ')}`);
+        console.warn(`[VectHare Summarization] ⚠️ Skipped ${skipReasons.join(', ')}`);
     }
 
     let successCount = 0;
@@ -1914,7 +1914,7 @@ export async function generateSummariesForChunks(chunks, style = 'concise', prog
     for (let i = 0; i < chunksToSummarize.length; i++) {
         // Check for cancellation before processing each chunk
         if (abortSignal?.aborted) {
-            console.log(`[RAGBooks Summarization] Cancelled after ${successCount} summaries`);
+            console.log(`[VectHare Summarization] Cancelled after ${successCount} summaries`);
             throw new Error('Operation cancelled by user');
         }
 
@@ -1946,11 +1946,11 @@ export async function generateSummariesForChunks(chunks, style = 'concise', prog
                     successCount++;
                     success = true;
 
-                    console.log(`[RAGBooks Summarization] ✓ Chunk ${i + 1}/${chunksToSummarize.length}: "${summary.substring(0, 50)}..."`);
+                    console.log(`[VectHare Summarization] ✓ Chunk ${i + 1}/${chunksToSummarize.length}: "${summary.substring(0, 50)}..."`);
                 } else {
                     // No summary returned but no error thrown
                     failCount++;
-                    console.warn(`[RAGBooks Summarization] ✗ Chunk ${i + 1}/${chunksToSummarize.length}: No summary generated`);
+                    console.warn(`[VectHare Summarization] ✗ Chunk ${i + 1}/${chunksToSummarize.length}: No summary generated`);
                     break; // Don't retry if generation returned empty
                 }
 
@@ -1974,21 +1974,21 @@ export async function generateSummariesForChunks(chunks, style = 'concise', prog
                     // Dynamically upgrade the delay for all future requests
                     const oldDelay = currentDelay;
                     currentDelay = Math.min(currentDelay * 1.5, 10000); // Increase by 50%, cap at 10s
-                    console.warn(`[RAGBooks Summarization] ⚠ Rate limit detected on chunk ${i + 1}. Upgrading delay: ${oldDelay}ms → ${Math.round(currentDelay)}ms`);
+                    console.warn(`[VectHare Summarization] ⚠ Rate limit detected on chunk ${i + 1}. Upgrading delay: ${oldDelay}ms → ${Math.round(currentDelay)}ms`);
 
                     // Exponential backoff for immediate retry: 2s, 4s, 8s, 16s...
                     const retryDelay = Math.min(2000 * Math.pow(2, retryCount - 1), 30000); // Cap at 30s
-                    console.warn(`[RAGBooks Summarization] ⚠ Retrying chunk ${i + 1} in ${retryDelay/1000}s (attempt ${retryCount}/${maxRetries})...`);
+                    console.warn(`[VectHare Summarization] ⚠ Retrying chunk ${i + 1} in ${retryDelay/1000}s (attempt ${retryCount}/${maxRetries})...`);
                     await new Promise(resolve => setTimeout(resolve, retryDelay));
                     // Continue the loop to retry
                 } else if (!isRateLimit) {
                     // Non-rate-limit error - log and stop retrying this chunk
-                    console.error(`[RAGBooks Summarization] ✗ Error on chunk ${i + 1}:`, error.message);
+                    console.error(`[VectHare Summarization] ✗ Error on chunk ${i + 1}:`, error.message);
                     failCount++;
                     break;
                 } else {
                     // Should not reach here, but just in case
-                    console.error(`[RAGBooks Summarization] ✗ Chunk ${i + 1} failed:`, error.message);
+                    console.error(`[VectHare Summarization] ✗ Chunk ${i + 1} failed:`, error.message);
                     failCount++;
                     break;
                 }
@@ -1997,7 +1997,7 @@ export async function generateSummariesForChunks(chunks, style = 'concise', prog
 
         // If still not successful after all retries, mark as failed
         if (!success && retryCount > maxRetries) {
-            console.error(`[RAGBooks Summarization] ✗ Chunk ${i + 1} abandoned after ${maxRetries} retries with rate limit errors`);
+            console.error(`[VectHare Summarization] ✗ Chunk ${i + 1} abandoned after ${maxRetries} retries with rate limit errors`);
             failCount++;
         }
 
@@ -2007,11 +2007,11 @@ export async function generateSummariesForChunks(chunks, style = 'concise', prog
         }
     }
 
-    console.log(`[RAGBooks Summarization] Complete: ${successCount} succeeded, ${failCount} failed`);
+    console.log(`[VectHare Summarization] Complete: ${successCount} succeeded, ${failCount} failed`);
 
     // Log if delay was dynamically upgraded
     if (currentDelay > delayMs) {
-        console.log(`[RAGBooks Summarization] ⚙️ Delay auto-upgraded from ${delayMs}ms to ${Math.round(currentDelay)}ms due to rate limiting`);
+        console.log(`[VectHare Summarization] ⚙️ Delay auto-upgraded from ${delayMs}ms to ${Math.round(currentDelay)}ms due to rate limiting`);
     }
 
     // Return chunks with stats about what was processed/skipped
@@ -2040,7 +2040,7 @@ export function validateSummarySettings(config) {
     // Validate style
     const style = config.summaryStyle || 'concise';
     if (!SUMMARY_STYLES[style]) {
-        console.warn(`[RAGBooks Summarization] Unknown style: ${style}, using concise`);
+        console.warn(`[VectHare Summarization] Unknown style: ${style}, using concise`);
     }
 
     return true;
@@ -2337,6 +2337,14 @@ export const CLEANING_PATTERNS = {
  * @returns {string} Cleaned text
  */
 export function cleanText(text, mode, customPatterns = []) {
+    if (typeof text !== 'string') {
+        if (text === null || text === undefined) {
+            return '';
+        }
+        // Attempt to convert to string if it's a number or object
+        text = String(text);
+    }
+
     if (mode === CLEANING_MODES.NONE || !text) {
         return text;
     }
@@ -2350,18 +2358,20 @@ export function cleanText(text, mode, customPatterns = []) {
             const regex = new RegExp(pattern, flags);
             cleaned = cleaned.replace(regex, replacement);
         } catch (error) {
-            console.warn(`[RAGBooks TextCleaning] Failed to apply preset pattern: ${pattern}`, error);
+            console.warn(`[VectHare TextCleaning] Failed to apply preset pattern: ${pattern}`, error);
         }
     }
 
     // Apply user's custom patterns
-    for (const customPattern of customPatterns) {
-        if (customPattern.enabled !== false) {
-            try {
-                const regex = new RegExp(customPattern.pattern, customPattern.flags || 'g');
-                cleaned = cleaned.replace(regex, customPattern.replacement || '');
-            } catch (error) {
-                console.warn(`[RAGBooks TextCleaning] Failed to apply custom pattern: ${customPattern.name}`, error);
+    if (Array.isArray(customPatterns)) {
+        for (const customPattern of customPatterns) {
+            if (customPattern && customPattern.enabled !== false && customPattern.pattern) {
+                try {
+                    const regex = new RegExp(customPattern.pattern, customPattern.flags || 'g');
+                    cleaned = cleaned.replace(regex, customPattern.replacement || '');
+                } catch (error) {
+                    console.warn(`[VectHare TextCleaning] Failed to apply custom pattern: ${customPattern.name || 'Unknown'}`, error);
+                }
             }
         }
     }
@@ -2465,7 +2475,7 @@ export function cosineSimilarity(vec1, vec2) {
     }
 
     if (vec1.length !== vec2.length) {
-        console.warn('[RAGBooks Semantic] Vector length mismatch:', vec1.length, 'vs', vec2.length);
+        console.warn('[VectHare Semantic] Vector length mismatch:', vec1.length, 'vs', vec2.length);
         return 0;
     }
 
@@ -2495,7 +2505,7 @@ export function cosineSimilarity(vec1, vec2) {
  * For now, falls back to simple sentence-based chunking
  */
 export async function semanticChunkText(text, options = {}) {
-    console.warn('[RAGBooks Semantic] Semantic chunking is disabled - falling back to sentence grouping');
+    console.warn('[VectHare Semantic] Semantic chunking is disabled - falling back to sentence grouping');
 
     // Fallback: Group sentences by size instead of semantic similarity
     const config = {
@@ -2601,7 +2611,7 @@ export function slidingWindowChunk(text, options = {}) {
         }
     }
 
-    console.log(`[RAGBooks Sliding Window] Created ${chunks.length} chunks (${config.windowSize} chars, ${config.overlapPercent}% overlap)`);
+    console.log(`[VectHare Sliding Window] Created ${chunks.length} chunks (${config.windowSize} chars, ${config.overlapPercent}% overlap)`);
 
     return chunks;
 }
@@ -2791,7 +2801,7 @@ const PROGRESS_STEPS = {
 export function showProgressModal(title, subtitle = '', options = {}) {
     // Prevent multiple modals
     if (progressState.isActive) {
-        console.warn('[RAGBooks Progress] Modal already active');
+        console.warn('[VectHare Progress] Modal already active');
         return;
     }
 
@@ -2883,7 +2893,7 @@ export function updateProgressStep(stepId, status, count = '') {
 
     const stepEl = document.getElementById(`ragbooks-step-${stepId}`);
     if (!stepEl) {
-        console.warn(`[RAGBooks Progress] Unknown step: ${stepId}`);
+        console.warn(`[VectHare Progress] Unknown step: ${stepId}`);
         return;
     }
 
@@ -2898,7 +2908,7 @@ export function updateProgressStep(stepId, status, count = '') {
         countEl.textContent = count;
     }
 
-    console.log(`[RAGBooks Progress] Step ${stepId}: ${status} ${count}`);
+    console.log(`[VectHare Progress] Step ${stepId}: ${status} ${count}`);
 }
 
 /**

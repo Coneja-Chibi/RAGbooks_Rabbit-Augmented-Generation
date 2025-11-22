@@ -15,6 +15,8 @@
 import { Diagnostics } from './core-system.js';
 import { extensionName } from './core-state.js';
 import { extension_settings } from '../../../extensions.js';
+import { textgen_types, textgenerationwebui_settings } from '../../../textgen-settings.js';
+import { oai_settings } from '../../../openai.js';
 
 // ==================== EMBEDDING GENERATION ====================
 
@@ -210,20 +212,75 @@ async function callVectorAPI(text, provider, retries = 3) {
     const { getRequestHeaders } = await import('../../../../script.js');
     const { isPluginAvailable } = await import('./plugin-vector-api.js');
 
+    // Prepare request body with all necessary parameters for the provider
+    const body = {
+        text: text,
+        source: provider.source || 'transformers',
+        model: provider.model || ''
+    };
+
+    // Add provider-specific settings
+    const vectorSettings = extension_settings?.vectors || {};
+    
+    switch (body.source) {
+        case 'extras':
+            body.extrasUrl = extension_settings.apiUrl;
+            body.extrasKey = extension_settings.apiKey;
+            break;
+        case 'ollama':
+            body.model = vectorSettings.ollama_model;
+            body.apiUrl = vectorSettings.use_alt_endpoint ? vectorSettings.alt_endpoint_url : textgenerationwebui_settings.server_urls[textgen_types.OLLAMA];
+            body.keep = !!vectorSettings.ollama_keep;
+            break;
+        case 'llamacpp':
+            body.apiUrl = vectorSettings.use_alt_endpoint ? vectorSettings.alt_endpoint_url : textgenerationwebui_settings.server_urls[textgen_types.LLAMACPP];
+            break;
+        case 'vllm':
+            body.apiUrl = vectorSettings.use_alt_endpoint ? vectorSettings.alt_endpoint_url : textgenerationwebui_settings.server_urls[textgen_types.VLLM];
+            body.model = vectorSettings.vllm_model;
+            break;
+        case 'webllm':
+            body.model = vectorSettings.webllm_model;
+            break;
+        case 'palm':
+            body.model = vectorSettings.google_model;
+            body.api = 'makersuite';
+            break;
+        case 'vertexai':
+            body.model = vectorSettings.google_model;
+            body.api = 'vertexai';
+            body.vertexai_auth_mode = oai_settings.vertexai_auth_mode;
+            body.vertexai_region = oai_settings.vertexai_region;
+            body.vertexai_express_project_id = oai_settings.vertexai_express_project_id;
+            break;
+        case 'cohere':
+            body.model = vectorSettings.cohere_model;
+            break;
+        case 'openai':
+            body.model = vectorSettings.openai_model;
+            break;
+        case 'togetherai':
+            body.model = vectorSettings.togetherai_model;
+            break;
+        case 'electronhub':
+            body.model = vectorSettings.electronhub_model;
+            break;
+        case 'openrouter':
+            body.model = vectorSettings.openrouter_model;
+            break;
+    }
+
     for (let attempt = 0; attempt < retries; attempt++) {
         try {
             const pluginReady = await isPluginAvailable();
 
             if (pluginReady) {
                 // Use plugin's get-embedding endpoint
-                const response = await fetch('/api/plugins/rabbit-rag-vectors/get-embedding', {
+                // FIX: Use correct plugin ID 'vecthare' instead of 'rabbit-rag-vectors'
+                const response = await fetch('/api/plugins/vecthare/get-embedding', {
                     method: 'POST',
                     headers: getRequestHeaders(),
-                    body: JSON.stringify({
-                        text: text,
-                        source: provider.source || 'transformers',
-                        model: provider.model || ''
-                    })
+                    body: JSON.stringify(body)
                 });
 
                 if (!response.ok) {
@@ -235,7 +292,7 @@ async function callVectorAPI(text, provider, retries = 3) {
                 return data.embedding;
             } else {
                 // Standard ST - no client-side embedding API
-                throw new Error('rabbit-rag-vectors plugin not available. Install plugin for client-side embedding generation.');
+                throw new Error('vecthare plugin not available. Install plugin for client-side embedding generation.');
             }
 
         } catch (error) {
@@ -556,7 +613,10 @@ Diagnostics.registerCheck('embedding-provider-reachable', {
                 };
             }
 
-            if (!vectorSettings.enabled) {
+            // Fix: Some ST versions might not have 'enabled' property explicitly set to true on init
+            // Trust that if we have settings and a source, it's likely active. 
+            // Only warn if it is EXPLICITLY disabled (false).
+            if (vectorSettings.enabled === false) {
                 return {
                     status: 'warn',
                     message: 'Vector extension is disabled',

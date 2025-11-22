@@ -1,5 +1,5 @@
 /**
- * RAGBooks Logging Utilities
+ * VectHare Logging Utilities
  * Provides clean, collapsible console logging similar to CarrotKernel
  */
 
@@ -304,13 +304,13 @@ function showDiagnosticToaster(result, onFix = null) {
     switch (result.severity) {
         case SEVERITY.CRITICAL:
         case SEVERITY.ERROR:
-            toastr.error(message, result.autoFix ? 'Click to fix' : 'RAGBooks Issue', options);
+            toastr.error(message, result.autoFix ? 'Click to fix' : 'VectHare Issue', options);
             break;
         case SEVERITY.WARNING:
-            toastr.warning(message, result.autoFix ? 'Click to fix' : 'RAGBooks Warning', options);
+            toastr.warning(message, result.autoFix ? 'Click to fix' : 'VectHare Warning', options);
             break;
         case SEVERITY.INFO:
-            toastr.info(message, 'RAGBooks Info', options);
+            toastr.info(message, 'VectHare Info', options);
             break;
     }
 }
@@ -330,7 +330,7 @@ export async function checkVectorSource(settings) {
             false,
             SEVERITY.CRITICAL,
             'No vector source selected',
-            'RAGBooks requires a vector provider (ChromaDB, Transformers, etc.). Go to Extensions > Vector Storage and select a source.',
+            'VectHare requires a vector provider (ChromaDB, Transformers, etc.). Go to Extensions > Vector Storage and select a source.',
             null,
             'Go to Extensions > Vector Storage > Select a vector source (ChromaDB, Transformers, WebLLM, etc.)'
         );
@@ -417,7 +417,7 @@ export async function checkCollectionExists(collectionId, source) {
                 'Collection is empty in vector database',
                 `Collection "${collectionId}" exists but has no vectors. You need to re-vectorize this content.`,
                 null,
-                'Open the collection in RAGBooks settings and click the "Re-vectorize" button.'
+                'Open the collection in VectHare settings and click the "Re-vectorize" button.'
             );
         }
 
@@ -628,7 +628,7 @@ export function checkLibraryExists(ragState, scope, scopeId, collectionId) {
             'Library not found or empty',
             `No chunks found in library for ${scope} scope. Content may not have been chunked yet.`,
             null,
-            'Open the content in RAGBooks and click "Chunk Document" to create chunks'
+            'Open the content in VectHare and click "Chunk Document" to create chunks'
         );
     }
 
@@ -764,7 +764,7 @@ export function checkLibrarySize(ragState) {
                 false,
                 SEVERITY.WARNING,
                 'Large library storage',
-                `RAGBooks library is ${sizeMB.toFixed(2)} MB. Large libraries can slow down loading and saving.`,
+                `VectHare library is ${sizeMB.toFixed(2)} MB. Large libraries can slow down loading and saving.`,
                 null,
                 'Consider removing unused collections or reducing chunk count per collection'
             );
@@ -839,7 +839,7 @@ export function checkScopeMismatch(collectionId, expectedScope, ragState) {
             'Collection exists in multiple scopes',
             `Collection "${collectionId}" found in: ${foundScopes.join(', ')}. This can cause confusion.`,
             null,
-            'Remove collection from unwanted scopes using RAGBooks UI'
+            'Remove collection from unwanted scopes using VectHare UI'
         );
     }
 
@@ -895,7 +895,7 @@ export function checkThresholdSettings(threshold, provider) {
             'Threshold not set',
             'Relevance threshold is not configured. This can cause unpredictable search behavior.',
             null,
-            'Set threshold in RAGBooks settings (recommended: 0.50-0.75)'
+            'Set threshold in VectHare settings (recommended: 0.50-0.75)'
         );
     }
 
@@ -909,7 +909,7 @@ export function checkThresholdSettings(threshold, provider) {
                 settings.ragbooks.rag.threshold = 0.60;
                 return 'Reset threshold to 0.60';
             },
-            'Set threshold between 0 and 1 in RAGBooks settings'
+            'Set threshold between 0 and 1 in VectHare settings'
         );
     }
 
@@ -1011,7 +1011,7 @@ export function checkActiveCollections(ragState, scope, scopeId) {
             'No active collections',
             `No RAG collections found in any scope. Nothing to search.`,
             null,
-            'Create and vectorize content in RAGBooks to enable search'
+            'Create and vectorize content in VectHare to enable search'
         );
     }
 
@@ -1051,7 +1051,7 @@ export function checkSearchMode(searchMode) {
                 settings.ragbooks.rag.searchMode = 'combined';
                 return 'Reset search mode to "combined"';
             },
-            'Set search mode in RAGBooks settings (combined, vector, keyword, or hybrid)'
+            'Set search mode in VectHare settings (combined, vector, keyword, or hybrid)'
         );
     }
 
@@ -1107,7 +1107,7 @@ export function checkEmptyResults(results, threshold) {
             'No search results',
             `No chunks matched your query with threshold ${threshold}. Try lowering threshold or rephrasing query.`,
             null,
-            'Lower your relevance threshold in RAGBooks settings or use a more general query'
+            'Lower your relevance threshold in VectHare settings or use a more general query'
         );
     }
 
@@ -1121,24 +1121,24 @@ export function checkEmptyResults(results, threshold) {
  */
 
 /**
- * Check if RAGBooks is enabled
+ * Check if VectHare is enabled
  */
-export function checkRAGBooksEnabled(settings) {
+export function checkVectHareEnabled(settings) {
     if (!settings?.ragbooks?.enabled) {
         return new DiagnosticResult(
             false,
             SEVERITY.ERROR,
-            'RAGBooks is disabled',
-            'RAGBooks extension is not enabled. No RAG functionality will work.',
+            'VectHare is disabled',
+            'VectHare extension is not enabled. No RAG functionality will work.',
             async (settings) => {
                 settings.ragbooks.enabled = true;
-                return 'Enabled RAGBooks';
+                return 'Enabled VectHare';
             },
-            'Enable RAGBooks in extension settings'
+            'Enable VectHare in extension settings'
         );
     }
 
-    return new DiagnosticResult(true, SEVERITY.INFO, 'RAGBooks enabled', 'Extension is active');
+    return new DiagnosticResult(true, SEVERITY.INFO, 'VectHare enabled', 'Extension is active');
 }
 
 /**
@@ -1162,7 +1162,7 @@ export function checkInjectionSettings(settings) {
                 };
                 return 'Configured injection settings with defaults';
             },
-            'Configure injection settings in RAGBooks'
+            'Configure injection settings in VectHare'
         );
     }
 
@@ -1179,7 +1179,7 @@ export function checkInjectionSettings(settings) {
                 }
                 return 'Set injection position to "after_scenario"';
             },
-            'Set injection position in RAGBooks settings (recommended: "after_scenario")'
+            'Set injection position in VectHare settings (recommended: "after_scenario")'
         );
     }
 
@@ -1203,7 +1203,7 @@ export function checkChunkingStrategy(settings) {
                 settings.ragbooks.rag.chunkingStrategy = 'semantic';
                 return 'Reset chunking strategy to "semantic"';
             },
-            'Set chunking strategy in RAGBooks settings'
+            'Set chunking strategy in VectHare settings'
         );
     }
 
@@ -1229,7 +1229,7 @@ export function checkChunkSize(settings) {
                 settings.ragbooks.rag.chunkSize = 1000;
                 return 'Set chunk size to 1000 chars';
             },
-            'Configure chunk size in RAGBooks settings (recommended: 500-1500 chars)'
+            'Configure chunk size in VectHare settings (recommended: 500-1500 chars)'
         );
     }
 
@@ -1624,7 +1624,7 @@ export function checkTextCleaning(library) {
             'Chunks may need text cleaning',
             `${dirty.length} chunks contain formatting artifacts that could affect search`,
             null,
-            'Enable text cleaning in RAGBooks settings before chunking'
+            'Enable text cleaning in VectHare settings before chunking'
         );
     }
 
@@ -1682,10 +1682,10 @@ export async function runDiagnostics(options = {}) {
         const result = new DiagnosticResult(
             false,
             SEVERITY.CRITICAL,
-            'RAGBooks not initialized',
-            'RAGBooks settings are missing. Extension may not be properly installed.',
+            'VectHare not initialized',
+            'VectHare settings are missing. Extension may not be properly installed.',
             null,
-            'Reinstall RAGBooks extension'
+            'Reinstall VectHare extension'
         );
         if (showToasters) showDiagnosticToaster(result);
         results.configuration.push(result);
@@ -1693,7 +1693,7 @@ export async function runDiagnostics(options = {}) {
     }
 
     // Configuration checks (always run)
-    results.configuration.push(checkRAGBooksEnabled(settings));
+    results.configuration.push(checkVectHareEnabled(settings));
     results.configuration.push(checkInjectionSettings(settings));
     results.configuration.push(checkChunkingStrategy(settings));
     results.configuration.push(checkChunkSize(settings));
@@ -1880,12 +1880,12 @@ if (typeof window !== 'undefined') {
 /**
  * CONSOLE LOGGING CONTROL
  *
- * RAGBooks uses grouped, collapsible console logging to keep output clean.
+ * VectHare uses grouped, collapsible console logging to keep output clean.
  * All logs are contained in groups that can be collapsed in the browser console.
  *
  * To control logging verbosity:
  *
- * 1. Disable all RAGBooks logging:
+ * 1. Disable all VectHare logging:
  *    ragLogger.enabled = false
  *
  * 2. Enable verbose/debug logging:

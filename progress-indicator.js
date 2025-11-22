@@ -1,5 +1,5 @@
 /**
- * RAGBooks Progress Indicator Module
+ * VectHare Progress Indicator Module
  *
  * Provides visible progress tracking for chunking, summarization, and vectorization operations.
  */
@@ -57,7 +57,7 @@ const PROGRESS_STEPS = {
 export function showProgressModal(title, subtitle = '', options = {}) {
     // Prevent multiple modals
     if (progressState.isActive) {
-        console.warn('[RAGBooks Progress] Modal already active');
+        console.warn('[VectHare Progress] Modal already active');
         return;
     }
 
@@ -68,47 +68,59 @@ export function showProgressModal(title, subtitle = '', options = {}) {
     progressState.steps = {};
     progressState.stats = { chunks: 0, summaries: 0, total: 0 };
 
-    // Create modal HTML
+    // Create modal HTML with "Glass Ring" design
     const modalHTML = `
         <div class="ragbooks-progress-overlay" id="ragbooks-progress-overlay">
             <div class="ragbooks-progress-modal" id="ragbooks-progress-modal">
+                <!-- Header -->
                 <div class="ragbooks-progress-header">
                     <div class="ragbooks-progress-title">${title}</div>
                     ${subtitle ? `<div class="ragbooks-progress-subtitle">${subtitle}</div>` : ''}
                 </div>
 
-                <div class="ragbooks-progress-spinner"></div>
+                <!-- Hero Ring -->
+                <div class="ragbooks-ring-container indeterminate" id="ragbooks-ring-container">
+                    <svg class="ragbooks-ring-svg" viewBox="0 0 160 160">
+                        <circle class="ragbooks-ring-bg" cx="80" cy="80" r="72"></circle>
+                        <circle class="ragbooks-ring-progress" id="ragbooks-ring-progress" cx="80" cy="80" r="72"></circle>
+                    </svg>
+                    <div class="ragbooks-ring-content">
+                        <i class="fa-solid fa-bolt ragbooks-ring-icon" id="ragbooks-ring-icon"></i>
+                        <span class="ragbooks-ring-text" id="ragbooks-ring-status">Working</span>
+                    </div>
+                </div>
 
+                <!-- Active Step Label -->
+                <div class="rag-active-step-label" id="ragbooks-active-step-label">
+                    Initializing...
+                </div>
+                <div class="rag-step-counter" id="ragbooks-step-counter"></div>
+
+                <!-- Dot Steps -->
                 <div class="ragbooks-progress-steps" id="ragbooks-progress-steps">
-                    ${Object.entries(PROGRESS_STEPS).map(([id, step]) => `
-                        <div class="ragbooks-progress-step pending" id="ragbooks-step-${id}">
-                            <span class="ragbooks-progress-step-icon">${step.icon}</span>
-                            <span class="ragbooks-progress-step-label">${step.label}</span>
-                            <span class="ragbooks-progress-step-count" id="ragbooks-step-${id}-count"></span>
-                        </div>
+                    ${Object.keys(PROGRESS_STEPS).map((id) => `
+                        <div class="rag-step-dot" id="ragbooks-step-${id}" title="${PROGRESS_STEPS[id].label}"></div>
                     `).join('')}
                 </div>
 
+                <!-- Stats Cards -->
                 <div class="ragbooks-progress-stats" id="ragbooks-progress-stats" style="display: none;">
-                    <div class="ragbooks-progress-stat">
-                        <span class="ragbooks-progress-stat-value" id="ragbooks-stat-chunks">0</span>
-                        <span class="ragbooks-progress-stat-label">Chunks</span>
+                    <div class="rag-stat-card">
+                        <span class="rag-stat-val" id="ragbooks-stat-chunks">0</span>
+                        <span class="rag-stat-label">Chunks</span>
                     </div>
-                    <div class="ragbooks-progress-stat">
-                        <span class="ragbooks-progress-stat-value" id="ragbooks-stat-summaries">0</span>
-                        <span class="ragbooks-progress-stat-label">Summaries</span>
+                    <div class="rag-stat-card">
+                        <span class="rag-stat-val" id="ragbooks-stat-summaries">0</span>
+                        <span class="rag-stat-label">Summaries</span>
                     </div>
                 </div>
 
-                <div class="ragbooks-progress-elapsed" id="ragbooks-progress-elapsed">
-                    Elapsed: 0s
+                <!-- Footer -->
+                <div class="ragbooks-progress-footer">
+                    ${options.cancelable !== false ? `
+                        <button class="rag-cancel-btn" id="ragbooks-progress-cancel">Cancel</button>
+                    ` : ''}
                 </div>
-
-                ${options.cancelable !== false ? `
-                    <button class="ragbooks-progress-cancel" id="ragbooks-progress-cancel">
-                        Cancel
-                    </button>
-                ` : ''}
             </div>
         </div>
     `;
@@ -116,70 +128,65 @@ export function showProgressModal(title, subtitle = '', options = {}) {
     // Add to DOM
     document.body.insertAdjacentHTML('beforeend', modalHTML);
 
-    // Start elapsed time counter
-    startElapsedTimer();
-
     // Add cancel handler
     if (options.cancelable !== false && options.onCancel) {
-        // Create handler and store reference for later cleanup
         const cancelHandler = () => {
             if (confirm('Are you sure you want to cancel this operation?')) {
                 options.onCancel();
                 hideProgressModal();
             }
         };
-
         progressState.cancelHandler = cancelHandler;
-
         const cancelBtn = document.getElementById('ragbooks-progress-cancel');
-        if (cancelBtn) {
-            cancelBtn.addEventListener('click', cancelHandler);
-        }
+        if (cancelBtn) cancelBtn.addEventListener('click', cancelHandler);
     }
 }
 
 /**
  * Update progress for a specific step
- * @param {string} stepId - Step identifier (parsing, chunking, cleaning, summarizing, saving)
- * @param {string} status - Status (active, completed, pending)
- * @param {string} count - Optional count text (e.g., "45/100")
  */
 export function updateProgressStep(stepId, status, count = '') {
     if (!progressState.isActive) return;
 
     const stepEl = document.getElementById(`ragbooks-step-${stepId}`);
-    if (!stepEl) {
-        console.warn(`[RAGBooks Progress] Unknown step: ${stepId}`);
-        return;
+    if (!stepEl) return; // Unknown step
+
+    // Update dot visual
+    if (status === 'active') {
+        stepEl.className = 'rag-step-dot active';
+        // Update central label
+        const labelEl = document.getElementById('ragbooks-active-step-label');
+        if (labelEl) labelEl.innerHTML = `<i class="fa-solid ${PROGRESS_STEPS[stepId].icon}"></i> ${PROGRESS_STEPS[stepId].label}`;
+        
+        // Update ring status text
+        const ringText = document.getElementById('ragbooks-ring-status');
+        if (ringText) ringText.textContent = stepId.toUpperCase();
+
+    } else if (status === 'completed') {
+        stepEl.className = 'rag-step-dot completed';
+    } else {
+        stepEl.className = 'rag-step-dot';
     }
 
-    // Update step status
-    stepEl.className = `ragbooks-progress-step ${status}`;
     progressState.steps[stepId] = status;
     progressState.currentStep = stepId;
 
-    // Update count
-    const countEl = document.getElementById(`ragbooks-step-${stepId}-count`);
-    if (countEl) {
-        countEl.textContent = count;
+    // Update counter text
+    const counterEl = document.getElementById('ragbooks-step-counter');
+    if (counterEl && count) {
+        counterEl.textContent = count;
     }
-
-    console.log(`[RAGBooks Progress] Step ${stepId}: ${status} ${count}`);
 }
 
 /**
  * Update statistics
- * @param {Object} stats - Stats object { chunks, summaries, total }
  */
 export function updateProgressStats(stats) {
     if (!progressState.isActive) return;
 
-    // Update state
     if (stats.chunks !== undefined) progressState.stats.chunks = stats.chunks;
     if (stats.summaries !== undefined) progressState.stats.summaries = stats.summaries;
-    if (stats.total !== undefined) progressState.stats.total = stats.total;
 
-    // Update UI
     const chunksEl = document.getElementById('ragbooks-stat-chunks');
     const summariesEl = document.getElementById('ragbooks-stat-summaries');
     const statsContainer = document.getElementById('ragbooks-progress-stats');
@@ -187,17 +194,29 @@ export function updateProgressStats(stats) {
     if (chunksEl) chunksEl.textContent = progressState.stats.chunks;
     if (summariesEl) summariesEl.textContent = progressState.stats.summaries;
 
-    // Show stats if we have data
     if (statsContainer && (progressState.stats.chunks > 0 || progressState.stats.summaries > 0)) {
-        statsContainer.style.display = 'flex';
+        statsContainer.style.display = 'grid';
+    }
+    
+    // Calculate determinate progress if total is known
+    if (stats.total > 0 && stats.current > 0) {
+        const container = document.getElementById('ragbooks-ring-container');
+        const circle = document.getElementById('ragbooks-ring-progress');
+        
+        if (container && circle) {
+            container.classList.remove('indeterminate');
+            const percent = stats.current / stats.total;
+            const dashOffset = 339.292 * (1 - percent);
+            circle.style.strokeDashoffset = dashOffset;
+        }
     }
 }
 
 /**
- * Update progress message
+ * Update progress message (Renamed for cache busting)
  * @param {string} message - Message to display
  */
-export function updateProgressMessage(message) {
+export function updateProgressMessageText(message) {
     if (!progressState.isActive) return;
 
     const subtitleEl = document.querySelector('.ragbooks-progress-subtitle');
@@ -208,97 +227,96 @@ export function updateProgressMessage(message) {
 
 /**
  * Show error state
- * @param {string} errorMessage - Error message to display
  */
 export function showProgressError(errorMessage) {
     if (!progressState.isActive) return;
 
     const modalEl = document.getElementById('ragbooks-progress-modal');
-    if (modalEl) {
-        modalEl.classList.add('error');
+    if (modalEl) modalEl.classList.add('error');
+
+    // Update ring
+    const ringContainer = document.getElementById('ragbooks-ring-container');
+    const ringIcon = document.getElementById('ragbooks-ring-icon');
+    const ringText = document.getElementById('ragbooks-ring-status');
+    
+    if (ringContainer) ringContainer.classList.remove('indeterminate');
+    if (ringIcon) {
+        ringIcon.className = 'fa-solid fa-triangle-exclamation ragbooks-ring-icon';
+        ringIcon.style.color = '#ef4444';
+        ringIcon.style.animation = 'none';
+    }
+    if (ringText) {
+        ringText.textContent = 'Error';
+        ringText.style.color = '#ef4444';
     }
 
-    // Stop spinner
-    const spinnerEl = document.querySelector('.ragbooks-progress-spinner');
-    if (spinnerEl) {
-        spinnerEl.style.display = 'none';
-    }
-
-    // Show error message
+    // Insert error message
     const stepsEl = document.getElementById('ragbooks-progress-steps');
     if (stepsEl) {
+        stepsEl.style.display = 'none';
         stepsEl.insertAdjacentHTML('beforebegin', `
-            <div class="ragbooks-progress-error">
-                <div class="ragbooks-progress-error-title">Error occurred</div>
-                <div class="ragbooks-progress-error-message">${errorMessage}</div>
+            <div class="rag-result-msg error">
+                ${errorMessage}
             </div>
         `);
     }
 
-    // Change cancel button to close
+    // Update button
     const cancelBtn = document.getElementById('ragbooks-progress-cancel');
     if (cancelBtn) {
-        // Remove the addEventListener cancel handler before setting onclick
         if (progressState.cancelHandler) {
             cancelBtn.removeEventListener('click', progressState.cancelHandler);
-            progressState.cancelHandler = null;
         }
-
         cancelBtn.textContent = 'Close';
         cancelBtn.onclick = () => hideProgressModal();
     }
-
-    stopElapsedTimer();
 }
 
 /**
  * Show success state
- * @param {string} message - Success message
- * @param {number} autoCloseDuration - Auto-close after X ms (0 = manual)
  */
 export function showProgressSuccess(message, autoCloseDuration = 2000) {
     if (!progressState.isActive) return;
 
     const modalEl = document.getElementById('ragbooks-progress-modal');
-    if (modalEl) {
-        modalEl.classList.add('success');
+    if (modalEl) modalEl.classList.add('success');
+
+    // Update ring to full green
+    const ringContainer = document.getElementById('ragbooks-ring-container');
+    const ringProgress = document.getElementById('ragbooks-ring-progress');
+    const ringIcon = document.getElementById('ragbooks-ring-icon');
+    const ringText = document.getElementById('ragbooks-ring-status');
+
+    if (ringContainer) ringContainer.classList.remove('indeterminate');
+    if (ringProgress) ringProgress.style.strokeDashoffset = 0;
+    
+    if (ringIcon) {
+        ringIcon.className = 'fa-solid fa-check ragbooks-ring-icon';
+        ringIcon.style.color = '#10b981';
+        ringIcon.style.animation = 'none';
+    }
+    if (ringText) {
+        ringText.textContent = 'Complete';
+        ringText.style.color = '#10b981';
     }
 
-    // Hide spinner
-    const spinnerEl = document.querySelector('.ragbooks-progress-spinner');
-    if (spinnerEl) {
-        spinnerEl.style.display = 'none';
-    }
-
-    // Show success message
+    // Update message
     const stepsEl = document.getElementById('ragbooks-progress-steps');
     if (stepsEl) {
-        stepsEl.style.display = 'none';
+        stepsEl.style.display = 'none'; // Hide steps list
         stepsEl.insertAdjacentHTML('beforebegin', `
-            <div class="ragbooks-progress-success">
-                <div class="ragbooks-progress-success-icon">✓</div>
-                <div class="ragbooks-progress-success-message">${message}</div>
+            <div class="rag-result-msg success">
+                ${message}
             </div>
         `);
     }
 
-    stopElapsedTimer();
-
-    // Auto-close if duration specified
     if (autoCloseDuration > 0) {
-        setTimeout(() => {
-            hideProgressModal();
-        }, autoCloseDuration);
+        setTimeout(() => hideProgressModal(), autoCloseDuration);
     } else {
-        // Change cancel button to close
         const cancelBtn = document.getElementById('ragbooks-progress-cancel');
         if (cancelBtn) {
-            // Remove the addEventListener cancel handler before setting onclick
-            if (progressState.cancelHandler) {
-                cancelBtn.removeEventListener('click', progressState.cancelHandler);
-                progressState.cancelHandler = null;
-            }
-
+            if (progressState.cancelHandler) cancelBtn.removeEventListener('click', progressState.cancelHandler);
             cancelBtn.textContent = 'Close';
             cancelBtn.onclick = () => hideProgressModal();
         }

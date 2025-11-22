@@ -307,7 +307,30 @@ export function searchByKeywords(queryKeywords, keywordIndex, allChunks) {
         const chunk = allChunks[hash];
         if (chunk) {
             // Score = (matches / query keywords) for recall
-            const score = Math.min(1.0, matchCount / queryKeywords.length);
+            let score = Math.min(1.0, matchCount / queryKeywords.length);
+
+            // Apply customWeights boost for matched keywords
+            const customWeights = chunk.customWeights || {};
+            if (Object.keys(customWeights).length > 0) {
+                let weightMultiplier = 1.0;
+                let weightedKeywords = 0;
+
+                for (const keyword of queryKeywords) {
+                    const normalized = keyword.toLowerCase();
+                    if (customWeights[normalized] !== undefined) {
+                        // Weight is 1-200 scale, normalize to multiplier (0.01 - 2.0)
+                        weightMultiplier *= (customWeights[normalized] / 100);
+                        weightedKeywords++;
+                    }
+                }
+
+                // Only apply if we found custom weights for matched keywords
+                if (weightedKeywords > 0) {
+                    score *= weightMultiplier;
+                    // Cap at 1.0 for normalized scoring
+                    score = Math.min(1.0, score);
+                }
+            }
 
             results.push({
                 ...chunk,
@@ -1379,16 +1402,49 @@ Diagnostics.registerCheck('query-embedding-cache', {
 });
 
 Diagnostics.registerCheck('chunk-embeddings-valid', {
-    name: 'Chunk Embeddings Valid',
-    description: 'Validates that chunk embeddings are properly formatted',
+    name: 'Chunk Embeddings Validation Logic',
+    description: 'Tests that the embedding validation function correctly identifies valid and invalid embeddings',
     category: 'EMBEDDINGS',
     checkFn: async () => {
-        // This check requires access to chunks, which we don't have here
-        // Will be called by search orchestrator before search
+        const { getExpectedDimension } = await import('./core-embeddings.js');
+        const dim = getExpectedDimension() || 384; // Default to 384 if unknown
+
+        // Test Case 1: Valid Chunk
+        const validChunk = {
+            hash: 'test_valid',
+            text: 'Valid text',
+            embedding: new Array(dim).fill(0.1)
+        };
+
+        const validResult = validateChunkEmbeddings([validChunk]);
+        if (!validResult.valid) {
+            return {
+                status: 'error',
+                message: 'Validation logic failed on valid chunk',
+                userMessage: 'The embedding validator incorrectly flagged a valid embedding as invalid.'
+            };
+        }
+
+        // Test Case 2: Invalid Chunks (Missing, Empty, Non-Array)
+        const invalidChunks = [
+            { hash: 'test_missing', text: 'Missing', embedding: null },
+            { hash: 'test_empty', text: 'Empty', embedding: [] },
+            { hash: 'test_string', text: 'String', embedding: "[0.1, 0.2]" }
+        ];
+
+        const invalidResult = validateChunkEmbeddings(invalidChunks);
+        if (invalidResult.valid || invalidResult.invalidChunks !== 3) {
+            return {
+                status: 'error',
+                message: `Validation logic failed to catch invalid chunks (caught ${invalidResult.invalidChunks}/3)`,
+                userMessage: 'The embedding validator failed to catch malformed embeddings.'
+            };
+        }
+
         return {
             status: 'pass',
-            message: 'Chunk embedding validation skipped',
-            userMessage: 'Chunk embeddings are validated during search operations.'
+            message: 'Embedding validation logic is correct',
+            userMessage: 'Chunk embedding validation functions are working correctly.'
         };
     }
 });

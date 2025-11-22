@@ -12,6 +12,26 @@
 
 import { logger } from './core-system.js';
 import { getRequestHeaders } from '../../../../script.js';
+import { extension_settings } from '../../../extensions.js';
+
+function getModelForSource(source) {
+    const s = extension_settings?.vectors;
+    if (!s) return '';
+    
+    switch (source) {
+        case 'openai': return s.openai_model;
+        case 'cohere': return s.cohere_model;
+        case 'ollama': return s.ollama_model;
+        case 'vllm': return s.vllm_model;
+        case 'togetherai': return s.togetherai_model;
+        case 'electronhub': return s.electronhub_model;
+        case 'openrouter': return s.openrouter_model;
+        case 'palm': 
+        case 'vertexai': return s.google_model;
+        case 'webllm': return s.webllm_model;
+        default: return '';
+    }
+}
 
 // Cache plugin availability check
 let pluginAvailable = null;
@@ -94,7 +114,8 @@ export async function queryWithVectors(collectionId, queryVector, topK = 10, thr
                 source,
                 queryVector,
                 topK,
-                threshold
+                threshold,
+                model: getModelForSource(source)
             })
         });
 
@@ -104,9 +125,9 @@ export async function queryWithVectors(collectionId, queryVector, topK = 10, thr
         }
 
         const data = await response.json();
-        logger.log(`[RAG:PLUGIN] Query returned ${data.count} results with vectors`);
+        logger.log(`[RAG:PLUGIN] Query returned ${data.count || data.length} results with vectors`);
 
-        return data.results;
+        return Array.isArray(data) ? data : data.results;
 
     } catch (error) {
         logger.error('[RAG:PLUGIN] Query failed:', error);
@@ -135,7 +156,8 @@ export async function listWithVectors(collectionId, source = 'palm') {
             headers: getRequestHeaders(),
             body: JSON.stringify({
                 collectionId,
-                source
+                source,
+                model: getModelForSource(source)
             })
         });
 
@@ -145,9 +167,9 @@ export async function listWithVectors(collectionId, source = 'palm') {
         }
 
         const data = await response.json();
-        logger.log(`[RAG:PLUGIN] Listed ${data.count} items with vectors`);
+        logger.log(`[RAG:PLUGIN] Listed ${data.length} items with vectors`);
 
-        return data.items;
+        return data;
 
     } catch (error) {
         logger.error('[RAG:PLUGIN] List failed:', error);
@@ -178,7 +200,8 @@ export async function getItemWithVector(collectionId, hash, source = 'palm') {
             body: JSON.stringify({
                 collectionId,
                 source,
-                hash
+                hash,
+                model: getModelForSource(source)
             })
         });
 

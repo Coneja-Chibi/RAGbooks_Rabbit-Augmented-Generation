@@ -2,7 +2,7 @@
  * Rabbit Augmented Generation - State Management
  *
  * WHY: Centralized state management ensures consistent data structure and
- * prevents the orphaned data / inconsistent structure issues of old RAGBooks.
+ * prevents the orphaned data / inconsistent structure issues of old VectHare.
  *
  * This module provides:
  * - Canonical state structure (defined once, used everywhere)
@@ -1882,7 +1882,7 @@ Diagnostics.registerCheck('dual-vector-settings-configured', {
                 userMessage: 'Dual-vector search is currently disabled. Enable it in settings to search both summaries and full text.',
                 fixes: [{
                     label: 'Enable Dual-Vector',
-                    description: 'Enable dual-vector search in RAGBooks settings',
+                    description: 'Enable dual-vector search in VectHare settings',
                     action: () => {
                         if (state && state.settings) {
                             state.settings.dualVector = true;
@@ -1905,10 +1905,10 @@ Diagnostics.registerCheck('dual-vector-settings-configured', {
 
 /**
  * Run production tests for dual-vector system
- * Call from console: await RAGBooks.runDualVectorTests()
+ * Call from console: await VectHare.runDualVectorTests()
  */
 State.runDualVectorTests = async function() {
-    console.group('🧪 RAGBooks Dual-Vector Production Tests');
+    console.group('🧪 VectHare Dual-Vector Production Tests');
 
     const tests = [];
     let passed = 0;
@@ -2473,11 +2473,11 @@ Diagnostics.registerCheck('chunk-groups-configured', {
 // ==================== COMPREHENSIVE PRODUCTION TEST SUITE ====================
 
 /**
- * Run all production tests for RAGBooks systems
- * Call from console: await RAGBooks.runAllTests()
+ * Run all production tests for VectHare systems
+ * Call from console: await VectHare.runAllTests()
  */
 State.runAllTests = async function() {
-    console.group('🧪 RAGBooks Comprehensive Production Tests');
+    console.group('🧪 VectHare Comprehensive Production Tests');
     console.log('Starting comprehensive test suite...\n');
 
     const allTests = [];
@@ -2979,7 +2979,7 @@ State.runAllTests = async function() {
     console.log('='.repeat(50));
 
     if (totalFailed === 0) {
-        console.log('🎉 All tests passed! RAGBooks is fully functional.');
+        console.log('🎉 All tests passed! VectHare is fully functional.');
     } else {
         console.warn(`⚠️ ${totalFailed} test(s) failed. Check logs above for details.`);
 
@@ -3002,8 +3002,8 @@ State.runAllTests = async function() {
 
 // Make tests accessible globally
 if (typeof window !== 'undefined') {
-    window.RAGBooksDualVectorTests = State.runDualVectorTests;
-    window.RAGBooksRunAllTests = State.runAllTests;
+    window.VectHareDualVectorTests = State.runDualVectorTests;
+    window.VectHareRunAllTests = State.runAllTests;
 }
 
 // =============================================================================
@@ -3133,45 +3133,159 @@ Diagnostics.registerCheck('production-test-vector-insert-query', {
             const dragonChunk = collection['test_chunk_basic'];
             const castleChunk = collection['test_chunk_grouped_1'];
 
-            // Prepare items for ST vector API
-            const items = [
-                { hash: getStringHash(dragonChunk.text), text: dragonChunk.text, index: 0 },
-                { hash: getStringHash(castleChunk.text), text: castleChunk.text, index: 1 }
-            ];
+                        // Prepare items for ST vector API
 
-            // Step 1: Insert into ST vector DB
-            const inserted = await insertTestVectors(collectionId, items);
-            if (!inserted) {
-                return {
-                    status: 'error',
-                    message: 'Failed to insert test vectors',
-                    userMessage: 'Could not insert test chunks into ST vector database. Ensure Vectors extension is enabled and configured.'
-                };
-            }
+                        // IMPORTANT: We must generate REAL embeddings for these items using the current provider
 
-            // Step 2: Verify insertion
-            const hashes = await listTestVectorHashes(collectionId);
-            if (hashes.length !== 2) {
-                await purgeTestCollection(collectionId);
-                return {
-                    status: 'error',
-                    message: `Expected 2 hashes, got ${hashes.length}`,
-                    userMessage: `Vector insertion incomplete: only ${hashes.length}/2 chunks saved.`
-                };
-            }
+                        // Otherwise we get dimension mismatches (384 vs 1536/3072)
 
-            // Step 3: Query with dragon-related text
-            const dragonQuery = 'Tell me about the dragon that guards the mountain';
-            const dragonResults = await queryTestVectors(collectionId, dragonQuery, 2, 0.1);
+                        const { getEmbeddingsBatch } = await import('./core-embeddings.js');
 
-            if (!dragonResults || dragonResults.hashes.length === 0) {
-                await purgeTestCollection(collectionId);
-                return {
-                    status: 'error',
-                    message: 'Dragon query returned no results',
-                    userMessage: 'Vector search failed to find dragon chunk. Semantic matching may be broken.'
-                };
-            }
+                        const texts = [dragonChunk.text, castleChunk.text];
+
+                        console.log('[Production Test] Generating real embeddings for test chunks...');
+
+                        const embeddings = await getEmbeddingsBatch(texts);
+
+            
+
+                        const items = [
+
+                            { hash: getStringHash(dragonChunk.text), text: dragonChunk.text, index: 0, vector: embeddings[0] },
+
+                            { hash: getStringHash(castleChunk.text), text: castleChunk.text, index: 1, vector: embeddings[1] }
+
+                        ];
+
+            
+
+                        // Step 1: Insert into ST vector DB
+
+                        // We use the internal insertVectorItems helper if available, or fallback to API
+
+                        // Since we have the vectors, we can try to inject them directly or let ST handle it
+
+                        // For this test, we'll use the standard insertion which usually handles embedding generation server-side
+
+                        // BUT since we want to be sure about dimensions, we should use the vectors we just generated if possible.
+
+                        // However, ST's /api/vector/insert endpoint typically generates embeddings itself unless we use a custom source.
+
+                        // To match "production" behavior, we should let ST generate the embeddings on insert to ensure
+
+                        // the insert path matches the query path.
+
+                        
+
+                        // REVISION: The error "Document has embedding length 384, but query has length 3072" happens because
+
+                        // the test fixture has HARDCODED 384-dim embeddings.
+
+                        // By sending just the text to /api/vector/insert, ST will generate the correct embeddings using the active provider.
+
+                        // We just need to ensure we DO NOT send the hardcoded 'embedding' field from the fixture.
+
+                        
+
+                        const cleanItems = items.map(item => ({
+
+                            hash: item.hash,
+
+                            text: item.text,
+
+                            index: item.index
+
+                            // deliberately omitting 'vector' or 'embedding' to force ST to generate fresh ones matching current provider
+
+                        }));
+
+            
+
+                        const inserted = await insertTestVectors(collectionId, cleanItems);
+
+                        
+
+                        // Wait for indexing (crucial for some providers)
+
+                        await new Promise(r => setTimeout(r, 2000));
+
+            
+
+                        if (!inserted) {
+
+                            return {
+
+                                status: 'error',
+
+                                message: 'Failed to insert test vectors',
+
+                                userMessage: 'Could not insert test chunks into ST vector database. Ensure Vectors extension is enabled and configured.'
+
+                            };
+
+                        }
+
+            
+
+                        // Step 2: Verify insertion
+
+                        const hashes = await listTestVectorHashes(collectionId);
+
+                        if (hashes.length !== 2) {
+
+                            await purgeTestCollection(collectionId);
+
+                            return {
+
+                                status: 'error',
+
+                                message: `Expected 2 hashes, got ${hashes.length}`,
+
+                                userMessage: `Vector insertion incomplete: only ${hashes.length}/2 chunks saved. Check server logs for embedding errors.`
+
+                            };
+
+                        }
+
+            
+
+                        // Step 3: Query with dragon-related text
+
+                        const dragonQuery = 'Tell me about the dragon that guards the mountain';
+
+                        
+
+                        // Retry logic for slow providers
+
+                        let dragonResults = null;
+
+                        for (let attempt = 0; attempt < 3; attempt++) {
+
+                            dragonResults = await queryTestVectors(collectionId, dragonQuery, 2, 0.1);
+
+                            if (dragonResults && dragonResults.hashes.length > 0) break;
+
+                            await new Promise(r => setTimeout(r, 1000)); // Wait 1s between retries
+
+                        }
+
+            
+
+                        if (!dragonResults || dragonResults.hashes.length === 0) {
+
+                            await purgeTestCollection(collectionId);
+
+                            return {
+
+                                status: 'error',
+
+                                message: 'Dragon query returned no results',
+
+                                userMessage: 'Vector search failed to find dragon chunk. Semantic matching may be broken or provider is timing out.'
+
+                            };
+
+                        }
 
             // Verify dragon chunk is top result
             const topResult = dragonResults.metadata[0];
@@ -3230,32 +3344,65 @@ Diagnostics.registerCheck('production-test-semantic-relevance', {
                 collection['test_chunk_low_importance'] // Tavern
             ];
 
-            // Insert into ST's vector DB for embedding generation
-            const items = testChunks.map((chunk, i) => ({
-                hash: getStringHash(chunk.text),
-                text: chunk.text,
-                index: i
-            }));
-
-            await insertTestVectors(collectionId, items);
-
-            // Query ST to get embeddings, then build chunks for our search
-            const allResults = await queryTestVectors(collectionId, 'test', 10, 0.0);
-
-            // Build chunks with the text and keywords from test fixtures
-            const chunksWithKeywords = testChunks.map((chunk, i) => ({
-                ...chunk,
-                hash: getStringHash(chunk.text),
-                collectionId: collectionId
-            }));
-
-            // Check if plugin is available for vector search
-            const { isPluginAvailable } = await import('./plugin-vector-api.js');
-            const pluginAvailable = await isPluginAvailable();
-
-            // Use hybrid if plugin available, otherwise keyword-only
-            const searchMode = pluginAvailable ? 'hybrid' : 'keyword';
-
+                        // Insert into ST's vector DB for embedding generation
+                        // CRITICAL: Do NOT send the hardcoded embeddings from the test fixture (which are 384-dim).
+                        // We send ONLY text, forcing ST/Provider to generate new embeddings with the correct dimensions (e.g. 1536, 3072, etc.)
+                        const items = testChunks.map((chunk, i) => ({
+                            hash: getStringHash(chunk.text),
+                            text: chunk.text,
+                            index: i
+                        }));
+            
+                        await insertTestVectors(collectionId, items);
+                        
+                        // Wait for indexing
+                        await new Promise(r => setTimeout(r, 2000));
+            
+                        // Query ST to get embeddings, then build chunks for our search
+                        // We query to "warm up" the collection and potentially get the vectors back if needed
+                        const allResults = await queryTestVectors(collectionId, 'test', 10, 0.0);
+                        
+                        // If using hybrid/local search, we need the ACTUAL vectors for these chunks to run cosine similarity locally.
+                        // Since we let ST generate them, we must now retrieve them.
+                        const { listWithVectors } = await import('./plugin-vector-api.js');
+                        const { isPluginAvailable } = await import('./plugin-vector-api.js');
+                        const pluginAvailable = await isPluginAvailable();
+                        
+                        // Hydrate chunks with real vectors if plugin is available
+                        let realVectorsMap = new Map();
+                        if (pluginAvailable) {
+                            try {
+                                // Use the correct source from settings
+                                const vectorSettings = extension_settings?.vectors;
+                                const source = vectorSettings?.source || 'transformers';
+                                const serverItems = await listWithVectors(collectionId, source);
+                                if (Array.isArray(serverItems)) {
+                                    serverItems.forEach(item => {
+                                        if (item.vector) realVectorsMap.set(item.hash, item.vector);
+                                    });
+                                }
+                            } catch (e) {
+                                console.warn('Failed to retrieve real vectors for test:', e);
+                            }
+                        }
+            
+                        // Build chunks with the text and keywords from test fixtures
+                        // AND the real embeddings we just generated/retrieved
+                        const chunksWithKeywords = testChunks.map((chunk, i) => {
+                            const hash = getStringHash(chunk.text);
+                            return {
+                                ...chunk,
+                                hash: hash,
+                                collectionId: collectionId,
+                                // Use real vector if available, otherwise undefined (will force keyword-only fallback)
+                                embedding: realVectorsMap.get(hash) || undefined 
+                            };
+                        });
+            
+                        // Use hybrid if plugin available AND we successfully got vectors
+                        // Otherwise fall back to keyword-only to prevent dimension mismatch errors in local math
+                        const searchMode = (pluginAvailable && realVectorsMap.size > 0) ? 'hybrid' : 'keyword';
+                        console.log(`[Production Test] Running search test in '${searchMode}' mode`);
             // Test 1: Query about magic should return fire magic chunk
             const magicSearchResult = await search(
                 'wizard fire magic spells volcanic',
@@ -3719,7 +3866,7 @@ Diagnostics.registerCheck('production-test-disabled-filtering', {
 
             await purgeTestCollection(collectionId);
 
-            // The vector DB returns both, but RAGBooks should filter disabled
+            // The vector DB returns both, but VectHare should filter disabled
             // Here we're testing that the disabled flag is correctly set
             if (disabledChunk.disabled !== true) {
                 return {

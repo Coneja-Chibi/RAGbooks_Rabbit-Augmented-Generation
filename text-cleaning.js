@@ -1,5 +1,5 @@
 /**
- * RAGBooks Text Cleaning Module
+ * VectHare Text Cleaning Module
  *
  * Provides HTML/code scrubbing functionality with multiple cleaning modes
  * and user-customizable regex patterns.
@@ -250,6 +250,14 @@ export const CLEANING_PATTERNS = {
  * @returns {string} Cleaned text
  */
 export function cleanText(text, mode, customPatterns = []) {
+    if (typeof text !== 'string') {
+        if (text === null || text === undefined) {
+            return '';
+        }
+        // Attempt to convert to string if it's a number or object
+        text = String(text);
+    }
+
     if (mode === CLEANING_MODES.NONE || !text) {
         return text;
     }
@@ -263,18 +271,20 @@ export function cleanText(text, mode, customPatterns = []) {
             const regex = new RegExp(pattern, flags);
             cleaned = cleaned.replace(regex, replacement);
         } catch (error) {
-            console.warn(`[RAGBooks TextCleaning] Failed to apply preset pattern: ${pattern}`, error);
+            console.warn(`[VectHare TextCleaning] Failed to apply preset pattern: ${pattern}`, error);
         }
     }
 
     // Apply user's custom patterns
-    for (const customPattern of customPatterns) {
-        if (customPattern.enabled !== false) {
-            try {
-                const regex = new RegExp(customPattern.pattern, customPattern.flags || 'g');
-                cleaned = cleaned.replace(regex, customPattern.replacement || '');
-            } catch (error) {
-                console.warn(`[RAGBooks TextCleaning] Failed to apply custom pattern: ${customPattern.name}`, error);
+    if (Array.isArray(customPatterns)) {
+        for (const customPattern of customPatterns) {
+            if (customPattern && customPattern.enabled !== false && customPattern.pattern) {
+                try {
+                    const regex = new RegExp(customPattern.pattern, customPattern.flags || 'g');
+                    cleaned = cleaned.replace(regex, customPattern.replacement || '');
+                } catch (error) {
+                    console.warn(`[VectHare TextCleaning] Failed to apply custom pattern: ${customPattern.name || 'Unknown'}`, error);
+                }
             }
         }
     }

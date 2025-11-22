@@ -9,9 +9,9 @@ try {
     // Dynamic import of expressions extension (may not be available)
     const module = await import('../../expressions/index.js');
     expressionsExtension = module;
-    console.log('✅ [RAGBooks Conditions] Character Expressions extension loaded for emotion detection');
+    console.log('✅ [VectHare Conditions] Character Expressions extension loaded for emotion detection');
 } catch (e) {
-    console.log('ℹ️ [RAGBooks Conditions] Character Expressions extension not available, using keyword-based emotion detection');
+    console.log('ℹ️ [VectHare Conditions] Character Expressions extension not available, using keyword-based emotion detection');
 }
 
 // Enhanced emotion keywords - expanded to include all expressions extension terminology

@@ -1,4 +1,4 @@
-# 📚 RAGBooks
+# 📚 VectHare
 
 ![Active Development](https://img.shields.io/badge/status-active-success)
 ![SillyTavern Extension](https://img.shields.io/badge/SillyTavern-extension-blue)
@@ -9,7 +9,7 @@
 
 ## What It Does
 
-**Complete and total vectorization/databank overhaul.** RAGBooks uses semantic search to find and inject **only the relevant chunks** based on your conversation. Vectorize anything. Lorebooks, character cards, past conversations, web pages, wikis. Let RAG handle smart context injection.
+**Complete and total vectorization/databank overhaul.** VectHare uses semantic search to find and inject **only the relevant chunks** based on your conversation. Vectorize anything. Lorebooks, character cards, past conversations, web pages, wikis. Let RAG handle smart context injection.
 
 Save **80-90% of your context** while keeping full access to your lore.
 
@@ -57,7 +57,7 @@ Refresh.
 
 ### 2️⃣ **Configure Vectors Extension**
 
-RAGBooks uses SillyTavern's built-in Vectors extension:
+VectHare uses SillyTavern's built-in Vectors extension:
 
 1. Go to **Extensions** > **Vector Storage**
 2. Select embedding provider (OpenAI, transformers, Ollama, etc.)
@@ -66,10 +66,10 @@ RAGBooks uses SillyTavern's built-in Vectors extension:
 
 **Supported Providers:** transformers (local), OpenAI, Mistral, Cohere, Nomic, Together, Ollama, llama.cpp, KoboldCpp, vLLM, and more.
 
-### 3️⃣ **Enable RAGBooks**
+### 3️⃣ **Enable VectHare**
 
-1. Open **Extensions** > **RAGBooks**
-2. Toggle **Enable RAGBooks** ON
+1. Open **Extensions** > **VectHare**
+2. Toggle **Enable VectHare** ON
 3. Configure settings:
    - **Top-K**: How many chunks to inject (default: 3)
    - **Threshold**: Minimum similarity score (default: 0.15)
@@ -84,7 +84,7 @@ RAGBooks uses SillyTavern's built-in Vectors extension:
 
 ### 5️⃣ **Chat Normally**
 
-RAGBooks runs in the background—no manual triggers needed.
+VectHare runs in the background—no manual triggers needed.
 
 ---
 
@@ -184,7 +184,7 @@ Each scene stores:
 ## 🛠️ Settings
 
 ### Global Settings
-- **Enable RAGBooks**: Master toggle
+- **Enable VectHare**: Master toggle
 - **Orange Accent Mode**: Orange UI vs theme colors
 - **Top-K**: Chunks per message (1-10, default: 3)
 - **Threshold**: Min similarity (0-1, default: 0.15)

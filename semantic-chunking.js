@@ -1,5 +1,5 @@
 /**
- * RAGBooks Semantic Chunking Module
+ * VectHare Semantic Chunking Module
  *
  * Implements AI-powered semantic chunking using embeddings to detect topic shifts.
  * Uses cosine similarity between consecutive sentences to identify natural boundaries.
@@ -67,7 +67,7 @@ export function cosineSimilarity(vec1, vec2) {
     }
 
     if (vec1.length !== vec2.length) {
-        console.warn('[RAGBooks Semantic] Vector length mismatch:', vec1.length, 'vs', vec2.length);
+        console.warn('[VectHare Semantic] Vector length mismatch:', vec1.length, 'vs', vec2.length);
         return 0;
     }
 
@@ -113,7 +113,7 @@ async function getBatchEmbeddings(texts, progressCallback = null) {
  * For now, falls back to simple sentence-based chunking
  */
 export async function semanticChunkText(text, options = {}) {
-    console.warn('[RAGBooks Semantic] Semantic chunking is disabled - falling back to sentence grouping');
+    console.warn('[VectHare Semantic] Semantic chunking is disabled - falling back to sentence grouping');
 
     // Fallback: Group sentences by size instead of semantic similarity
     const config = {
@@ -246,7 +246,7 @@ export function slidingWindowChunk(text, options = {}) {
         }
     }
 
-    console.log(`[RAGBooks Sliding Window] Created ${chunks.length} chunks (${config.windowSize} chars, ${config.overlapPercent}% overlap)`);
+    console.log(`[VectHare Sliding Window] Created ${chunks.length} chunks (${config.windowSize} chars, ${config.overlapPercent}% overlap)`);
 
     return chunks;
 }

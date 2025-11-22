@@ -1,5 +1,5 @@
 /* ==========================================================================
-   RAGBooks Native UI Theme (Based on Carrot Kernel)
+   VectHare Native UI Theme (Based on Carrot Kernel)
    ========================================================================== */
 
 /* Chunk Card Overrides */
@@ -80,7 +80,7 @@
     border-left-color: #ef4444; /* Red for NOT */
 }
 
-/* Select2 Dark Mode Fixes - Scoped to RAGBooks Modal */
+/* Select2 Dark Mode Fixes - Scoped to VectHare Modal */
 #ragbooks_chunk_viewer_modal .select2-container--default .select2-selection--multiple {
     background-color: var(--SmartThemeInputBackground) !important;
     border: 1px solid var(--SmartThemeBorderColor) !important;

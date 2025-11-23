@@ -1921,6 +1921,28 @@ input[type="file"]#ragbooks_doc_file {
     white-space: nowrap;
 }
 
+.ragbooks-active-context {
+    border-color: var(--ragbooks-success) !important;
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.3),
+                inset 0 0 20px rgba(16, 185, 129, 0.05) !important;
+    position: relative;
+}
+
+.ragbooks-active-context::after {
+    content: 'CURRENT CONTEXT';
+    position: absolute;
+    top: 0;
+    right: 20px;
+    background: var(--ragbooks-success);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-bottom-left-radius: 6px;
+    border-bottom-right-radius: 6px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
 /* Scope Filter Buttons */
 .ragbooks-scope-filter {
     display: flex;

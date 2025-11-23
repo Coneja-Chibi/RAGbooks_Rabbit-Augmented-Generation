@@ -1093,9 +1093,8 @@ async function apiGetSavedHashes(collectionId) {
 async function apiInsertVectorItems(collectionId, items) {
     ensureVectorConfig();
 
-    // LAYER 2 VALIDATION: Final client-side check before network request
-    // This is a safety net in case chunks were modified after initial filtering
-    // Prevents unnecessary server round-trips for invalid data
+    // LAYER 2 VALIDATION: Pre-API safety check
+    // Filter out items with empty text BEFORE they reach the API
     const validItems = items.filter(item => item.text && item.text.trim().length > 0);
 
     if (validItems.length === 0) {
@@ -1107,35 +1106,61 @@ async function apiInsertVectorItems(collectionId, items) {
         console.warn(`[VectHare] Filtered ${items.length - validItems.length} items with empty text in apiInsertVectorItems`);
     }
 
-    const args = await getAdditionalVectorArgs(validItems.map(item => item.text));
-    const body = {
-        ...getVectorsRequestBody(args),
-        collectionId: collectionId,
-        items: validItems.map(item => ({
-            hash: item.hash,
-            text: item.text,
-            index: item.index,
-        })),
-        source: getVectorSettings().source,
-    };
-    debugLog('[API] apiInsertVectorItems request body:', body); // ADDED
+    // BATCHING: Split into smaller chunks to avoid 500 Payload Too Large errors
+    const BATCH_SIZE = 50;
+    const totalBatches = Math.ceil(validItems.length / BATCH_SIZE);
+    const source = getVectorSettings().source;
 
-    // LAYER 3 VALIDATION: Server-side safety net (vectors.js:465-476)
-    // The server will apply its own filtering as a final protection layer
-    // This ensures consistency across all extensions using /api/vector/insert
-    const response = await fetch('/api/vector/insert', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        credentials: 'same-origin',
-        body: JSON.stringify(body), // MODIFIED
-    });
+    console.log(`[VectHare] Inserting ${validItems.length} items in ${totalBatches} batches...`);
 
-    if (!response.ok) {
-        const errorText = await response.text(); // ADDED
-        debugLog('[API] apiInsertVectorItems ERROR:', { status: response.status, text: errorText }); // ADDED
-        throw new Error(`Failed to insert vector items for collection ${collectionId}. Status: ${response.status}. Message: ${errorText}`); // MODIFIED
+    for (let i = 0; i < totalBatches; i++) {
+        const batch = validItems.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
+        const args = await getAdditionalVectorArgs(batch.map(item => item.text));
+        
+        const body = {
+            ...getVectorsRequestBody(args),
+            collectionId: collectionId,
+            items: batch.map(item => ({
+                hash: item.hash,
+                text: item.text,
+                index: item.index,
+            })),
+            source: source,
+        };
+
+        // Retry logic for robustness
+        let retries = 3;
+        while (retries > 0) {
+            try {
+                const response = await fetch('/api/vector/insert', {
+                    method: 'POST',
+                    headers: getRequestHeaders(),
+                    credentials: 'same-origin',
+                    body: JSON.stringify(body),
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Batch ${i + 1}/${totalBatches} failed: ${response.status} ${errorText}`);
+                }
+                
+                // Success - break retry loop
+                break;
+            } catch (error) {
+                retries--;
+                console.warn(`[VectHare] Batch ${i + 1} failed, retries left: ${retries}`, error);
+                if (retries === 0) throw error;
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
+            }
+        }
+        
+        // Small delay between batches to be nice to server
+        if (i < totalBatches - 1) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
     }
-    debugLog('[API] apiInsertVectorItems SUCCESS'); // ADDED
+
+    debugLog('[API] apiInsertVectorItems SUCCESS (All batches)');
 }
 
 /**
@@ -1341,7 +1366,38 @@ function getChunksFromLibrary(collectionId) {
         return allLibraries.chat[collectionId];
     }
 
-    console.warn('[getChunksFromLibrary] No chunks found for collection:', collectionId);
+    console.warn('[getChunksFromLibrary] No chunks found in contextual scope for:', collectionId);
+
+    // FALLBACK: Search ALL libraries regardless of context
+    // This fixes the visualizer when viewing a collection from a different scope
+    // ragState is already declared at the top of the function
+    
+    // Check global
+    if (ragState.libraries?.global?.[collectionId]) {
+        console.log('[getChunksFromLibrary] Found in global (fallback)');
+        return ragState.libraries.global[collectionId];
+    }
+
+    // Check all characters
+    if (ragState.libraries?.character) {
+        for (const charId in ragState.libraries.character) {
+            if (ragState.libraries.character[charId]?.[collectionId]) {
+                console.log(`[getChunksFromLibrary] Found in character[${charId}] (fallback)`);
+                return ragState.libraries.character[charId][collectionId];
+            }
+        }
+    }
+
+    // Check all chats
+    if (ragState.libraries?.chat) {
+        for (const chatId in ragState.libraries.chat) {
+            if (ragState.libraries.chat[chatId]?.[collectionId]) {
+                console.log(`[getChunksFromLibrary] Found in chat[${chatId}] (fallback)`);
+                return ragState.libraries.chat[chatId][collectionId];
+            }
+        }
+    }
+
     return null;
 }
 
@@ -4173,7 +4229,8 @@ async function parseChatHistory(options = {}, progressCallback = null, abortSign
     let messageIndex = 0;
     const totalMessages = messages.length;
 
-    if (config.chunkingStrategy === CHUNKING_STRATEGIES.BY_SPEAKER || config.chunkingStrategy === CHUNKING_STRATEGIES.NATURAL) {
+    if (['by_speaker', 'natural'].includes(config.chunkingStrategy)) {
+        console.log('[VectHare Debug] Entering BY_SPEAKER/NATURAL chunking block');
         // Group consecutive messages by the same speaker
         let currentSpeaker = null;
         let currentGroup = [];
@@ -6997,29 +7054,80 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {},
 
         console.log(`📍 [Vectorization] Determined scope: ${scope} (identifier: ${scopeIdentifier})`);
 
-        // TRANSACTION: Insert vectors and save to library atomically with rollback on failure
-        const insertedHashes = validChunks.map(c => c.hash);
-        try {
-            await apiInsertVectorItems(collectionId, items);
+        // SMART UPDATE: Diff against existing chunks to avoid full re-vectorization
+        updateProgressMessageText('Analyzing changes...');
+        
+        // Get existing library state to preserve metadata
+        const oldLibrary = getChunksFromLibrary(collectionId) || {};
+        const newHashes = new Set();
+        const chunksToVectorize = [];
+        
+        // 1. Analyze new chunks & preserve metadata from old ones
+        for (const chunk of validChunks) {
+            const hash = chunk.hash; // Should already be set by parser
+            newHashes.add(hash);
 
-            // If vector insertion succeeded, save to library
-            try {
-                await saveChunksToLibrary(collectionId, validChunks, scope);
-            } catch (librarySaveError) {
-                console.error('❌ Library save failed after vector insertion - rolling back vectors');
-                // Rollback: Delete the vectors we just inserted
-                try {
-                    await apiDeleteVectorHashes(collectionId, insertedHashes);
-                    console.log('✅ Rollback complete - vectors deleted');
-                } catch (rollbackError) {
-                    console.error('⚠️  Rollback failed - vectors may be orphaned:', rollbackError);
+            if (oldLibrary[hash]) {
+                // Existing chunk! Preserve user customizations
+                const oldChunk = oldLibrary[hash];
+                
+                chunk.customKeywords = oldChunk.customKeywords || [];
+                chunk.customWeights = oldChunk.customWeights || {};
+                chunk.disabledKeywords = oldChunk.disabledKeywords || [];
+                chunk.chunkLinks = oldChunk.chunkLinks || [];
+                chunk.inclusionGroup = oldChunk.inclusionGroup || '';
+                chunk.inclusionPrioritize = oldChunk.inclusionPrioritize || false;
+                chunk.disabled = oldChunk.disabled || false;
+                if (oldChunk.importance !== 100) chunk.importance = oldChunk.importance;
+                chunk.conditions = oldChunk.conditions || chunk.conditions;
+                chunk.chunkGroup = oldChunk.chunkGroup || chunk.chunkGroup;
+                
+                // Preserve summary vectors if text hasn't changed
+                if (oldChunk.summaryVectors && oldChunk.summaryVectors.length > 0) {
+                    chunk.summaryVectors = oldChunk.summaryVectors;
+                    chunk.summaryVector = oldChunk.summaryVector;
                 }
-                // Re-throw the original error
-                throw new Error(`Library save failed: ${librarySaveError.message}. Vectors were rolled back.`);
+            } else {
+                // New chunk - needs vectorization
+                chunksToVectorize.push(chunk);
             }
-        } catch (vectorInsertError) {
-            console.error('❌ Vector insertion failed - no rollback needed');
-            throw vectorInsertError;
+        }
+
+        // 2. Identify deleted chunks (in old library but not in new set)
+        // Filter out both string and number keys
+        const hashesToDelete = Object.keys(oldLibrary).filter(h => !newHashes.has(parseInt(h)) && !newHashes.has(h));
+
+        try {
+            // 3. Delete obsolete vectors
+            if (hashesToDelete.length > 0) {
+                updateProgressMessageText(`Removing ${hashesToDelete.length} obsolete chunks...`);
+                await apiDeleteVectorHashes(collectionId, hashesToDelete);
+                console.log(`[SmartUpdate] Deleted ${hashesToDelete.length} obsolete vectors`);
+            }
+
+            // 4. Insert new vectors
+            if (chunksToVectorize.length > 0) {
+                updateProgressMessageText(`Vectorizing ${chunksToVectorize.length} new chunks...`);
+                // Prepare items for API
+                const itemsToInsert = chunksToVectorize.map(chunk => ({
+                    text: chunk.text,
+                    hash: chunk.hash,
+                    metadata: chunk.metadata
+                }));
+                await apiInsertVectorItems(collectionId, itemsToInsert);
+                console.log(`[SmartUpdate] Inserted ${chunksToVectorize.length} new vectors`);
+            } else {
+                updateProgressMessageText('Vectors up to date.');
+                console.log('[SmartUpdate] No new vectors needed');
+            }
+
+            // 5. Save updated state to library
+            // validChunks now contains the merged state (new text + preserved metadata)
+            await saveChunksToLibrary(collectionId, validChunks, scope);
+
+        } catch (error) {
+            console.error('❌ Smart update failed:', error);
+            throw new Error(`Update failed: ${error.message}`);
         }
 
         // Brief pause to show saving step completed
@@ -7053,25 +7161,10 @@ async function vectorizeContentSource(sourceType, sourceName, sourceConfig = {},
 
         // Initialize collection metadata for activation triggers (like lorebook triggers)
         if (!ragState.collectionMetadata[collectionId]) {
-            // Set default activation triggers based on source type and name
-            const defaultTriggers = [];
-
-            // Add source name as default trigger
-            if (sourceName) {
-                defaultTriggers.push(sourceName);
-            }
-
-            // For character sources, add character name
-            if (sourceType === CONTENT_SOURCES.CHARACTER && sourceConfig.characterName) {
-                if (!defaultTriggers.includes(sourceConfig.characterName)) {
-                    defaultTriggers.push(sourceConfig.characterName);
-                }
-            }
-
             let alwaysActive = true; // All collections default to always active
 
             ragState.collectionMetadata[collectionId] = {
-                keywords: defaultTriggers, // Activation triggers (determines IF collection activates)
+                keywords: [], // Start with NO triggers (user must add them manually if needed)
                 alwaysActive: alwaysActive, // If true, ignores triggers and always queries this collection
                 conditions: null, // Conditional activation rules (user can add via editor)
                 scope: scope, // 'global', 'character', or 'chat'
@@ -7771,18 +7864,47 @@ function renderCollections() {
     const collectionsContainer = $('#ragbooks_collections');
     const emptyState = $('#ragbooks_empty_state');
 
-    // Get scoped sources (includes global + character + chat for current context)
-    let scopedSources = getScopedSources();
-
-    // Get filter state (default: 'all')
     const ragState = ensureRagState();
     const scopeFilter = ragState.scopeFilter || 'all';
 
-    // Apply scope filter if not 'all'
+    // Aggregate ALL sources from storage for the management UI
+    // We want to manage ALL collections, not just the ones active in the current chat
+    let allSources = {};
+    
+    // 1. Add Global
+    if (ragState.scopedSources?.global) {
+        Object.assign(allSources, ragState.scopedSources.global);
+    }
+
+    // 2. Add All Characters
+    if (ragState.scopedSources?.character) {
+        for (const charId in ragState.scopedSources.character) {
+            Object.assign(allSources, ragState.scopedSources.character[charId]);
+        }
+    }
+
+    // 3. Add All Chats
+    if (ragState.scopedSources?.chat) {
+        for (const chatId in ragState.scopedSources.chat) {
+            Object.assign(allSources, ragState.scopedSources.chat[chatId]);
+        }
+    }
+
+    // 4. Add Legacy Flat Sources (if any)
+    if (ragState.sources) {
+        for (const id in ragState.sources) {
+            if (!allSources[id]) allSources[id] = ragState.sources[id];
+        }
+    }
+
+    let scopedSources = allSources;
+
+    // Apply scope filter
     if (scopeFilter !== 'all') {
         const metadata = ragState.collectionMetadata || {};
         scopedSources = Object.fromEntries(
-            Object.entries(scopedSources).filter(([collectionId]) => {
+            Object.entries(allSources).filter(([collectionId]) => {
+                // If metadata missing, assume global or infer from ID/type
                 const scope = metadata[collectionId]?.scope || 'global';
                 return scope === scopeFilter;
             })
@@ -7800,9 +7922,28 @@ function renderCollections() {
     // Clear existing cards
     collectionsContainer.find('.ragbooks-source-card').remove();
 
+    // Get currently active collections for context highlighting
+    const activeContextSources = getScopedSources();
+    
+    // Sort sources: Active context first, then by date
+    const sortedSources = Object.entries(scopedSources).sort((a, b) => {
+        const [idA, dataA] = a;
+        const [idB, dataB] = b;
+        
+        const activeA = !!activeContextSources[idA];
+        const activeB = !!activeContextSources[idB];
+        
+        if (activeA && !activeB) return -1;
+        if (!activeA && activeB) return 1;
+        
+        // Secondary sort by date
+        return (dataB.lastVectorized || 0) - (dataA.lastVectorized || 0);
+    });
+
     // Render each collection
-    for (const [collectionId, sourceData] of Object.entries(scopedSources)) {
-        const card = createCollectionCard(collectionId, sourceData);
+    for (const [collectionId, sourceData] of sortedSources) {
+        const isActive = !!activeContextSources[collectionId];
+        const card = createCollectionCard(collectionId, sourceData, isActive);
         collectionsContainer.append(card);
     }
 }
@@ -7810,7 +7951,7 @@ function renderCollections() {
 /**
  * Create a collection card HTML element matching CarrotKernel style
  */
-function createCollectionCard(collectionId, sourceData) {
+function createCollectionCard(collectionId, sourceData, isActive = false) {
     // Map source type to icon
     const typeIcons = {
         lorebook: '📚',
@@ -9887,18 +10028,7 @@ function generateConditionRowHTML(hash, rule, idx) {
     `;
 }
 
-function refreshConditionsList(hash, chunk) {
-    // Try both class names - static HTML uses .rag-conditions-list, dynamic panel uses .ragbooks-conditions-list
-    let $list = $(`.ragbooks-conditions-list[data-hash="${hash}"]`);
-    if (!$list.length) {
-        $list = $(`.rag-conditions-list[data-hash="${hash}"]`);
-    }
-    console.log('[VectHare DEBUG] refreshConditionsList - list found:', $list.length, 'for hash:', hash);
-    $list.empty();
-    (chunk.conditions?.rules || []).forEach((rule, idx) => {
-        $list.append(generateConditionRowHTML(hash, rule, idx));
-    });
-}
+
 
 // ========================================================================
 // SCENE TAB RENDERING
@@ -13857,6 +13987,24 @@ function cancelInlineForm() {
 // ============================================================================
 // EXTENSION INITIALIZATION
 // ============================================================================
+
+/**
+ * Refresh the conditions list for a chunk
+ */
+function refreshConditionsList(hash, chunk) {
+    const listContainer = $(`.ragbooks-conditions-list[data-hash="${hash}"]`);
+    if (listContainer.length) {
+        listContainer.html(renderConditionsList(chunk.conditions?.rules || []));
+    }
+    
+    // Re-bind handlers for the refreshed list
+    const $conditionsPanel = $(`.ragbooks-conditions-panel[data-hash="${hash}"]`);
+    if (chunk.conditions?.rules) {
+        chunk.conditions.rules.forEach((rule, idx) => {
+            bindChunkConditionSettingsHandlers($conditionsPanel, hash, idx);
+        });
+    }
+}
 
 /**
  * Load and apply VectHare settings to UI

@@ -292,7 +292,7 @@ async function callVectorAPI(text, provider, retries = 3) {
                 return data.embedding;
             } else {
                 // Standard ST - no client-side embedding API
-                throw new Error('vecthare plugin not available. Install plugin for client-side embedding generation.');
+                throw new Error('VectHare server plugin not detected. Ensure "enableServerPlugins: true" is set in config.yaml and the plugin is installed in /plugins/vecthare.');
             }
 
         } catch (error) {

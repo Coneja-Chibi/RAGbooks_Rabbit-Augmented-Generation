@@ -67,9 +67,10 @@ export async function isPluginAvailable() {
                 return true;
             } else if (response.status === 404) {
                 pluginAvailable = false;
-                logger.warn('⚠️ [RAG:PLUGIN] vecthare plugin NOT installed');
-                logger.warn('⚠️ [RAG:PLUGIN] Install plugin for client-side similarity with Cosine/Jaccard/Hamming');
-                logger.warn('⚠️ [RAG:PLUGIN] Falling back to keyword-only search');
+                logger.warn('⚠️ [RAG:PLUGIN] VectHare server plugin NOT detected (404)');
+                logger.warn('ℹ️  Troubleshooting Step 1: Ensure "enableServerPlugins: true" is set in your config.yaml');
+                logger.warn('ℹ️  Troubleshooting Step 2: Ensure the "vecthare" folder exists in your /plugins directory');
+                logger.warn('⚠️ [RAG:PLUGIN] Falling back to keyword-only search (if supported) or failing.');
                 return false;
             } else {
                 // Unexpected status - assume not available

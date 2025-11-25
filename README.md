@@ -38,7 +38,15 @@ SillyTavern/plugins/similharity/
 └── README.md
 ```
 
-### 3. Restart SillyTavern
+### 3. Install Dependencies
+
+Open a terminal in the plugin folder and run:
+```bash
+cd SillyTavern/plugins/similharity
+npm install
+```
+
+### 4. Restart SillyTavern
 
 Check console for:
 ```

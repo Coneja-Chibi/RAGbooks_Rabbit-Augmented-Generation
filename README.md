@@ -28,9 +28,14 @@ enableServerPlugins: true
 
 ### 2. Install Plugin
 
-Place the `similharity` folder in:
+Download this branch and extract/place the contents so the structure is:
 ```
 SillyTavern/plugins/similharity/
+├── index.js
+├── package.json
+├── lancedb-backend.js
+├── qdrant-backend.js
+└── README.md
 ```
 
 ### 3. Restart SillyTavern

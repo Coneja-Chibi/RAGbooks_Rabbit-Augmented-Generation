@@ -2,7 +2,7 @@
 
 **Version 2.0.0**
 
-Server-side plugin for [Similharity](https://github.com/Conejachibi/VectHare) extension that provides enhanced vector database backends and full metadata storage capabilities.
+Server-side plugin for [the VectHare](https://github.com/Conejachibi/VectHare) extension that provides enhanced vector database backends and full metadata storage capabilities.
 
 ---
 

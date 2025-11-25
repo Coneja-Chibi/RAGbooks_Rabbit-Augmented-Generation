@@ -1,578 +1,476 @@
-<link rel="stylesheet" href="style.css">
-
-<div id="ragbooks_settings" class="ragbooks-extension-settings">
+<div class="vecthare_settings">
     <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b>📚 VectHare</b>
+            <b data-i18n="Vector Storage">Vector Storage</b>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-
-            <!-- Global RAG Settings Card -->
-            <div class="ragbooks-card">
-                <div class="ragbooks-card-header">
-                    <h3>⚙️ Global RAG Settings</h3>
-                    <p class="ragbooks-card-subtitle">Configure retrieval and injection behavior</p>
+            <div class="flex-container flexFlowColumn">
+                <label for="vecthare_source" data-i18n="Vectorization Source">
+                    Vectorization Source
+                </label>
+                <select id="vecthare_source" class="text_pole">
+                    <option value="cohere">Cohere</option>
+                    <option value="electronhub">Electron Hub</option>
+                    <option value="extras">Extras (deprecated)</option>
+                    <option value="palm">Google AI Studio</option>
+                    <option value="vertexai">Google Vertex AI</option>
+                    <option value="koboldcpp">KoboldCpp</option>
+                    <option value="llamacpp">llama.cpp</option>
+                    <option value="transformers" data-i18n="Local (Transformers)">Local (Transformers)</option>
+                    <option value="mistral">MistralAI</option>
+                    <option value="nomicai">NomicAI</option>
+                    <option value="ollama">Ollama</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="togetherai">TogetherAI</option>
+                    <option value="vllm">vLLM</option>
+                    <option value="webllm" data-i18n="WebLLM Extension">WebLLM Extension</option>
+                </select>
+            </div>
+            <div class="flex-container flexFlowColumn" id="electronhub_VectHareModel">
+                <label for="vecthare_electronhub_model" data-i18n="Vectorization Model">
+                    Vectorization Model
+                </label>
+                <select id="vecthare_electronhub_model" class="text_pole"></select>
+                <i data-i18n="Hint: Set your Electron Hub API key in API Connections.">
+                    Hint: Set your Electron Hub API key in API Connections.
+                </i>
+            </div>
+            <div class="flex-container flexFlowColumn" id="vector_altEndpointUrl">
+                <label class="checkbox_label" for="vector_altEndpointUrl_enabled" title="Enable secondary endpoint URL usage, instead of the main one.">
+                    <input id="vector_altEndpointUrl_enabled" type="checkbox" class="checkbox">
+                    <span data-i18n="Use secondary URL">Use secondary URL</span>
+                </label>
+                <label for="vector_altEndpoint_address" data-i18n="Secondary Embedding endpoint URL">
+                    Secondary Embedding endpoint URL
+                </label>
+                <input id="vector_altEndpoint_address" class="text_pole" type="text" placeholder="e.g. http://localhost:5001" />
+            </div>
+            <div class="flex-container flexFlowColumn" id="webllm_VectHareModel">
+                <label for="vecthare_webllm_model" data-i18n="Vectorization Model">
+                    Vectorization Model
+                </label>
+                <div class="flex-container">
+                    <select id="vecthare_webllm_model" class="text_pole flex1">
+                    </select>
+                    <div id="vecthare_webllm_load" class="menu_button menu_button_icon" title="Verify and load the selected model.">
+                        <i class="fa-solid fa-check-to-slot"></i>
+                    </div>
                 </div>
-                <div class="ragbooks-card-body">
-                    <div class="ragbooks-settings-grid">
+                <div>
+                    Requires the WebLLM extension to be installed. Click <a href="#" id="vecthare_webllm_install">here</a> to install.
+                </div>
+            </div>
+            <div class="flex-container flexFlowColumn" id="ollama_VectHareModel">
+                <label for="vecthare_ollama_model" data-i18n="Vectorization Model">
+                    Vectorization Model
+                </label>
+                <input id="vecthare_ollama_model" class="text_pole" type="text" placeholder="Model tag, e.g. llama3" />
+                <label for="vecthare_ollama_keep" class="checkbox_label" title="When checked, the model will not be unloaded after use.">
+                    <input id="vecthare_ollama_keep" type="checkbox" />
+                    <span data-i18n="Keep model in memory">Keep model in memory</span>
+                </label>
+                <div>
+                    The model must be downloaded first! Do it with the <code>ollama pull</code> command or <a href="#" id="vecthare_ollama_pull">click here</a>.
+                </div>
+                <i data-i18n="Hint: Set the URL in the API connection settings.">
+                    Hint: Set the URL in the API connection settings.
+                </i>
+            </div>
+            <div class="flex-container flexFlowColumn" id="koboldcpp_VectHareModel">
+                <span>
+                    Set the KoboldCpp URL in the Text Completion API connection settings.
+                </span>
+                <span>
+                    Must use version 1.87 or higher and have an embedding model loaded.
+                </span>
+            </div>
+            <div class="flex-container flexFlowColumn" id="llamacpp_VectHareModel">
+                <span data-i18n="The server MUST be started with the --embedding flag to use this feature!">
+                    The server MUST be started with the <code>--embedding</code> flag to use this feature!
+                </span>
+                <i data-i18n="Hint: Set the URL in the API connection settings.">
+                    Hint: Set the URL in the API connection settings.
+                </i>
+            </div>
+            <div class="flex-container flexFlowColumn" id="openai_VectHareModel">
+                <label for="vecthare_openai_model" data-i18n="Vectorization Model">
+                    Vectorization Model
+                </label>
+                <select id="vecthare_openai_model" class="text_pole">
+                    <option value="text-embedding-ada-002">text-embedding-ada-002</option>
+                    <option value="text-embedding-3-small">text-embedding-3-small</option>
+                    <option value="text-embedding-3-large">text-embedding-3-large</option>
+                </select>
+            </div>
+            <div class="flex-container flexFlowColumn" id="cohere_VectHareModel">
+                <label for="vecthare_cohere_model" data-i18n="Vectorization Model">
+                    Vectorization Model
+                </label>
+                <select id="vecthare_cohere_model" class="text_pole">
+                    <option value="embed-v4.0">embed-v4.0</option>
+                    <option value="embed-english-v3.0">embed-english-v3.0</option>
+                    <option value="embed-multilingual-v3.0">embed-multilingual-v3.0</option>
+                    <option value="embed-english-light-v3.0">embed-english-light-v3.0</option>
+                    <option value="embed-multilingual-light-v3.0">embed-multilingual-light-v3.0</option>
+                    <option value="embed-english-v2.0">embed-english-v2.0</option>
+                    <option value="embed-english-light-v2.0">embed-english-light-v2.0</option>
+                    <option value="embed-multilingual-v2.0">embed-multilingual-v2.0</option>
+                </select>
+            </div>
+            <div class="flex-container flexFlowColumn" id="together_VectHareModel">
+                <label for="vecthare_togetherai_model" data-i18n="Vectorization Model">
+                    Vectorization Model
+                </label>
+                <select id="vecthare_togetherai_model" class="text_pole">
+                    <option value="togethercomputer/m2-bert-80M-32k-retrieval">M2-BERT-Retrieval-32k</option>
+                    <option value="togethercomputer/m2-bert-80M-8k-retrieval">M2-BERT-Retrieval-8k</option>
+                    <option value="togethercomputer/m2-bert-80M-2k-retrieval">M2-BERT-Retrieval-2K</option>
+                    <option value="WhereIsAI/UAE-Large-V1">UAE-Large-V1</option>
+                    <option value="BAAI/bge-large-en-v1.5">BAAI-Bge-Large-1p5</option>
+                    <option value="BAAI/bge-base-en-v1.5">BAAI-Bge-Base-1p5</option>
+                    <option value="sentence-transformers/msmarco-bert-base-dot-v5">Sentence-BERT</option>
+                    <option value="bert-base-uncased">Bert Base Uncased</option>
+                </select>
+            </div>
+            <div class="flex-container flexFlowColumn" id="vllm_VectHareModel">
+                <label for="vecthare_vllm_model" data-i18n="Vectorization Model">
+                    Vectorization Model
+                </label>
+                <input id="vecthare_vllm_model" class="text_pole" type="text" placeholder="Model name, e.g. intfloat/e5-mistral-7b-instruct" />
+                <i data-i18n="Hint: Set the URL in the API connection settings.">
+                    Hint: Set the URL in the API connection settings.
+                </i>
+            </div>
+            <div class="flex-container flexFlowColumn" id="google_VectHareModel">
+                <label for="vecthare_google_model" data-i18n="Vectorization Model">
+                    Vectorization Model
+                </label>
+                <select id="vecthare_google_model" class="text_pole">
+                    <option value="gemini-embedding-001">gemini-embedding-001</option>
+                    <option value="gemini-embedding-exp-03-07">gemini-embedding-exp-03-07</option>
+                    <option value="text-embedding-004">text-embedding-004</option>
+                    <option value="text-embedding-005">text-embedding-005</option>
+                    <option value="embedding-001">embedding-001</option>
+                </select>
+            </div>
+            <div class="flex-container alignItemsCenter" id="nomicai_apiKey">
+                <label for="api_key_nomicai" class="flex1">
+                    <span data-i18n="NomicAI API Key">NomicAI API Key</span>
+                </label>
+                <div id="api_key_nomicai" class="menu_button menu_button_icon manage-api-keys" data-key="api_key_nomicai">
+                    <i class="fa-solid fa-key"></i>
+                    <span data-i18n="Click to set">Click to set</span>
+                </div>
+            </div>
+            <div class="flex-container flexFlowColumn" id="openrouter_VectHareModel">
+                <label for="vecthare_openrouter_model" data-i18n="Vectorization Model">
+                    Vectorization Model
+                </label>
+                <select id="vecthare_openrouter_model" class="text_pole"></select>
+                <i data-i18n="Hint: Set your OpenRouter API key in API Connections.">
+                    Hint: Set your OpenRouter API key in API Connections.
+                </i>
+            </div>
 
-                        <!-- Master Enable -->
-                        <div class="ragbooks-setting-item">
-                            <label class="ragbooks-toggle">
-                                <input type="checkbox" id="ragbooks_enabled" checked>
-                                <span class="ragbooks-toggle-slider"></span>
-                                <span class="ragbooks-toggle-label">Enable VectHare</span>
-                            </label>
-                            <div class="ragbooks-help-text">Master toggle for all RAG-based context injection</div>
-                        </div>
+            <div class="flex-container marginTopBot5">
+                <div class="flex-container flex1 flexFlowColumn" title="How many last messages will be matched for relevance.">
+                    <label for="vecthare_query">
+                        <small data-i18n="Query messages">Query messages</small>
+                    </label>
+                    <input type="number" id="vecthare_query" class="text_pole" min="1" max="99" />
+                </div>
+                <div class="flex-container flex1 flexFlowColumn" title="Cut-off score for relevance. Helps to filter out irrelevant data.">
+                    <label for="vecthare_query">
+                        <small data-i18n="Score threshold">Score threshold</small>
+                    </label>
+                    <input type="number" id="vecthare_score_threshold" class="text_pole" min="0" max="1" step="0.05" />
+                </div>
+                <div class="flex-container flex1 flexFlowColumn" title="Prioritize chunking on the preferred delimiter.">
+                    <label for="vecthare_force_chunk_delimiter">
+                        <small data-i18n="Chunk boundary">Chunk boundary</small>
+                    </label>
+                    <textarea id="vecthare_force_chunk_delimiter" class="text_pole" rows="1" placeholder="(None)"></textarea>
+                </div>
+            </div>
 
-                        <!-- Orange Accent Mode -->
-                        <div class="ragbooks-setting-item">
-                            <label class="ragbooks-toggle">
-                                <input type="checkbox" id="ragbooks_orange_mode" checked>
-                                <span class="ragbooks-toggle-slider"></span>
-                                <span class="ragbooks-toggle-label">🍊 Orange Accent Mode</span>
-                            </label>
-                            <div class="ragbooks-help-text">Use vibrant orange accents (unchecked = follow your theme colors)</div>
-                        </div>
+            <div class="flex-container">
+                <label class="checkbox_label expander" for="vecthare_include_wi" title="Query results can activate World Info entries.">
+                    <input id="vecthare_include_wi" type="checkbox" class="checkbox">
+                    <span data-i18n="Include in World Info Scanning">Include in World Info Scanning</span>
+                </label>
+            </div>
 
-                        <!-- Top-K Results -->
-                        <div class="ragbooks-setting-item ragbooks-slider-container">
-                            <div class="ragbooks-slider-header">
-                                <span class="ragbooks-slider-icon">🎯</span>
-                                <span class="ragbooks-slider-title">Top-K results: <span id="ragbooks_topk_value">3</span></span>
-                            </div>
-                            <div class="ragbooks-slider-hint">How many relevant chunks to inject per message (3-5 recommended)</div>
-                            <input type="range" id="ragbooks_topk" class="ragbooks-slider" min="1" max="10" value="3">
-                        </div>
+            <hr>
 
-                        <!-- Relevance Threshold -->
-                        <div class="ragbooks-setting-item ragbooks-slider-container">
-                            <div class="ragbooks-slider-header">
-                                <span class="ragbooks-slider-icon">📊</span>
-                                <span class="ragbooks-slider-title">Relevance threshold: <span id="ragbooks_threshold_value">0.15</span></span>
-                            </div>
-                            <div class="ragbooks-slider-hint">Minimum similarity score for chunk inclusion (lower = more permissive)</div>
-                            <input type="range" id="ragbooks_threshold" class="ragbooks-slider" min="0" max="100" value="15" step="5">
-                        </div>
+            <h4 data-i18n="World Info settings">
+                World Info settings
+            </h4>
 
-                        <!-- Similarity Algorithm (only shown when plugin is available) -->
-                        <div class="ragbooks-setting-item" id="ragbooks_algorithm_container" style="display: none;">
-                            <div class="ragbooks-slider-header">
-                                <span class="ragbooks-slider-icon">🧮</span>
-                                <span class="ragbooks-slider-title">Similarity Algorithm</span>
-                            </div>
-                            <div class="ragbooks-slider-hint">Algorithm for comparing query to chunks (requires rabbit-rag-vectors plugin)</div>
-                            <select id="ragbooks_similarity_algorithm" class="text_pole" style="width: 100%; margin-top: 8px;">
-                                <option value="cosine">Cosine Similarity (recommended for text)</option>
-                                <option value="jaccard">Jaccard Distance (good for keywords/tags)</option>
-                                <option value="hamming">Hamming Distance (exact matching)</option>
+            <label class="checkbox_label" for="vecthare_enabled_world_info" title="Enable activation of World Info entries based on vector similarity.">
+                <input id="vecthare_enabled_world_info" type="checkbox" class="checkbox">
+                <span data-i18n="Enable for World Info">Enable for World Info</span>
+            </label>
+
+            <div id="vecthare_world_info_settings" class="marginTopBot5">
+                <div class="flex-container">
+                    <label for="vecthare_enabled_for_all" class="checkbox_label">
+                        <input id="vecthare_enabled_for_all" type="checkbox" />
+                        <span data-i18n="Enabled for all entries">Enabled for all entries</span>
+                    </label>
+                    <ul class="margin0">
+                        <li>
+                            <small data-i18n="Checked: all entries except ❌ status can be activated.">Checked: all entries except ❌ status can be activated.</small>
+                        </li>
+                        <li>
+                            <small data-i18n="Unchecked: only entries with ❌ status can be activated.">Unchecked: only entries with 🔗 status can be activated.</small>
+                        </li>
+                    </ul>
+                </div>
+                <div class="flex-container">
+                    <div class="flex1">
+                        <!--  Vacant for future use -->
+                    </div>
+                    <div class="flex1" title="Maximum number of entries to be activated">
+                        <label for="vecthare_max_entries" >
+                            <small data-i18n="Max Entries">Max Entries</small>
+                        </label>
+                        <input id="vecthare_max_entries" type="number" class="text_pole widthUnset" min="1" max="9999" />
+                    </div>
+                    <div class="flex1">
+                        <!--  Vacant for future use -->
+                    </div>
+                </div>
+            </div>
+
+            <h4 data-i18n="File vectorization settings">
+                File vectorization settings
+            </h4>
+
+            <label class="checkbox_label" for="vecthare_enabled_files">
+                <input id="vecthare_enabled_files" type="checkbox" class="checkbox">
+                <span data-i18n="Enable for files">Enable for files</span>
+            </label>
+
+            <div id="vecthare_files_settings" class="marginTopBot5">
+                <label class="checkbox_label" for="vecthare_only_custom_boundary" title="Create a chunk for every custom Chunk boundary detected in the file text. Don't chunk on default boundaries.">
+                    <input id="vecthare_only_custom_boundary" type="checkbox" class="checkbox">
+                    <span data-i18n="Only chunk on custom boundary">
+                        Only chunk on custom boundary
+                    </span>
+                </label>
+                <label class="checkbox_label" for="vecthare_translate_files" title="This can help with retrieval accuracy if using embedding models that are trained on English data. Uses the selected API from Chat Translation extension settings.">
+                    <input id="vecthare_translate_files" type="checkbox" class="checkbox">
+                    <span data-i18n="Translate files into English before processing">
+                        Translate files into English before processing
+                    </span>
+                    <i class="fa-solid fa-flask" title="Experimental feature"></i>
+                </label>
+                <div class="flex justifyCenter" title="These settings apply to files attached directly to messages.">
+                    <span data-i18n="Message attachments">Message attachments</span>
+                </div>
+                <div class="flex-container">
+                    <div class="flex1" title="Only files past this size will be vectorized.">
+                        <label for="vecthare_size_threshold">
+                            <small data-i18n="Size threshold (KB)">Size threshold (KB)</small>
+                        </label>
+                        <input id="vecthare_size_threshold" type="number" class="text_pole" min="1" max="99999" />
+                    </div>
+                    <div class="flex1" title="Chunk size for file splitting.">
+                        <label for="vecthare_chunk_size">
+                            <small data-i18n="Chunk size (chars)">Chunk size (chars)</small>
+                        </label>
+                        <input id="vecthare_chunk_size" type="number" class="text_pole" min="1" max="99999" />
+                    </div>
+                    <div class="flex1" title="The overlap between adjacent chunks in % from chunk size. The overlap text is trimmed to sentence boundaries. 0 = disabled.">
+                        <label for="vecthare_overlap_percent">
+                            <small data-i18n="Chunk overlap (%)">Chunk overlap (%)</small>
+                        </label>
+                        <input id="vecthare_overlap_percent" type="number" class="text_pole" min="0" max="99" step="1" />
+                    </div>
+                    <div class="flex1" title="How many chunks to retrieve when querying.">
+                        <label for="vecthare_chunk_count">
+                            <small data-i18n="Retrieve chunks">Retrieve chunks</small>
+                        </label>
+                        <input id="vecthare_chunk_count" type="number" class="text_pole" min="1" max="99999" />
+                    </div>
+                </div>
+                <div class="flex justifyCenter" title="These settings apply to files stored in the Data Bank.">
+                    <span data-i18n="Data Bank files">Data Bank files</span>
+                </div>
+                <div class="flex-container">
+                    <div class="flex1" title="Only files past this size will be vectorized.">
+                        <label for="vecthare_size_threshold_db">
+                            <small data-i18n="Size threshold (KB)">Size threshold (KB)</small>
+                        </label>
+                        <input id="vecthare_size_threshold_db" type="number" class="text_pole" min="1" max="99999" />
+                    </div>
+                    <div class="flex1" title="Chunk size for file splitting.">
+                        <label for="vecthare_chunk_size_db">
+                            <small data-i18n="Chunk size (chars)">Chunk size (chars)</small>
+                        </label>
+                        <input id="vecthare_chunk_size_db" type="number" class="text_pole" min="1" max="99999" />
+                    </div>
+                    <div class="flex1" title="The overlap between adjacent chunks in % from chunk size. The overlap text is trimmed to sentence boundaries. 0 = disabled.">
+                        <label for="vecthare_overlap_percent_db">
+                            <small data-i18n="Chunk overlap (%)">Chunk overlap (%)</small>
+                        </label>
+                        <input id="vecthare_overlap_percent_db" type="number" class="text_pole" min="0" max="99" step="1" />
+                    </div>
+                    <div class="flex1" title="How many chunks to retrieve when querying.">
+                        <label for="vecthare_chunk_count_db">
+                            <small data-i18n="Retrieve chunks">Retrieve chunks</small>
+                        </label>
+                        <input id="vecthare_chunk_count_db" type="number" class="text_pole" min="1" max="99999" />
+                    </div>
+                </div>
+                <div class="flex-container flexFlowColumn">
+                    <label for="vecthare_file_template_db">
+                        <span data-i18n="Injection Template">Injection Template</span>
+                    </label>
+                    <textarea id="vecthare_file_template_db" class="margin0 text_pole textarea_compact" rows="3" placeholder="Use &lcub;&lcub;text&rcub;&rcub; macro to specify the position of retrieved text."></textarea>
+                    <label for="vecthare_file_position_db" data-i18n="Injection Position">Injection Position</label>
+                    <div class="radio_group">
+                        <label>
+                            <input type="radio" name="vecthare_file_position_db" value="2" />
+                            <span data-i18n="Before Main Prompt / Story String">Before Main Prompt / Story String</span>
+                        </label>
+                        <!--Keep these as 0 and 1 to interface with the setExtensionPrompt function-->
+                        <label>
+                            <input type="radio" name="vecthare_file_position_db" value="0" />
+                            <span data-i18n="After Main Prompt / Story String">After Main Prompt / Story String</span>
+                        </label>
+                        <label for="vecthare_file_depth_db" title="How many messages before the current end of the chat." data-i18n="[title]How many messages before the current end of the chat.">
+                            <input type="radio" name="vecthare_file_position_db" value="1" />
+                            <span data-i18n="In-chat @ Depth">In-chat @ Depth</span>
+                            <input id="vecthare_file_depth_db" class="text_pole widthUnset" type="number" min="0" max="9999" />
+                            <span>as</span>
+                            <select id="vecthare_file_depth_role_db"  class="text_pole widthNatural">
+                                <option value="0" data-i18n="System">System</option>
+                                <option value="1" data-i18n="User">User</option>
+                                <option value="2" data-i18n="Assistant">Assistant</option>
                             </select>
-                        </div>
-
-                        <!-- Injection Depth -->
-                        <div class="ragbooks-setting-item ragbooks-slider-container">
-                            <div class="ragbooks-slider-header">
-                                <span class="ragbooks-slider-icon">💉</span>
-                                <span class="ragbooks-slider-title">Injection depth: <span id="ragbooks_depth_value">4</span></span>
-                            </div>
-                            <div class="ragbooks-slider-hint">Where in AI context to inject chunks (4 = standard, higher = deeper in memory)</div>
-                            <input type="range" id="ragbooks_depth" class="ragbooks-slider" min="1" max="10" value="4">
-                        </div>
-
+                        </label>
+                    </div>
+                </div>
+                <div class="flex-container">
+                    <div id="vecthare_files_vectorize_all" class="menu_button menu_button_icon" title="Vectorize all files in the Data Bank and current chat.">
+                        <span data-i18n="Vectorize All">Vectorize All</span>
+                    </div>
+                    <div id="vecthare_files_purge" class="menu_button menu_button_icon" title="Purge all file VectHare in the Data Bank and current chat.">
+                        <span data-i18n="Purge VectHare">Purge VectHare</span>
                     </div>
                 </div>
             </div>
 
-            <!-- Diagnostics & Health Card -->
-            <div class="ragbooks-card">
-                <div class="ragbooks-card-header">
-                    <h3>🔍 Diagnostics & Health</h3>
-                    <p class="ragbooks-card-subtitle">Check for configuration issues and troubleshoot problems</p>
-                </div>
-                <div class="ragbooks-card-body">
-                    <div class="ragbooks-settings-grid">
-                        <div class="ragbooks-setting-item">
-                            <button type="button" id="ragbooks_run_diagnostics" class="menu_button" style="width: 100%; padding: 12px; font-size: 14px;">
-                                <i class="fa-solid fa-stethoscope"></i> Run Full Diagnostics
-                            </button>
-                            <div class="ragbooks-help-text">Scan for common issues with vector storage, collections, search settings, and chunk data</div>
-                        </div>
+            <hr>
 
-                        <div class="ragbooks-setting-item" style="border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 16px; margin-top: 8px;">
-                            <button type="button" id="ragbooks_purge_all" class="menu_button" style="width: 100%; padding: 12px; font-size: 14px; background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5);">
-                                <i class="fa-solid fa-trash-can"></i> Purge All Collections (Nuclear Option)
-                            </button>
-                            <div class="ragbooks-help-text" style="color: #f87171;">⚠️ DANGER: Permanently deletes ALL RAG collections, libraries, and vector data from all scopes. Use only as last resort.</div>
+            <h4 data-i18n="Chat vectorization settings">
+                Chat vectorization settings
+            </h4>
+            <label class="checkbox_label" for="vecthare_enabled_chats">
+                <input id="vecthare_enabled_chats" type="checkbox" class="checkbox">
+                <span data-i18n="Enabled for chat messages">Enabled for chat messages</span>
+            </label>
+
+            <hr>
+
+            <div id="vecthare_chats_settings">
+                <div id="vecthare_advanced_settings">
+                    <label for="vecthare_template" data-i18n="Injection Template">
+                        Injection Template
+                    </label>
+                    <textarea id="vecthare_template" class="text_pole textarea_compact" rows="3" placeholder="Use &lcub;&lcub;text&rcub;&rcub; macro to specify the position of retrieved text."></textarea>
+                    <label for="vecthare_position" data-i18n="Injection Position">Injection Position</label>
+                    <div class="radio_group">
+                        <label>
+                            <input type="radio" name="vecthare_position" value="2" />
+                            <span data-i18n="Before Main Prompt / Story String">Before Main Prompt / Story String</span>
+                        </label>
+                        <!--Keep these as 0 and 1 to interface with the setExtensionPrompt function-->
+                        <label>
+                            <input type="radio" name="vecthare_position" value="0" />
+                            <span data-i18n="After Main Prompt / Story String">After Main Prompt / Story String</span>
+                        </label>
+                        <label for="vecthare_depth" title="How many messages before the current end of the chat." data-i18n="[title]How many messages before the current end of the chat.">
+                            <input type="radio" name="vecthare_position" value="1" />
+                            <span data-i18n="In-chat @ Depth">In-chat @ Depth </span>
+                            <input id="vecthare_depth" class="text_pole widthUnset" type="number" min="0" max="9999" />
+                        </label>
+                    </div>
+                    <div class="flex-container">
+                        <div class="flex1" title="Can increase the retrieval quality for the cost of processing. 0 = disabled.">
+                            <label for="vecthare_message_chunk_size">
+                                <small data-i18n="Chunk size (chars)">Chunk size (chars)</small>
+                            </label>
+                            <input id="vecthare_message_chunk_size" type="number" class="text_pole widthUnset" min="0" max="9999" />
+                        </div>
+                        <div class="flex1" title="Prevents last N messages from being placed out of order.">
+                            <label for="vecthare_protect">
+                                <small data-i18n="Retain#">Retain#</small>
+                            </label>
+                            <input type="number" id="vecthare_protect" class="text_pole widthUnset" min="1" max="9999" />
+                        </div>
+                        <div class="flex1" title="How many past messages to insert as memories.">
+                            <label for="vecthare_insert">
+                                <small data-i18n="Insert#">Insert#</small>
+                            </label>
+                            <input type="number" id="vecthare_insert" class="text_pole widthUnset" min="1" max="9999" />
                         </div>
                     </div>
+                    <hr class="m-b-1">
+                    <div class="flex-container flexFlowColumn">
+                        <div class="flex-container alignitemscenter justifyCenter">
+                            <i class="fa-solid fa-flask" title="Summarization for VectHare is an experimental feature that may improve VectHare or may worsen them. Use at your own discretion."></i>
+                            <span data-i18n="Vector Summarization">Vector Summarization</span>
+                        </div>
+                        <label class="checkbox_label expander" for="vecthare_summarize" title="Summarize chat messages before generating embeddings.">
+                            <input id="vecthare_summarize" type="checkbox" class="checkbox">
+                            <span data-i18n="Summarize chat messages for vector generation">Summarize chat messages for vector generation</span>
+                        </label>
+                        <i class="failure" data-i18n="Warning: This will slow down vector generation drastically, as all messages have to be summarized first.">Warning: This will slow down vector generation drastically, as all messages have to be summarized first.</i>
+
+                        <label class="checkbox_label expander" for="vecthare_summarize_user" title="Summarize sent chat messages before generating embeddings.">
+                            <input id="vecthare_summarize_user" type="checkbox" class="checkbox">
+                            <span data-i18n="Summarize chat messages when sending">Summarize chat messages when sending</span>
+                        </label>
+                        <i class="failure" data-i18n="Warning: This might cause your sent messages to take a bit to process and slow down response time.">Warning: This might cause your sent messages to take a bit to process and slow down response time.</i>
+
+                        <label for="vecthare_summary_source" title="Summarize with:">Summarize with:</label>
+                        <select id="vecthare_summary_source" class="text_pole">
+                            <option value="main" data-i18n="Main API">Main API</option>
+                            <option value="extras" data-i18n="Extras API">Extras API</option>
+                            <option value="webllm" data-i18n="WebLLM Extension">WebLLM Extension</option>
+                        </select>
+
+                        <label for="vecthare_summary_prompt" title="Summary Prompt:">Summary Prompt:</label>
+                        <small data-i18n="Only used when Main API or WebLLM Extension is selected.">Only used when Main API or WebLLM Extension is selected.</small>
+                        <textarea id="vecthare_summary_prompt" class="text_pole textarea_compact" rows="6" placeholder="This prompt will be sent to AI to request the summary generation."></textarea>
+                    </div>
+                </div>
+                <small data-i18n="Old messages are vectorized gradually as you chat. To process all previous messages, click the button below.">
+                    Old messages are vectorized gradually as you chat.
+                    To process all previous messages, click the button below.
+                </small>
+                <div class="flex-container">
+                    <div id="vecthare_vectorize_all" class="menu_button menu_button_icon" data-i18n="Vectorize All">
+                        Vectorize All
+                    </div>
+                    <div id="vecthare_purge" class="menu_button menu_button_icon" data-i18n="Purge VectHare">
+                        Purge VectHare
+                    </div>
+                    <div id="vecthare_view_stats" class="menu_button menu_button_icon" data-i18n="View Stats">
+                        View Stats
+                    </div>
+                </div>
+                <div id="vectorize_progress" style="display: none;">
+                    <small>
+                        Processed <span id="vectorize_progress_percent">0</span>% of messages.
+                        ETA: <span id="vectorize_progress_eta">...</span> seconds.
+                    </small>
                 </div>
             </div>
-
-            <!-- Advanced Search Features Card -->
-            <div class="ragbooks-card">
-                <div class="ragbooks-card-header">
-                    <h3>🔬 Advanced Search Features</h3>
-                    <p class="ragbooks-card-subtitle">Enhanced chunk selection and ranking</p>
-                </div>
-                <div class="ragbooks-card-body">
-                    <div class="ragbooks-settings-grid">
-
-                        <!-- Importance Weighting (Merged) -->
-                        <div class="ragbooks-setting-item">
-                            <label class="ragbooks-toggle">
-                                <input type="checkbox" id="ragbooks_enable_importance" checked>
-                                <span class="ragbooks-toggle-slider"></span>
-                                <span class="ragbooks-toggle-label">⚖️ Importance Weighting</span>
-                            </label>
-                            <div class="ragbooks-help-text">Allow chunks to boost/reduce their relevance scores (0-200%) - set per chunk in viewer</div>
-
-                            <!-- Display Mode (shown when enabled) -->
-                            <div id="ragbooks_importance_display_mode" style="margin-top: 10px; margin-left: 20px; display: block;">
-                                <label style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">Display Mode</label>
-                                <select id="ragbooks_importance_mode" class="text_pole" style="width: 100%; max-width: 300px;">
-                                    <option value="continuous">Continuous Scoring (by relevance)</option>
-                                    <option value="tiers">Priority Tiers (Critical/High/Normal/Low)</option>
-                                </select>
-                                <div class="ragbooks-help-text" style="margin-top: 4px;">Continuous: Sort by score. Tiers: Group by importance ranges.</div>
-                            </div>
-                        </div>
-
-                        <!-- Conditional Activation -->
-                        <div class="ragbooks-setting-item">
-                            <label class="ragbooks-toggle">
-                                <input type="checkbox" id="ragbooks_enable_conditions" checked>
-                                <span class="ragbooks-toggle-slider"></span>
-                                <span class="ragbooks-toggle-label">🎯 Conditional Activation</span>
-                            </label>
-                            <div class="ragbooks-help-text">Allow chunks to only activate when specific conditions are met - set per chunk in viewer</div>
-                        </div>
-
-                        <!-- Chunk Groups -->
-                        <div class="ragbooks-setting-item">
-                            <label class="ragbooks-toggle">
-                                <input type="checkbox" id="ragbooks_enable_groups" checked>
-                                <span class="ragbooks-toggle-slider"></span>
-                                <span class="ragbooks-toggle-label">📦 Chunk Groups</span>
-                            </label>
-                            <div class="ragbooks-help-text">Enable group keyword matching and required group enforcement - set per chunk in viewer</div>
-                        </div>
-
-                        <!-- Group Boost Multiplier -->
-                        <div class="ragbooks-setting-item ragbooks-slider-container">
-                            <div class="ragbooks-slider-header">
-                                <span class="ragbooks-slider-icon">⚡</span>
-                                <span class="ragbooks-slider-title">Group boost: <span id="ragbooks_group_boost_value">1.3x</span></span>
-                            </div>
-                            <div class="ragbooks-slider-hint">Score multiplier when group keywords match (1.0 = no boost, 2.0 = double)</div>
-                            <input type="range" id="ragbooks_group_boost_multiplier" class="ragbooks-slider" min="100" max="300" value="130" step="10">
-                        </div>
-
-                        <!-- Context Window -->
-                        <div class="ragbooks-setting-item ragbooks-slider-container">
-                            <div class="ragbooks-slider-header">
-                                <span class="ragbooks-slider-icon">🪟</span>
-                                <span class="ragbooks-slider-title">Context window: <span id="ragbooks_context_window_value">10</span> messages</span>
-                            </div>
-                            <div class="ragbooks-slider-hint">Recent messages to consider for conditional activation</div>
-                            <input type="range" id="ragbooks_context_window" class="ragbooks-slider" min="5" max="50" value="10" step="5">
-                        </div>
-
-                        <!-- Temporal Decay (OFF by default) -->
-                        <div class="ragbooks-setting-item">
-                            <label class="ragbooks-toggle">
-                                <input type="checkbox" id="ragbooks_enable_temporal_decay">
-                                <span class="ragbooks-toggle-slider"></span>
-                                <span class="ragbooks-toggle-label">⏳ Temporal Decay (Chat Only)</span>
-                            </label>
-                            <div class="ragbooks-help-text">Reduce relevance of older chat chunks over time (OFF by default - only enable if you want to prioritize recent context)</div>
-                        </div>
-
-                        <!-- Temporal Decay Settings (shown when enabled) -->
-                        <div id="ragbooks_decay_settings" style="display: none; margin-left: 20px; border-left: 3px solid var(--SmartThemeBorderColor); padding-left: 15px;">
-
-                            <!-- Decay Mode -->
-                            <div class="ragbooks-setting-item">
-                                <label class="ragbooks-label">
-                                    <span class="ragbooks-label-text">Decay Mode</span>
-                                </label>
-                                <select id="ragbooks_decay_mode" class="ragbooks-select">
-                                    <option value="exponential">Exponential (natural decay curve)</option>
-                                    <option value="linear">Linear (steady decline)</option>
-                                </select>
-                            </div>
-
-                            <!-- Half-Life (exponential) -->
-                            <div class="ragbooks-setting-item ragbooks-slider-container" id="ragbooks_half_life_container">
-                                <div class="ragbooks-slider-header">
-                                    <span class="ragbooks-slider-title">Half-life: <span id="ragbooks_half_life_value">50</span> messages</span>
-                                </div>
-                                <div class="ragbooks-slider-hint">Messages until relevance drops to 50%</div>
-                                <input type="range" id="ragbooks_half_life" class="ragbooks-slider" min="10" max="200" value="50" step="10">
-                            </div>
-
-                            <!-- Linear Rate (linear) -->
-                            <div class="ragbooks-setting-item ragbooks-slider-container" id="ragbooks_linear_rate_container" style="display: none;">
-                                <div class="ragbooks-slider-header">
-                                    <span class="ragbooks-slider-title">Linear rate: <span id="ragbooks_linear_rate_value">1</span>% per message</span>
-                                </div>
-                                <div class="ragbooks-slider-hint">Percentage decay per message</div>
-                                <input type="range" id="ragbooks_linear_rate" class="ragbooks-slider" min="1" max="10" value="1" step="1">
-                            </div>
-
-                            <!-- Minimum Relevance -->
-                            <div class="ragbooks-setting-item ragbooks-slider-container">
-                                <div class="ragbooks-slider-header">
-                                    <span class="ragbooks-slider-title">Minimum relevance: <span id="ragbooks_min_relevance_value">30</span>%</span>
-                                </div>
-                                <div class="ragbooks-slider-hint">Never decay below this percentage</div>
-                                <input type="range" id="ragbooks_min_relevance" class="ragbooks-slider" min="0" max="100" value="30" step="5">
-                            </div>
-
-                            <!-- Scene-Aware Decay -->
-                            <div class="ragbooks-setting-item">
-                                <label class="ragbooks-toggle">
-                                    <input type="checkbox" id="ragbooks_scene_aware_decay">
-                                    <span class="ragbooks-toggle-slider"></span>
-                                    <span class="ragbooks-toggle-label">🎬 Scene-Aware Decay</span>
-                                </label>
-                                <div class="ragbooks-help-text">Reset decay at scene boundaries</div>
-                            </div>
-
-                        </div>
-
-                    </div>
-                </div>
-            </div>
-
-            <!-- Content Sources Card -->
-            <div class="ragbooks-card">
-                <div class="ragbooks-card-header">
-                    <h3>📂 Content Sources</h3>
-                    <p class="ragbooks-card-subtitle">Manage vectorized collections for smart context injection</p>
-                </div>
-                <div class="ragbooks-card-body">
-
-                    <!-- Scope Filter Buttons -->
-                    <div id="ragbooks_scope_filter" class="ragbooks-scope-filter" style="display: flex; gap: 8px; margin-bottom: 16px; padding: 8px; background: var(--black10a); border-radius: 8px;">
-                        <button class="ragbooks-scope-filter-btn active" data-scope="all" title="Show all collections">
-                            <i class="fa-solid fa-layer-group"></i> All
-                        </button>
-                        <button class="ragbooks-scope-filter-btn" data-scope="global" title="Show only global collections">
-                            <i class="fa-solid fa-globe"></i> Global
-                        </button>
-                        <button class="ragbooks-scope-filter-btn" data-scope="character" title="Show only character collections">
-                            <i class="fa-solid fa-user"></i> Character
-                        </button>
-                        <button class="ragbooks-scope-filter-btn" data-scope="chat" title="Show only chat collections">
-                            <i class="fa-solid fa-comments"></i> Chat
-                        </button>
-                        <button id="ragbooks_recover_btn" class="ragbooks-scope-filter-btn" style="margin-left: auto; background: rgba(139, 92, 246, 0.2); border-color: rgba(139, 92, 246, 0.5);" title="Recover collections that disappeared from the UI but still have their data">
-                            <i class="fa-solid fa-life-ring"></i> Recover Lost Collections
-                        </button>
-                    </div>
-
-                    <!-- Existing Collections Display -->
-                    <div id="ragbooks_collections_container">
-                        <div id="ragbooks_empty_state" class="ragbooks-empty-state" style="display: none;">
-                            <i class="fa-solid fa-books"></i>
-                            <p>No content sources yet</p>
-                            <p>Add a lorebook, character, or custom document below to get started</p>
-                        </div>
-                        <div id="ragbooks_collections"></div>
-                    </div>
-
-                    <!-- Add Source Section -->
-                    <div class="ragbooks-add-source-section">
-                        <div class="ragbooks-setting-item">
-                            <label class="ragbooks-label">
-                                <span class="ragbooks-label-text">Add New Source</span>
-                            </label>
-                            <select id="ragbooks_source_type_select" class="ragbooks-select">
-                                <option value="">Choose content type...</option>
-                                <option value="lorebook">📚 Lorebook / World Info</option>
-                                <option value="character">👤 Character Card</option>
-                                <option value="chat">💬 Chat History</option>
-                                <option value="url">🌐 URL / Webpage</option>
-                                <option value="custom">📄 Custom Document</option>
-                            </select>
-                            <div class="ragbooks-help-text">Select the type of content you want to vectorize and search</div>
-                        </div>
-
-                        <!-- Configuration Area (appears when source type selected) -->
-                        <div id="ragbooks_inline_config"></div>
-                    </div>
-
-                </div>
-            </div>
-
-            <!-- How It Works Card -->
-            <div class="ragbooks-card">
-                <div class="ragbooks-card-header">
-                    <h3>💡 How VectHare Works</h3>
-                </div>
-                <div class="ragbooks-card-body">
-                    <div class="ragbooks-tutorial-content">
-                        <h4>What is VectHare?</h4>
-                        <p>
-                            VectHare vectorizes your lorebooks, character cards, and custom documents, then intelligently
-                            injects only the most relevant sections based on your conversation. This saves 80-90% of context!
-                        </p>
-
-                        <h4>Content Sources:</h4>
-                        <ul>
-                            <li><strong>📚 Lorebooks:</strong> Vectorize world info entries - inject only relevant lore</li>
-                            <li><strong>👤 Character Cards:</strong> Split descriptions/personality into searchable chunks</li>
-                            <li><strong>💬 Chat History:</strong> Make past conversations searchable and retrievable</li>
-                            <li><strong>📄 Custom Docs:</strong> Support for multiple input methods:</li>
-                        </ul>
-
-                        <h4>Custom Document Input Methods:</h4>
-                        <div style="margin-left: 20px; margin-bottom: 15px;">
-                            <p><strong>📝 Paste Text:</strong> Directly paste any text content for vectorization</p>
-                            <p><strong>🌐 Fetch from URL:</strong> Scrape and vectorize any web page using SillyTavern's Readability integration</p>
-                            <p><strong>📖 Scrape Wiki:</strong> Extract content from Fandom or MediaWiki pages (requires <a href="https://github.com/SillyTavern/SillyTavern-Fandom-Scraper" target="_blank" style="color: var(--SmartThemeQuoteColor);">server plugin</a>)</p>
-                            <p><strong>📺 YouTube Transcript:</strong> Fetch video transcripts with optional language selection</p>
-                            <p><strong>📦 GitHub Repository:</strong> Download README or specific files from any GitHub repo using glob patterns</p>
-                            <p><strong>📎 Upload Files:</strong> Batch upload multiple files (.txt, .md, .json, .yaml, .html)</p>
-                        </div>
-
-                        <h4>Quick Start:</h4>
-                        <ol>
-                            <li>Select a content type from "Add New Source" dropdown</li>
-                            <li>Choose your input method and provide the content</li>
-                            <li>Configure chunking strategy (recommended: Semantic Recursive for most content)</li>
-                            <li>Click "Vectorize" and wait for processing</li>
-                            <li>Chat normally - relevant chunks auto-inject based on your messages!</li>
-                        </ol>
-
-                        <p style="margin-bottom: 0;">
-                            <strong>Example:</strong> If you mention "dragons" in chat and your lorebook has a dragon entry,
-                            VectHare finds and injects it automatically. Works with any vectorized content!
-                        </p>
-                    </div>
-                </div>
-            </div>
-
         </div>
     </div>
-
-    <!-- Chunk Viewer Modal -->
-    <div id="ragbooks_chunk_viewer_modal" class="ragbooks-overlay">
-        <section class="drawer-content chunk-modal" role="dialog" aria-modal="true" aria-labelledby="ragbooks_modal_title">
-            <header class="chunk-modal__header flex-container alignitemscenter spaceBetween">
-                <div class="chunk-modal__title flex-container flexFlowColumn">
-                    <h2 id="ragbooks_modal_title" class="chunk-modal__heading">
-                        <i class="fa-solid fa-cube"></i> Chunk Viewer
-                    </h2>
-                    <p id="ragbooks_modal_subtitle" class="chunk-modal__subtitle"></p>
-                </div>
-                <button id="ragbooks_modal_close" class="menu_button chunk-modal__close" type="button" aria-label="Close chunk viewer">
-                    <i class="fa-solid fa-times"></i>
-                </button>
-            </header>
-
-            <!-- Tab Navigation (shown only for chat collections) -->
-            <div id="ragbooks_viewer_tabs" class="ragbooks-viewer-tabs" style="display: none;">
-                <button class="ragbooks-viewer-tab active" data-tab="chunks">
-                    <i class="fa-solid fa-cube"></i> Chunks
-                </button>
-                <button class="ragbooks-viewer-tab" data-tab="scenes">
-                    <i class="fa-solid fa-bookmark"></i> Scenes
-                </button>
-                <button class="ragbooks-viewer-tab" data-tab="groups">
-                    <i class="fa-solid fa-layer-group"></i> Groups
-                </button>
-            </div>
-
-            <div class="chunk-modal__toolbar flex-container alignitemscenter">
-                <div class="rag-filter-group" style="flex: 1; display: flex; gap: 8px;">
-                    <input type="text" id="ragbooks_chunk_search" class="text_pole textarea_compact chunk-search-input" placeholder="Search chunks..." style="flex: 1;">
-                    
-                    <!-- New Filters -->
-                    <select id="ragbooks_filter_importance" class="text_pole" style="width: auto; max-width: 110px;" title="Filter by Importance">
-                        <option value="all">All Imp.</option>
-                        <option value="critical">Critical</option>
-                        <option value="high">High</option>
-                        <option value="normal">Normal</option>
-                        <option value="low">Low</option>
-                    </select>
-
-                    <select id="ragbooks_filter_status" class="text_pole" style="width: auto; max-width: 100px;" title="Filter by Status">
-                        <option value="all">All Status</option>
-                        <option value="enabled">Active</option>
-                        <option value="disabled">Disabled</option>
-                    </select>
-
-                    <select id="ragbooks_sort_mode" class="text_pole" style="width: auto; max-width: 100px;" title="Sort Order">
-                        <option value="index">Natural</option>
-                        <option value="importance">Importance</option>
-                    </select>
-                </div>
-
-                <button id="ragbooks_create_chunk" class="menu_button" type="button" title="Create a new empty chunk">
-                    <i class="fa-solid fa-plus"></i>
-                    <span>New</span>
-                </button>
-                <button id="ragbooks_format_toggle" class="menu_button chunk-format-toggle" type="button" title="Toggle formatted text display">
-                    <i class="fa-solid fa-align-left"></i>
-                    <span class="chunk-format-label">Plain</span>
-                </button>
-                <div id="ragbooks_chunk_stats" class="chunk-stat-list flex-container alignitemscenter" aria-live="polite"></div>
-            </div>
-            <div id="ragbooks_chunks_container" class="chunk-list">
-                <!-- Chunks populated dynamically -->
-            </div>
-            <div id="ragbooks_scenes_container" class="chunk-list" style="display: none;">
-                <!-- Scenes populated dynamically -->
-            </div>
-            <div id="ragbooks_groups_container" class="chunk-list" style="display: none;">
-                <!-- Groups populated dynamically -->
-            </div>
-            <footer class="chunk-modal__footer flex-container alignitemscenter spaceBetween">
-                <div class="chunk-footer__info">
-                    <i class="fa-solid fa-info-circle"></i> Click any chunk to edit keywords and weights
-                </div>
-                <div class="chunk-footer__actions flex-container alignitemscenter">
-                    <button id="ragbooks_modal_save" class="ragbooks-btn-primary chunk-footer__button" type="button">
-                        <i class="fa-solid fa-save"></i> Save Changes
-                    </button>
-                    <button id="ragbooks_modal_cancel" class="ragbooks-btn-secondary chunk-footer__button" type="button">
-                        Cancel
-                    </button>
-                </div>
-            </footer>
-        </section>
-    </div>
-
-    <!-- Text Cleaning Pattern Editor Modal -->
-    <div id="ragbooks_pattern_editor_modal" class="ragbooks-overlay" style="display: none;">
-        <section class="drawer-content chunk-modal" role="dialog" aria-modal="true" aria-labelledby="ragbooks_pattern_editor_title">
-            <header class="chunk-modal__header flex-container alignitemscenter spaceBetween">
-                <div class="chunk-modal__title flex-container flexFlowColumn">
-                    <h2 id="ragbooks_pattern_editor_title" class="chunk-modal__heading">
-                        <i class="fa-solid fa-code"></i> Custom Cleaning Pattern
-                    </h2>
-                </div>
-                <button id="ragbooks_pattern_editor_close" class="menu_button chunk-modal__close" type="button" aria-label="Close pattern editor">
-                    <i class="fa-solid fa-times"></i>
-                </button>
-            </header>
-
-            <div class="chunk-modal__body" style="padding: 20px;">
-                <div class="ragbooks-setting-item">
-                    <label class="ragbooks-label">
-                        <span class="ragbooks-label-text">Pattern Name</span>
-                    </label>
-                    <input type="text" id="ragbooks_pattern_name" class="text_pole" placeholder="My Custom Pattern" style="width: 100%;">
-                </div>
-
-                <div class="ragbooks-setting-item">
-                    <label class="ragbooks-label">
-                        <span class="ragbooks-label-text">Regex Pattern</span>
-                    </label>
-                    <input type="text" id="ragbooks_pattern_regex" class="text_pole" placeholder="<tag>.*?</tag>" style="width: 100%; font-family: monospace;">
-                    <div class="ragbooks-help-text">JavaScript regex (without delimiters)</div>
-                </div>
-
-                <div class="ragbooks-setting-item">
-                    <label class="ragbooks-label">
-                        <span class="ragbooks-label-text">Flags</span>
-                    </label>
-                    <input type="text" id="ragbooks_pattern_flags" class="text_pole" placeholder="gi" value="gi" style="width: 100%; font-family: monospace;">
-                    <div class="ragbooks-help-text">Regex flags (g=global, i=case-insensitive, m=multiline, s=dotall)</div>
-                </div>
-
-                <div class="ragbooks-setting-item">
-                    <label class="ragbooks-label">
-                        <span class="ragbooks-label-text">Replacement</span>
-                    </label>
-                    <input type="text" id="ragbooks_pattern_replacement" class="text_pole" placeholder="" style="width: 100%; font-family: monospace;">
-                    <div class="ragbooks-help-text">Text to replace matches with (leave empty to remove)</div>
-                </div>
-
-                <div class="ragbooks-setting-item">
-                    <label class="ragbooks-label">
-                        <span class="ragbooks-label-text">Test Text</span>
-                    </label>
-                    <textarea id="ragbooks_pattern_test_input" class="text_pole" placeholder="Paste sample text to test your pattern..." style="width: 100%; height: 100px; font-family: monospace; font-size: 12px; resize: vertical;"></textarea>
-                </div>
-
-                <div class="ragbooks-setting-item">
-                    <button type="button" class="menu_button" id="ragbooks_pattern_test_btn">
-                        <i class="fa-solid fa-flask"></i> Test Pattern
-                    </button>
-                </div>
-
-                <div id="ragbooks_pattern_test_result" class="ragbooks-setting-item" style="display: none;">
-                    <label class="ragbooks-label">
-                        <span class="ragbooks-label-text">Result</span>
-                    </label>
-                    <textarea id="ragbooks_pattern_test_output" class="text_pole" readonly style="width: 100%; height: 100px; font-family: monospace; font-size: 12px; background: var(--black30a); resize: vertical;"></textarea>
-                </div>
-            </div>
-
-            <footer class="chunk-modal__footer flex-container alignitemscenter spaceBetween">
-                <div></div>
-                <div class="chunk-footer__actions flex-container alignitemscenter">
-                    <button id="ragbooks_pattern_save" class="menu_button menu_button_icon chunk-footer__button" type="button">
-                        <i class="fa-solid fa-save"></i> Save Pattern
-                    </button>
-                    <button id="ragbooks_pattern_cancel" class="menu_button chunk-footer__button" type="button">
-                        Cancel
-                    </button>
-                </div>
-            </footer>
-        </section>
-    </div>
-
-    <!-- Diagnostics Results Modal -->
-    <div id="ragbooks_diagnostics_modal" class="ragbooks-overlay" style="display: none;">
-        <section class="drawer-content chunk-modal" role="dialog" aria-modal="true" aria-labelledby="ragbooks_diagnostics_title" style="max-width: 900px;">
-            <header class="chunk-modal__header flex-container alignitemscenter spaceBetween">
-                <div class="chunk-modal__title flex-container flexFlowColumn">
-                    <h2 id="ragbooks_diagnostics_title" class="chunk-modal__heading">
-                        <i class="fa-solid fa-stethoscope"></i> VectHare Diagnostics
-                    </h2>
-                    <p id="ragbooks_diagnostics_subtitle" class="chunk-modal__subtitle">System health check results</p>
-                </div>
-                <button id="ragbooks_diagnostics_close" class="menu_button chunk-modal__close" type="button" aria-label="Close diagnostics">
-                    <i class="fa-solid fa-times"></i>
-                </button>
-            </header>
-
-            <div class="chunk-modal__body" style="padding: 20px; max-height: 70vh; overflow-y: auto;">
-                <!-- Summary Stats -->
-                <div id="ragbooks_diagnostics_summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 24px;">
-                    <!-- Populated dynamically -->
-                </div>
-
-                <!-- Diagnostic Categories -->
-                <div id="ragbooks_diagnostics_results">
-                    <!-- Populated dynamically -->
-                </div>
-
-                <div id="ragbooks_diagnostics_loading" style="text-align: center; padding: 40px;">
-                    <i class="fa-solid fa-spinner fa-spin" style="font-size: 32px; color: var(--SmartThemeQuoteColor);"></i>
-                    <p style="margin-top: 16px; color: var(--SmartThemeBodyColor);">Running diagnostics...</p>
-                </div>
-            </div>
-
-            <footer class="chunk-modal__footer flex-container alignitemscenter spaceBetween">
-                <div class="chunk-footer__info">
-                    <i class="fa-solid fa-info-circle"></i> Click "Fix Now" to automatically resolve issues
-                </div>
-                <div class="chunk-footer__actions flex-container alignitemscenter">
-                    <button id="ragbooks_diagnostics_rerun" class="menu_button chunk-footer__button" type="button">
-                        <i class="fa-solid fa-rotate"></i> Re-run
-                    </button>
-                    <button id="ragbooks_diagnostics_done" class="ragbooks-btn-primary chunk-footer__button" type="button">
-                        Done
-                    </button>
-                </div>
-            </footer>
-        </section>
-    </div>
-
 </div>

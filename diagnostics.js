@@ -886,7 +886,7 @@ async function testTemporalDecay(settings) {
  */
 async function checkServerPlugin() {
     try {
-        const response = await fetch('/api/plugins/vecthare/health', {
+        const response = await fetch('/api/plugins/similharity/health', {
             method: 'GET',
             headers: getRequestHeaders()
         });
@@ -939,7 +939,7 @@ async function checkPluginEndpoints() {
 
     // 1. Health check
     try {
-        const healthResponse = await fetch('/api/plugins/vecthare/health', {
+        const healthResponse = await fetch('/api/plugins/similharity/health', {
             method: 'GET',
             headers: getRequestHeaders()
         });
@@ -966,7 +966,7 @@ async function checkPluginEndpoints() {
 
     // 2. Collections endpoint
     try {
-        const collectionsResponse = await fetch(`/api/plugins/vecthare/collections?source=${testSource}`, {
+        const collectionsResponse = await fetch(`/api/plugins/similharity/collections?source=${testSource}`, {
             method: 'GET',
             headers: getRequestHeaders()
         });
@@ -984,7 +984,7 @@ async function checkPluginEndpoints() {
 
     // 3. Sources endpoint
     try {
-        const sourcesResponse = await fetch('/api/plugins/vecthare/sources', {
+        const sourcesResponse = await fetch('/api/plugins/similharity/sources', {
             method: 'GET',
             headers: getRequestHeaders()
         });
@@ -1002,7 +1002,7 @@ async function checkPluginEndpoints() {
 
     // 4. Query-with-vectors endpoint (custom vectra endpoint)
     try {
-        const queryResponse = await fetch('/api/plugins/vecthare/query-with-vectors', {
+        const queryResponse = await fetch('/api/plugins/similharity/query-with-vectors', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
@@ -1025,7 +1025,7 @@ async function checkPluginEndpoints() {
 
     // 5. List-with-vectors endpoint (custom vectra endpoint)
     try {
-        const listResponse = await fetch('/api/plugins/vecthare/list-with-vectors', {
+        const listResponse = await fetch('/api/plugins/similharity/list-with-vectors', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
@@ -1092,7 +1092,7 @@ async function checkLanceDBBackend(settings) {
 
     // Check if plugin is available
     try {
-        const healthResponse = await fetch('/api/plugins/vecthare/lancedb/health', {
+        const healthResponse = await fetch('/api/plugins/similharity/lancedb/health', {
             method: 'GET',
             headers: getRequestHeaders()
         });
@@ -1187,7 +1187,7 @@ async function checkQdrantBackend(settings) {
 
     // Check if plugin is available
     try {
-        const healthResponse = await fetch('/api/plugins/vecthare/qdrant/health', {
+        const healthResponse = await fetch('/api/plugins/similharity/qdrant/health', {
             method: 'GET',
             headers: getRequestHeaders()
         });

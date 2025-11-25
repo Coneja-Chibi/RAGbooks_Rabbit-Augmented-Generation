@@ -175,7 +175,7 @@ async function checkPluginAvailable() {
     }
 
     try {
-        const response = await fetch('/api/plugins/vecthare/health', {
+        const response = await fetch('/api/plugins/similharity/health', {
             method: 'GET',
             headers: getRequestHeaders()
         });
@@ -205,7 +205,7 @@ let pluginCollectionData = null;
 async function discoverViaPlugin(settings) {
     try {
         // Plugin now scans ALL sources, not just the current one
-        const response = await fetch(`/api/plugins/vecthare/collections`, {
+        const response = await fetch(`/api/plugins/similharity/collections`, {
             method: 'GET',
             headers: getRequestHeaders()
         });

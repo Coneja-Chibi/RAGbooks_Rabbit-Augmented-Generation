@@ -24,7 +24,7 @@ import {
 export class LanceDBBackend extends VectorBackend {
     async initialize(settings) {
         // Initialize LanceDB backend via plugin
-        const response = await fetch('/api/plugins/vecthare/lancedb/init', {
+        const response = await fetch('/api/plugins/similharity/lancedb/init', {
             method: 'POST',
             headers: getRequestHeaders(),
         });
@@ -38,7 +38,7 @@ export class LanceDBBackend extends VectorBackend {
 
     async healthCheck() {
         try {
-            const response = await fetch('/api/plugins/vecthare/lancedb/health', {
+            const response = await fetch('/api/plugins/similharity/lancedb/health', {
                 method: 'GET',
                 headers: getRequestHeaders(),
             });
@@ -54,7 +54,7 @@ export class LanceDBBackend extends VectorBackend {
     }
 
     async getSavedHashes(collectionId, settings) {
-        const response = await fetch('/api/plugins/vecthare/lancedb/list', {
+        const response = await fetch('/api/plugins/similharity/lancedb/list', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
@@ -93,7 +93,7 @@ export class LanceDBBackend extends VectorBackend {
             // Server-side embeddings (transformers, openai, etc.) - use plugin's batch embedding endpoint
             console.log('VectHare LanceDB: Getting embeddings from server-side provider...');
 
-            const embeddingResponse = await fetch('/api/plugins/vecthare/batch-embeddings', {
+            const embeddingResponse = await fetch('/api/plugins/similharity/batch-embeddings', {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 body: JSON.stringify({
@@ -127,7 +127,7 @@ export class LanceDBBackend extends VectorBackend {
         }
 
         // Insert into LanceDB via plugin
-        const response = await fetch('/api/plugins/vecthare/lancedb/insert', {
+        const response = await fetch('/api/plugins/similharity/lancedb/insert', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
@@ -144,7 +144,7 @@ export class LanceDBBackend extends VectorBackend {
     }
 
     async deleteVectorItems(collectionId, hashes, settings) {
-        const response = await fetch('/api/plugins/vecthare/lancedb/delete', {
+        const response = await fetch('/api/plugins/similharity/lancedb/delete', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
@@ -170,7 +170,7 @@ export class LanceDBBackend extends VectorBackend {
             queryVector = args.embeddings[searchText];
         } else {
             // Server-side embeddings - use plugin's embedding endpoint
-            const embeddingResponse = await fetch('/api/plugins/vecthare/get-embedding', {
+            const embeddingResponse = await fetch('/api/plugins/similharity/get-embedding', {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 body: JSON.stringify({
@@ -192,7 +192,7 @@ export class LanceDBBackend extends VectorBackend {
             queryVector = embeddingData.embedding;
         }
 
-        const response = await fetch('/api/plugins/vecthare/lancedb/query', {
+        const response = await fetch('/api/plugins/similharity/lancedb/query', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
@@ -231,7 +231,7 @@ export class LanceDBBackend extends VectorBackend {
             queryVector = args.embeddings[searchText];
         } else {
             // Server-side embeddings
-            const embeddingResponse = await fetch('/api/plugins/vecthare/get-embedding', {
+            const embeddingResponse = await fetch('/api/plugins/similharity/get-embedding', {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 body: JSON.stringify({
@@ -258,7 +258,7 @@ export class LanceDBBackend extends VectorBackend {
 
         for (const collectionId of collectionIds) {
             try {
-                const response = await fetch('/api/plugins/vecthare/lancedb/query', {
+                const response = await fetch('/api/plugins/similharity/lancedb/query', {
                     method: 'POST',
                     headers: getRequestHeaders(),
                     body: JSON.stringify({
@@ -294,7 +294,7 @@ export class LanceDBBackend extends VectorBackend {
     }
 
     async purgeVectorIndex(collectionId, settings) {
-        const response = await fetch('/api/plugins/vecthare/lancedb/purge', {
+        const response = await fetch('/api/plugins/similharity/lancedb/purge', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
@@ -313,7 +313,7 @@ export class LanceDBBackend extends VectorBackend {
     }
 
     async purgeAllVectorIndexes(settings) {
-        const response = await fetch('/api/plugins/vecthare/lancedb/purge-all', {
+        const response = await fetch('/api/plugins/similharity/lancedb/purge-all', {
             method: 'POST',
             headers: getRequestHeaders(),
         });

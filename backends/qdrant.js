@@ -36,7 +36,7 @@ export class QdrantBackend extends VectorBackend {
             apiKey: settings.qdrant_api_key || null,
         };
 
-        const response = await fetch('/api/plugins/vecthare/qdrant/init', {
+        const response = await fetch('/api/plugins/similharity/qdrant/init', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify(config),
@@ -51,7 +51,7 @@ export class QdrantBackend extends VectorBackend {
 
     async healthCheck() {
         try {
-            const response = await fetch('/api/plugins/vecthare/qdrant/health', {
+            const response = await fetch('/api/plugins/similharity/qdrant/health', {
                 method: 'GET',
                 headers: getRequestHeaders(),
             });
@@ -70,7 +70,7 @@ export class QdrantBackend extends VectorBackend {
         // MULTITENANCY: Extract type and sourceId from collectionId
         const { type, sourceId } = this._parseCollectionId(collectionId);
 
-        const response = await fetch('/api/plugins/vecthare/qdrant/list', {
+        const response = await fetch('/api/plugins/similharity/qdrant/list', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
@@ -146,7 +146,7 @@ export class QdrantBackend extends VectorBackend {
             // Server-side embeddings
             console.log('VectHare Qdrant: Getting embeddings from server-side provider...');
 
-            const embeddingResponse = await fetch('/api/plugins/vecthare/batch-embeddings', {
+            const embeddingResponse = await fetch('/api/plugins/similharity/batch-embeddings', {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 body: JSON.stringify({
@@ -189,7 +189,7 @@ export class QdrantBackend extends VectorBackend {
         }
 
         // Insert into Qdrant via plugin with tenant metadata
-        const response = await fetch('/api/plugins/vecthare/qdrant/insert', {
+        const response = await fetch('/api/plugins/similharity/qdrant/insert', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
@@ -207,7 +207,7 @@ export class QdrantBackend extends VectorBackend {
     }
 
     async deleteVectorItems(collectionId, hashes, settings) {
-        const response = await fetch('/api/plugins/vecthare/qdrant/delete', {
+        const response = await fetch('/api/plugins/similharity/qdrant/delete', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({ collectionId, hashes }),
@@ -232,7 +232,7 @@ export class QdrantBackend extends VectorBackend {
             queryVector = args.embeddings[searchText];
         } else {
             // Server-side embeddings
-            const embeddingResponse = await fetch('/api/plugins/vecthare/get-embedding', {
+            const embeddingResponse = await fetch('/api/plugins/similharity/get-embedding', {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 body: JSON.stringify({
@@ -255,7 +255,7 @@ export class QdrantBackend extends VectorBackend {
         }
 
         // Query with multitenancy filters
-        const response = await fetch('/api/plugins/vecthare/qdrant/query', {
+        const response = await fetch('/api/plugins/similharity/qdrant/query', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
@@ -295,7 +295,7 @@ export class QdrantBackend extends VectorBackend {
             queryVector = args.embeddings[searchText];
         } else {
             // Server-side embeddings
-            const embeddingResponse = await fetch('/api/plugins/vecthare/get-embedding', {
+            const embeddingResponse = await fetch('/api/plugins/similharity/get-embedding', {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 body: JSON.stringify({
@@ -325,7 +325,7 @@ export class QdrantBackend extends VectorBackend {
                 // Extract type and sourceId for each collection
                 const { type, sourceId } = this._parseCollectionId(collectionId);
 
-                const response = await fetch('/api/plugins/vecthare/qdrant/query', {
+                const response = await fetch('/api/plugins/similharity/qdrant/query', {
                     method: 'POST',
                     headers: getRequestHeaders(),
                     body: JSON.stringify({
@@ -365,7 +365,7 @@ export class QdrantBackend extends VectorBackend {
         // MULTITENANCY: Extract type and sourceId from collectionId
         const { type, sourceId } = this._parseCollectionId(collectionId);
 
-        const response = await fetch('/api/plugins/vecthare/qdrant/purge', {
+        const response = await fetch('/api/plugins/similharity/qdrant/purge', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
@@ -386,7 +386,7 @@ export class QdrantBackend extends VectorBackend {
     }
 
     async purgeAllVectorIndexes(settings) {
-        const response = await fetch('/api/plugins/vecthare/qdrant/purge-all', {
+        const response = await fetch('/api/plugins/similharity/qdrant/purge-all', {
             method: 'POST',
             headers: getRequestHeaders(),
         });

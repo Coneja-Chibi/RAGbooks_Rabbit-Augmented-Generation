@@ -467,7 +467,7 @@ function bindCollectionCardEvents() {
         const backend = $(this).data('backend');
 
         try {
-            const response = await fetch('/api/plugins/vecthare/open-folder', {
+            const response = await fetch('/api/plugins/similharity/open-folder', {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 body: JSON.stringify({ collectionId, backend }),

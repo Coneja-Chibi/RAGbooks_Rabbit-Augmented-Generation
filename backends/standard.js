@@ -29,7 +29,7 @@ export class StandardBackend extends VectorBackend {
     async initialize(settings) {
         // Check if VectHare plugin is available
         try {
-            const response = await fetch('/api/plugins/vecthare/health');
+            const response = await fetch('/api/plugins/similharity/health');
             this.pluginAvailable = response.ok;
 
             if (this.pluginAvailable) {
@@ -73,7 +73,7 @@ export class StandardBackend extends VectorBackend {
         // Use plugin endpoint if available (stores FULL metadata)
         if (this.pluginAvailable) {
             try {
-                const response = await fetch('/api/plugins/vecthare/vectra/insert', {
+                const response = await fetch('/api/plugins/similharity/vectra/insert', {
                     method: 'POST',
                     headers: getRequestHeaders(),
                     body: JSON.stringify({

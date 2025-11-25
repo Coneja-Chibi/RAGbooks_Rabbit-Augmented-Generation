@@ -19,7 +19,7 @@ import {
     getAdditionalArgs,
     getVectorsRequestBody,
     throwIfSourceInvalid
-} from '../core-vector-api.js';
+} from '../core/core-vector-api.js';
 
 export class LanceDBBackend extends VectorBackend {
     async initialize(settings) {

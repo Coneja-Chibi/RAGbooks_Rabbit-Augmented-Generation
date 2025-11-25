@@ -15,9 +15,10 @@ import {
     setCollectionEnabled,
     registerCollection,
     unregisterCollection
-} from './collection-loader.js';
-import { purgeVectorIndex } from './core-vector-api.js';
-import { getRequestHeaders } from '../../../../script.js';
+} from '../core/collection-loader.js';
+import { purgeVectorIndex } from '../core/core-vector-api.js';
+import { getRequestHeaders } from '../../../../../script.js';
+import { cleanupOrphanedMeta, deleteCollectionMeta } from '../core/collection-metadata.js';
 
 // Browser state
 let browserState = {
@@ -250,6 +251,14 @@ function switchTab(tabName) {
 async function refreshCollections() {
     try {
         browserState.collections = await loadAllCollections(browserState.settings);
+
+        // Clean up orphaned metadata entries (collections that no longer exist)
+        const actualIds = browserState.collections.map(c => c.id);
+        const cleanupResult = cleanupOrphanedMeta(actualIds);
+        if (cleanupResult.removed > 0) {
+            console.log(`VectHare: Cleaned up ${cleanupResult.removed} orphaned metadata entries`);
+        }
+
         renderCollections();
     } catch (error) {
         console.error('VectHare: Failed to load collections', error);
@@ -379,6 +388,7 @@ function renderCollectionCard(collection) {
                 <button class="vecthare-btn-sm vecthare-action-open-folder"
                         data-collection-id="${collection.id}"
                         data-backend="${collection.backend}"
+                        data-source="${collection.source || 'transformers'}"
                         title="Open in file explorer">
                     📁 Open Folder
                 </button>
@@ -444,8 +454,11 @@ function bindCollectionCardEvents() {
             // Purge from vector backend
             await purgeVectorIndex(collectionId, browserState.settings);
 
-            // Unregister
+            // Unregister from registry
             unregisterCollection(collectionId);
+
+            // Delete collection metadata
+            deleteCollectionMeta(collectionId);
 
             // Remove from state
             browserState.collections = browserState.collections.filter(c => c.id !== collectionId);
@@ -465,12 +478,13 @@ function bindCollectionCardEvents() {
         e.stopPropagation();
         const collectionId = $(this).data('collection-id');
         const backend = $(this).data('backend');
+        const source = $(this).data('source');
 
         try {
             const response = await fetch('/api/plugins/similharity/open-folder', {
                 method: 'POST',
                 headers: getRequestHeaders(),
-                body: JSON.stringify({ collectionId, backend }),
+                body: JSON.stringify({ collectionId, backend, source }),
             });
 
             if (!response.ok) {

@@ -22,13 +22,18 @@ import {
 import { debounce } from '../../../utils.js';
 import { debounce_timeout } from '../../../constants.js';
 
-// VectHare modules
-import { synchronizeChat, rearrangeChat, vectorizeAll, purgeChatIndex } from './chat-vectorization.js';
-import { renderSettings, showDiagnosticsResults } from './ui-manager.js';
-import { runDiagnostics } from './diagnostics.js';
-import { getDefaultDecaySettings } from './temporal-decay.js';
-import { initializeVisualizer } from './chunk-visualizer.js';
-import { initializeDatabaseBrowser } from './database-browser.js';
+// VectHare modules - Core
+import { synchronizeChat, rearrangeChat, vectorizeAll, purgeChatIndex } from './core/chat-vectorization.js';
+import { getDefaultDecaySettings } from './core/temporal-decay.js';
+import { migrateOldEnabledKeys } from './core/collection-metadata.js';
+
+// VectHare modules - UI
+import { renderSettings, showDiagnosticsResults } from './ui/ui-manager.js';
+import { initializeVisualizer } from './ui/chunk-visualizer.js';
+import { initializeDatabaseBrowser } from './ui/database-browser.js';
+
+// VectHare modules - Diagnostics
+import { runDiagnostics } from './diagnostics/diagnostics.js';
 
 // Constants
 const MODULE_NAME = 'VectHare';
@@ -69,6 +74,12 @@ const defaultSettings = {
 
     // Advanced features
     temporal_decay: getDefaultDecaySettings(),
+
+    // Collection-level metadata (managed by collection-metadata.js)
+    collections: {},
+
+    // Collection registry (list of known collection IDs)
+    vecthare_collection_registry: [],
 };
 
 // Runtime settings (merged with saved settings)
@@ -134,8 +145,18 @@ jQuery(async () => {
         temporal_decay: {
             ...defaultSettings.temporal_decay,
             ...extension_settings.vecthare.temporal_decay
+        },
+        collections: {
+            ...defaultSettings.collections,
+            ...extension_settings.vecthare.collections
         }
     };
+
+    // Migrate old scattered enabled keys to new collections structure
+    const migrationResult = migrateOldEnabledKeys();
+    if (migrationResult.migrated > 0) {
+        console.log(`VectHare: Migrated ${migrationResult.migrated} old collection enabled keys`);
+    }
 
     // Render UI
     renderSettings('extensions_settings2', settings, {

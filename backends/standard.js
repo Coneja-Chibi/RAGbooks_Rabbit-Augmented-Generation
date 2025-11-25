@@ -18,7 +18,7 @@ import {
     getVectorsRequestBody,
     getAdditionalArgs,
     throwIfSourceInvalid
-} from '../core-vector-api.js';
+} from '../core/core-vector-api.js';
 
 export class StandardBackend extends VectorBackend {
     constructor() {

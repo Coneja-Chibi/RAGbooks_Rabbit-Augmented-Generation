@@ -22,14 +22,14 @@
  * ============================================================================
  */
 
-import { getRequestHeaders } from '../../../../script.js';
-import { extension_settings, modules } from '../../../extensions.js';
-import { SECRET_KEYS, secret_state } from '../../../secrets.js';
-import { textgen_types, textgenerationwebui_settings } from '../../../textgen-settings.js';
-import { oai_settings } from '../../../openai.js';
-import { isWebLlmSupported } from '../../shared.js';
-import { WebLlmVectorProvider } from './webllm.js';
-import { getBackend } from './backends/backend-manager.js';
+import { getRequestHeaders } from '../../../../../script.js';
+import { extension_settings, modules } from '../../../../extensions.js';
+import { SECRET_KEYS, secret_state } from '../../../../secrets.js';
+import { textgen_types, textgenerationwebui_settings } from '../../../../textgen-settings.js';
+import { oai_settings } from '../../../../openai.js';
+import { isWebLlmSupported } from '../../../shared.js';
+import { WebLlmVectorProvider } from '../providers/webllm.js';
+import { getBackend } from '../backends/backend-manager.js';
 
 // Initialize WebLLM provider
 const webllmProvider = new WebLlmVectorProvider();

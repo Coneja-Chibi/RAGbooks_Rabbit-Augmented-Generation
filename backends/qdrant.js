@@ -24,7 +24,7 @@ import {
     getAdditionalArgs,
     getVectorsRequestBody,
     throwIfSourceInvalid
-} from '../core-vector-api.js';
+} from '../core/core-vector-api.js';
 
 export class QdrantBackend extends VectorBackend {
     async initialize(settings) {

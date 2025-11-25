@@ -10,11 +10,12 @@
  * ============================================================================
  */
 
-import { getCurrentChatId, getRequestHeaders } from '../../../../script.js';
-import { extension_settings, modules } from '../../../extensions.js';
-import { SECRET_KEYS, secret_state } from '../../../secrets.js';
-import { textgen_types, textgenerationwebui_settings } from '../../../textgen-settings.js';
-import { getSavedHashes } from './core-vector-api.js';
+import { getCurrentChatId, getRequestHeaders } from '../../../../../script.js';
+import { extension_settings, modules } from '../../../../extensions.js';
+import { SECRET_KEYS, secret_state } from '../../../../secrets.js';
+import { textgen_types, textgenerationwebui_settings } from '../../../../textgen-settings.js';
+import { getSavedHashes } from '../core/core-vector-api.js';
+import { VALID_EMOTIONS, VALID_GENERATION_TYPES, validateConditionRule } from '../core/conditional-activation.js';
 
 /**
  * Runs all diagnostic checks
@@ -63,12 +64,16 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
         categories.configuration.push(checkTemporalDecaySettings(settings));
     }
 
+    // Conditional activation checks
+    categories.configuration.push(checkConditionalActivationModule());
+
     // ========== PRODUCTION TESTS (Optional) ==========
     if (includeProductionTests) {
         categories.production.push(await testEmbeddingGeneration(settings));
         categories.production.push(await testVectorStorage(settings));
         categories.production.push(await testVectorRetrieval(settings));
         categories.production.push(await testTemporalDecay(settings));
+        categories.production.push(await testConditionalActivation());
     }
 
     // Flatten all checks
@@ -655,6 +660,55 @@ function checkTemporalDecaySettings(settings) {
     };
 }
 
+/**
+ * Check: Conditional activation module is available
+ */
+function checkConditionalActivationModule() {
+    try {
+        // Check that key exports are available
+        if (!VALID_EMOTIONS || VALID_EMOTIONS.length === 0) {
+            return {
+                name: 'Conditional Activation',
+                status: 'fail',
+                message: 'EMOTION_KEYWORDS not loaded correctly',
+                category: 'configuration'
+            };
+        }
+
+        if (!VALID_GENERATION_TYPES || VALID_GENERATION_TYPES.length === 0) {
+            return {
+                name: 'Conditional Activation',
+                status: 'fail',
+                message: 'VALID_GENERATION_TYPES not loaded correctly',
+                category: 'configuration'
+            };
+        }
+
+        if (typeof validateConditionRule !== 'function') {
+            return {
+                name: 'Conditional Activation',
+                status: 'fail',
+                message: 'Validation functions not available',
+                category: 'configuration'
+            };
+        }
+
+        return {
+            name: 'Conditional Activation',
+            status: 'pass',
+            message: `Module loaded (${VALID_EMOTIONS.length} emotions, ${VALID_GENERATION_TYPES.length} gen types)`,
+            category: 'configuration'
+        };
+    } catch (error) {
+        return {
+            name: 'Conditional Activation',
+            status: 'fail',
+            message: `Module error: ${error.message}`,
+            category: 'configuration'
+        };
+    }
+}
+
 // ============================================================================
 // PRODUCTION / INTEGRATION TESTS
 // ============================================================================
@@ -841,7 +895,7 @@ async function testTemporalDecay(settings) {
     }
 
     try {
-        const { applyTemporalDecay } = await import('./temporal-decay.js');
+        const { applyTemporalDecay } = await import('../core/temporal-decay.js');
 
         const testScore = 0.85;
         const testAge = 50;
@@ -876,6 +930,111 @@ async function testTemporalDecay(settings) {
             name: '[PROD] Temporal Decay',
             status: 'fail',
             message: `Decay test error: ${error.message}`,
+            category: 'production'
+        };
+    }
+}
+
+/**
+ * Test: Does conditional activation evaluation work?
+ */
+async function testConditionalActivation() {
+    try {
+        const { evaluateConditions, buildSearchContext, filterChunksByConditions } = await import('../core/conditional-activation.js');
+
+        // Test 1: Build a search context
+        const mockChat = [
+            { mes: 'Hello there!', name: 'User', is_user: true },
+            { mes: 'Hi! How are you?', name: 'Character', is_user: false },
+            { mes: 'I am feeling happy today', name: 'User', is_user: true }
+        ];
+
+        const context = buildSearchContext(mockChat, 10, [], {});
+
+        if (!context.recentMessages || context.recentMessages.length !== 3) {
+            return {
+                name: '[PROD] Conditional Activation',
+                status: 'fail',
+                message: 'buildSearchContext failed to extract messages',
+                category: 'production'
+            };
+        }
+
+        // Test 2: Evaluate conditions on a chunk with no conditions (should pass)
+        const chunkNoConditions = { text: 'test', hash: 12345 };
+        const result1 = evaluateConditions(chunkNoConditions, context);
+
+        if (result1 !== true) {
+            return {
+                name: '[PROD] Conditional Activation',
+                status: 'fail',
+                message: 'Chunk with no conditions should always activate',
+                category: 'production'
+            };
+        }
+
+        // Test 3: Evaluate keyword condition
+        const chunkWithKeyword = {
+            text: 'test',
+            hash: 12346,
+            conditions: {
+                enabled: true,
+                logic: 'AND',
+                rules: [{
+                    type: 'keyword',
+                    settings: { values: ['happy'], matchMode: 'contains', caseSensitive: false }
+                }]
+            }
+        };
+
+        const result2 = evaluateConditions(chunkWithKeyword, context);
+
+        if (result2 !== true) {
+            return {
+                name: '[PROD] Conditional Activation',
+                status: 'fail',
+                message: 'Keyword "happy" should match in context',
+                category: 'production'
+            };
+        }
+
+        // Test 4: Filter chunks
+        const chunks = [chunkNoConditions, chunkWithKeyword];
+        const filtered = filterChunksByConditions(chunks, context);
+
+        if (filtered.length !== 2) {
+            return {
+                name: '[PROD] Conditional Activation',
+                status: 'fail',
+                message: `Expected 2 chunks after filter, got ${filtered.length}`,
+                category: 'production'
+            };
+        }
+
+        // Test 5: Validate a condition rule
+        const validRule = { type: 'keyword', settings: { values: ['test'] } };
+        const validation = validateConditionRule(validRule);
+
+        if (!validation.valid) {
+            return {
+                name: '[PROD] Conditional Activation',
+                status: 'fail',
+                message: `Validation failed for valid rule: ${validation.errors.join(', ')}`,
+                category: 'production'
+            };
+        }
+
+        return {
+            name: '[PROD] Conditional Activation',
+            status: 'pass',
+            message: 'All conditional activation tests passed (context, evaluation, filtering, validation)',
+            category: 'production'
+        };
+    } catch (error) {
+        return {
+            name: '[PROD] Conditional Activation',
+            status: 'fail',
+            message: `Conditional activation test error: ${error.message}`,
             category: 'production'
         };
     }

@@ -9,11 +9,19 @@
  * ============================================================================
  */
 
-import { extension_settings } from '../../../extensions.js';
-import { getContext } from '../../../extensions.js';
-import { characters, substituteParams, getRequestHeaders } from '../../../../script.js';
+import { extension_settings } from '../../../../extensions.js';
+import { getContext } from '../../../../extensions.js';
+import { characters, substituteParams, getRequestHeaders } from '../../../../../script.js';
 import { getSavedHashes, queryCollection } from './core-vector-api.js';
-import { getStringHash } from '../../../utils.js';
+import { getStringHash } from '../../../../utils.js';
+import {
+    isCollectionEnabled,
+    setCollectionEnabled,
+    getChunkMetadata,
+    saveChunkMetadata,
+    deleteChunkMetadata,
+    ensureCollectionMeta,
+} from './collection-metadata.js';
 
 // Plugin detection state
 let pluginAvailable = null;
@@ -34,6 +42,10 @@ export function getCollectionRegistry() {
  * @param {string} collectionId Collection identifier
  */
 export function registerCollection(collectionId) {
+    if (!collectionId) {
+        console.warn('VectHare: Attempted to register null/undefined collectionId, skipping');
+        return;
+    }
     const registry = getCollectionRegistry();
     if (!registry.includes(collectionId)) {
         registry.push(collectionId);
@@ -60,6 +72,12 @@ export function unregisterCollection(collectionId) {
  * @returns {object} Parsed collection info
  */
 function parseCollectionId(collectionId) {
+    // Guard against null/undefined
+    if (!collectionId) {
+        console.warn('VectHare: parseCollectionId received null/undefined collectionId');
+        return { type: 'unknown', rawId: 'unknown', scope: 'unknown' };
+    }
+
     // Expected formats:
     // - vecthare_chat_12345
     // - file_67890
@@ -241,8 +259,8 @@ async function discoverViaPlugin(settings) {
                 console.log(`VectHare:   - ${collection.id} (${collection.backend}, ${collection.source}, ${collection.chunkCount} chunks)`);
             }
 
-            // Register all discovered collections
-            const collectionIds = data.collections.map(c => c.id);
+            // Register all discovered collections (filter out null/undefined IDs)
+            const collectionIds = data.collections.map(c => c.id).filter(id => id != null);
             for (const collectionId of collectionIds) {
                 registerCollection(collectionId);
             }
@@ -330,7 +348,7 @@ export async function loadAllCollections(settings, autoDiscover = true) {
         await discoverExistingCollections(settings);
     }
 
-    const registry = getCollectionRegistry();
+    const registry = getCollectionRegistry().filter(id => id != null);
     const collections = [];
     const hasPlugin = pluginAvailable === true;
 
@@ -367,9 +385,11 @@ export async function loadAllCollections(settings, autoDiscover = true) {
             const displayName = getCollectionDisplayName(collectionId, metadata);
             console.log(`VectHare:   Display name: ${displayName}`);
 
-            // Check if enabled (default: true)
-            const enabledKey = `vecthare_collection_enabled_${collectionId}`;
-            const enabled = extension_settings.vecthare[enabledKey] !== false;
+            // Check if enabled using new metadata system
+            const enabled = isCollectionEnabled(collectionId);
+
+            // Ensure collection has metadata entry
+            ensureCollectionMeta(collectionId, { scope: metadata.scope });
 
             // Get source and backend from plugin cache (if available)
             // Try both the original ID and the sanitized version (for LanceDB)
@@ -409,26 +429,8 @@ export async function loadAllCollections(settings, autoDiscover = true) {
     return collections;
 }
 
-/**
- * Toggles collection enabled state
- * @param {string} collectionId Collection identifier
- * @param {boolean} enabled New enabled state
- */
-export function setCollectionEnabled(collectionId, enabled) {
-    const enabledKey = `vecthare_collection_enabled_${collectionId}`;
-    extension_settings.vecthare[enabledKey] = enabled;
-    console.log(`VectHare: Collection ${collectionId} ${enabled ? 'enabled' : 'disabled'}`);
-}
-
-/**
- * Gets collection enabled state
- * @param {string} collectionId Collection identifier
- * @returns {boolean} Whether collection is enabled
- */
-export function isCollectionEnabled(collectionId) {
-    const enabledKey = `vecthare_collection_enabled_${collectionId}`;
-    return extension_settings.vecthare[enabledKey] !== false;
-}
+// Re-export from collection-metadata.js for backwards compatibility
+export { setCollectionEnabled, isCollectionEnabled } from './collection-metadata.js';
 
 /**
  * Loads chunks for a specific collection
@@ -494,51 +496,5 @@ export async function loadCollectionChunks(collectionId, settings) {
     return chunks;
 }
 
-/**
- * Gets chunk metadata (importance, keywords, etc.)
- * @param {number} hash Chunk hash
- * @returns {object} Chunk metadata
- */
-export function getChunkMetadata(hash) {
-    if (!extension_settings.vecthare.vecthare_chunk_metadata) {
-        extension_settings.vecthare.vecthare_chunk_metadata = {};
-    }
-
-    return extension_settings.vecthare.vecthare_chunk_metadata[hash] || {
-        importance: 100,
-        keywords: [],
-        groups: [],
-        conditions: null,
-        scene: null,
-        lastModified: null
-    };
-}
-
-/**
- * Saves chunk metadata
- * @param {number} hash Chunk hash
- * @param {object} metadata Metadata to save
- */
-export function saveChunkMetadata(hash, metadata) {
-    if (!extension_settings.vecthare.vecthare_chunk_metadata) {
-        extension_settings.vecthare.vecthare_chunk_metadata = {};
-    }
-
-    extension_settings.vecthare.vecthare_chunk_metadata[hash] = {
-        ...metadata,
-        lastModified: Date.now()
-    };
-
-    console.log(`VectHare: Saved metadata for chunk ${hash}`);
-}
-
-/**
- * Deletes chunk metadata
- * @param {number} hash Chunk hash
- */
-export function deleteChunkMetadata(hash) {
-    if (extension_settings.vecthare.vecthare_chunk_metadata) {
-        delete extension_settings.vecthare.vecthare_chunk_metadata[hash];
-        console.log(`VectHare: Deleted metadata for chunk ${hash}`);
-    }
-}
+// Re-export chunk metadata functions from collection-metadata.js for backwards compatibility
+export { getChunkMetadata, saveChunkMetadata, deleteChunkMetadata } from './collection-metadata.js';

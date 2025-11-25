@@ -9,9 +9,9 @@
  * ============================================================================
  */
 
-import { getCurrentChatId, is_send_press, setExtensionPrompt, substituteParams } from '../../../../script.js';
-import { getContext } from '../../../extensions.js';
-import { getStringHash as calculateHash, waitUntilCondition, onlyUnique, splitRecursive } from '../../../utils.js';
+import { getCurrentChatId, is_send_press, setExtensionPrompt, substituteParams } from '../../../../../script.js';
+import { getContext } from '../../../../extensions.js';
+import { getStringHash as calculateHash, waitUntilCondition, onlyUnique, splitRecursive } from '../../../../utils.js';
 import {
     getSavedHashes,
     insertVectorItems,
@@ -21,7 +21,7 @@ import {
 } from './core-vector-api.js';
 import { applyDecayToResults } from './temporal-decay.js';
 import { registerCollection } from './collection-loader.js';
-import { progressTracker } from './progress-tracker.js';
+import { progressTracker } from '../ui/progress-tracker.js';
 
 const EXTENSION_PROMPT_TAG = '3_vecthare';
 

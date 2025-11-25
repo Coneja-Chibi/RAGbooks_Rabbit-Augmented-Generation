@@ -7,6 +7,10 @@
  * @version 2.0.0-alpha
  * ============================================================================ */
 
+/* Import additional stylesheets */
+@import url('./styles/sleek-ui.css');
+@import url('./styles/progress-indicator.css');
+
 :root {
     --vecthare-primary: #6366f1;
     --vecthare-primary-bright: #818cf8;

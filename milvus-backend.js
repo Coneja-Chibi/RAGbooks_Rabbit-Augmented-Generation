@@ -136,7 +136,7 @@ class MilvusBackend {
                     }
 
                     // Load collection
-                    await this.client.loadCollectionSync({
+                    await this.client.loadCollection({
                         collection_name: collectionName
                     });
                     return;
@@ -214,7 +214,7 @@ class MilvusBackend {
             });
 
             // Load collection
-            await this.client.loadCollectionSync({
+            await this.client.loadCollection({
                 collection_name: collectionName
             });
 
@@ -263,15 +263,15 @@ class MilvusBackend {
         }));
 
         try {
-            await this.client.insert({
+            const res = await this.client.insert({
                 collection_name: mainCollection,
                 data: data
             });
             
-            // Flush to ensure data is persisted and visible in stats/Attu immediately
-            await this.client.flushSync({ collection_names: [mainCollection] });
+            // Explicitly flush to ensure data is visible immediately (crucial for Attu/Search visibility)
+            await this.client.flush({ collection_names: [mainCollection] });
             
-            console.log(`[Milvus] Inserted ${items.length} items into ${mainCollection}`);
+            console.log(`[Milvus] Inserted ${items.length} items into ${mainCollection} (status: ${res.status.error_code})`);
         } catch (error) {
             console.error('[Milvus] Insert failed:', error.message);
             throw error;
@@ -326,7 +326,7 @@ class MilvusBackend {
 
         try {
             // Need to verify collection is loaded
-            await this.client.loadCollectionSync({ collection_name: mainCollection });
+            await this.client.loadCollection({ collection_name: mainCollection });
 
             const results = await this.client.search({
                 collection_name: mainCollection,
@@ -359,7 +359,7 @@ class MilvusBackend {
         const filterExpr = this._buildFilterExpr(filters) || 'hash > 0'; // Always need an expression for query
 
         try {
-            await this.client.loadCollectionSync({ collection_name: mainCollection });
+            await this.client.loadCollection({ collection_name: mainCollection });
 
             const output_fields = ['hash', 'text', 'metadata'];
             if (options.includeVectors) output_fields.push('vector');

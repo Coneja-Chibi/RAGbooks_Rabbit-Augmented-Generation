@@ -2,14 +2,23 @@
  * ============================================================================
  * VECTHARE KEYWORD SYSTEM
  * ============================================================================
- * Simple keyword extraction and boosting for vector search.
+ * Keyword extraction and boosting for vector search.
  *
  * For lorebooks: uses the entry's trigger keys
  * For other content: extracts capitalized words (names, places)
  *
- * @version 3.1.0
+ * BOOST MATH (Additive):
+ * Each keyword has a weight (e.g., 1.5x, 2.0x, 3.0x).
+ * The boost above 1.0 is added together:
+ *   - "magic" (1.5x) + "divine" (2.0x) = 1 + 0.5 + 1.0 = 2.5x total boost
+ *   - This prevents exponential explosion while respecting individual weights
+ *
+ * @version 3.2.0
  * ============================================================================
  */
+
+/** Default weight for keywords without explicit weight */
+const DEFAULT_KEYWORD_WEIGHT = 1.5;
 
 /**
  * Extract keywords from a lorebook entry
@@ -63,47 +72,80 @@ export function extractTextKeywords(text) {
 }
 
 /**
+ * Normalize a keyword to { text, weight } format
+ * Handles both string and object formats
+ * @param {string|object} kw - Keyword (string or { text, weight })
+ * @returns {{ text: string, weight: number }}
+ */
+function normalizeKeyword(kw) {
+    if (typeof kw === 'string') {
+        return { text: kw.toLowerCase(), weight: DEFAULT_KEYWORD_WEIGHT };
+    }
+    if (kw && typeof kw === 'object' && kw.text) {
+        return {
+            text: kw.text.toLowerCase(),
+            weight: typeof kw.weight === 'number' ? kw.weight : DEFAULT_KEYWORD_WEIGHT
+        };
+    }
+    return null;
+}
+
+/**
  * Check if query contains a keyword
- * @param {string} query - Search query
- * @param {string} keyword - Keyword to check
+ * @param {string} query - Search query (lowercased)
+ * @param {string} keyword - Keyword to check (lowercased)
  * @returns {boolean}
  */
 function queryHasKeyword(query, keyword) {
     if (!query || !keyword) return false;
-    return query.toLowerCase().includes(keyword.toLowerCase());
+    return query.includes(keyword);
 }
 
 /**
  * Apply keyword boost to search results
- * If query contains a chunk's keyword, boost its score
+ * Uses ADDITIVE math: boost = 1 + sum(weight - 1) for each matched keyword
+ *
+ * Examples:
+ *   - Match "magic" (1.5x): boost = 1 + 0.5 = 1.5x
+ *   - Match "magic" (1.5x) + "divine" (2.0x): boost = 1 + 0.5 + 1.0 = 2.5x
+ *   - Match 7 keywords at 1.5x each: boost = 1 + (0.5 × 7) = 4.5x
  *
  * @param {Array} results - Search results [{text, score, keywords, ...}]
  * @param {string} query - The search query
- * @param {number} boostFactor - Multiplier for matched keywords (default 1.5)
  * @returns {Array} Results with boosted scores, sorted by score desc
  */
-export function applyKeywordBoost(results, query, boostFactor = 1.5) {
+export function applyKeywordBoost(results, query) {
     if (!results || !Array.isArray(results) || !query) return results;
 
-    const boosted = results.map(result => {
-        const keywords = result.keywords || result.metadata?.keywords || [];
-        let boost = 1.0;
-        const matchedKeywords = [];
+    const queryLower = query.toLowerCase();
 
-        for (const kw of keywords) {
-            if (queryHasKeyword(query, kw)) {
-                boost *= boostFactor;
-                matchedKeywords.push(kw);
+    const boosted = results.map(result => {
+        const rawKeywords = result.keywords || result.metadata?.keywords || [];
+        const matchedKeywords = [];
+        let boostSum = 0;
+
+        for (const kw of rawKeywords) {
+            const normalized = normalizeKeyword(kw);
+            if (!normalized) continue;
+
+            if (queryHasKeyword(queryLower, normalized.text)) {
+                matchedKeywords.push(normalized);
+                // Additive: add the boost portion (weight - 1.0)
+                boostSum += (normalized.weight - 1.0);
             }
         }
+
+        // Final boost: 1.0 + sum of all matched boosts
+        const boost = 1.0 + boostSum;
 
         return {
             ...result,
             score: result.score * boost,
             originalScore: result.score,
             keywordBoost: boost,
-            matchedKeywords,
-            keywordBoosted: boost > 1.0,
+            matchedKeywords: matchedKeywords.map(k => k.text),
+            matchedKeywordsWithWeights: matchedKeywords,
+            keywordBoosted: matchedKeywords.length > 0,
         };
     });
 
@@ -130,10 +172,9 @@ export function getOverfetchAmount(topK) {
  * @param {Array} results - Search results
  * @param {string} query - Search query
  * @param {number} topK - Number of results to return
- * @param {number} boostFactor - Boost multiplier (default 1.5)
  * @returns {Array} Boosted and trimmed results
  */
-export function applyKeywordBoosts(results, query, topK, boostFactor = 1.5) {
-    const boosted = applyKeywordBoost(results, query, boostFactor);
+export function applyKeywordBoosts(results, query, topK) {
+    const boosted = applyKeywordBoost(results, query);
     return boosted.slice(0, topK);
 }

@@ -60,8 +60,6 @@ export function createDebugData() {
         trace: [],
         // Per-chunk tracking - what happened to each chunk
         chunkFates: {},
-        // Injection-specific failures
-        injectionFailures: [],
         stats: {
             totalInCollection: 0,
             retrievedFromVector: 0,
@@ -69,6 +67,7 @@ export function createDebugData() {
             afterDecay: 0,
             afterConditions: 0,
             actuallyInjected: 0,
+            skippedDuplicates: 0,
             tokensBudget: 0,
             tokensUsed: 0
         }
@@ -373,6 +372,9 @@ function renderStageChunks(chunks, stageName, data) {
                </span>`
             : '';
 
+        // Build score breakdown showing the math
+        const scoreBreakdown = buildScoreBreakdown(chunk);
+
         // Check if this chunk was excluded in later stages
         const wasExcluded = getExclusionStatus(chunk, stageName, data);
 
@@ -384,6 +386,7 @@ function renderStageChunks(chunks, stageName, data) {
                     ${decayInfo}
                     ${wasExcluded ? `<span class="vecthare-debug-excluded-badge">${wasExcluded}</span>` : ''}
                 </div>
+                ${scoreBreakdown}
                 <div class="vecthare-debug-chunk-text">${escapeHtml(textPreview)}</div>
                 <div class="vecthare-debug-chunk-meta">
                     <span>Hash: ${chunk.hash}</span>
@@ -420,6 +423,72 @@ function getExclusionStatus(chunk, currentStage, data) {
     }
 
     return null;
+}
+
+/**
+ * Builds a score breakdown showing the math behind the final score
+ * Shows: vectorScore × keywordBoost × decayMultiplier = finalScore
+ */
+function buildScoreBreakdown(chunk) {
+    // Get the original vector similarity score (before any boosts)
+    const vectorScore = chunk.originalScore ?? chunk.score;
+    const keywordBoost = chunk.keywordBoost ?? 1.0;
+    const decayMultiplier = chunk.decayMultiplier ?? 1.0;
+    const finalScore = chunk.score;
+
+    // Only show breakdown if there's something to break down
+    const hasKeywordBoost = keywordBoost && keywordBoost !== 1.0;
+    const hasDecay = chunk.decayApplied && decayMultiplier !== 1.0;
+
+    if (!hasKeywordBoost && !hasDecay && vectorScore === finalScore) {
+        // No modifications, just show vector score
+        return `<div class="vecthare-debug-score-breakdown">
+            <span class="vecthare-score-math">Vector: ${vectorScore?.toFixed(3) || 'N/A'}</span>
+        </div>`;
+    }
+
+    // Build the math equation
+    let mathParts = [];
+    mathParts.push(`<span class="vecthare-score-vector">${vectorScore?.toFixed(3) || '?'}</span>`);
+
+    if (hasKeywordBoost) {
+        // Show keyword breakdown with weights if available
+        let boostTitle = 'Keyword boost';
+        if (chunk.matchedKeywordsWithWeights?.length > 0) {
+            const kwDetails = chunk.matchedKeywordsWithWeights.map(k =>
+                `${k.text}: +${((k.weight - 1) * 100).toFixed(0)}%`
+            ).join(', ');
+            boostTitle = `Additive boost: ${kwDetails}`;
+        } else if (chunk.matchedKeywords?.length > 0) {
+            boostTitle = `Matched: ${chunk.matchedKeywords.join(', ')}`;
+        }
+        mathParts.push(`<span class="vecthare-score-operator">×</span>`);
+        mathParts.push(`<span class="vecthare-score-boost" title="${boostTitle}">${keywordBoost.toFixed(2)}x</span>`);
+    }
+
+    if (hasDecay) {
+        mathParts.push(`<span class="vecthare-score-operator">×</span>`);
+        mathParts.push(`<span class="vecthare-score-decay" title="Age: ${chunk.messageAge || '?'} msgs">${decayMultiplier.toFixed(2)}↓</span>`);
+    }
+
+    mathParts.push(`<span class="vecthare-score-operator">=</span>`);
+    mathParts.push(`<span class="vecthare-score-final">${finalScore?.toFixed(3) || '?'}</span>`);
+
+    // Add keyword matches with weights if present
+    let keywordInfo = '';
+    if (chunk.matchedKeywordsWithWeights?.length > 0) {
+        const kwStr = chunk.matchedKeywordsWithWeights.map(k =>
+            k.weight !== 1.5 ? `${k.text} (${k.weight}x)` : k.text
+        ).join(', ');
+        keywordInfo = `<div class="vecthare-score-keywords">Keywords: ${kwStr}</div>`;
+    } else if (chunk.matchedKeywords?.length > 0) {
+        keywordInfo = `<div class="vecthare-score-keywords">Keywords: ${chunk.matchedKeywords.join(', ')}</div>`;
+    }
+
+    return `<div class="vecthare-debug-score-breakdown">
+        <div class="vecthare-score-math">${mathParts.join(' ')}</div>
+        ${keywordInfo}
+    </div>`;
 }
 
 /**
@@ -688,23 +757,19 @@ function diagnosePipeline(data) {
         });
     }
 
-    // Step 5: Final Injection - use detailed failure data if available
+    // Step 5: Final Injection
     const injected = data.stages.injected;
     const injectedCount = injected.length;
-    const injectionFailures = data.injectionFailures || [];
-    const protect = data.settings.protect || 0;
-    const chatLength = data.settings.chatLength || 0;
 
     // Find chunks that passed conditions but weren't injected
     const notInjected = afterConditions.filter(chunk => {
         return !injected.some(ic => ic.hash === chunk.hash);
     });
 
-    if (injectedCount === 0 && afterConditionsCount > 0) {
-        // Analyze the specific failure reasons from tracked data
-        const protectedFailures = injectionFailures.filter(f => f.reason === 'protected');
-        const notFoundFailures = injectionFailures.filter(f => f.reason === 'not_found');
+    // Get skipped duplicates count from stats
+    const skippedDuplicates = data.stats?.skippedDuplicates || 0;
 
+    if (injectedCount === 0 && afterConditionsCount > 0) {
         if (topK === 0) {
             diagnosis.push({
                 label: 'Injection',
@@ -713,57 +778,32 @@ function diagnosePipeline(data) {
                 isCause: true,
                 isOk: false
             });
-        } else if (protectedFailures.length > 0 && protectedFailures.length >= notInjected.length) {
-            // ALL/most chunks were in protected range
+        } else if (skippedDuplicates > 0 && skippedDuplicates >= afterConditionsCount) {
+            // All chunks were already in context - this is actually fine, not a failure
             diagnosis.push({
                 label: 'Injection',
-                detail: `All ${afterConditionsCount} matching chunks are within your protected message range (last ${protect} of ${chatLength} messages).`,
-                fix: `Your "Protect recent messages" is set to ${protect}, but all relevant matches are recent messages. Either lower protection to ${Math.max(0, protect - 5)} or send more messages to push older content outside the protected range.`,
-                isCause: true,
-                isOk: false
-            });
-        } else if (protectedFailures.length > 0 && notFoundFailures.length > 0) {
-            // Mix of protected and not found
-            diagnosis.push({
-                label: 'Injection',
-                detail: `${protectedFailures.length} chunks blocked by message protection (last ${protect} messages). ${notFoundFailures.length} chunks had hash mismatches.`,
-                fix: `${protectedFailures.length} relevant chunks are too recent (protected). ${notFoundFailures.length} chunks couldn't be found in chat - messages may have been edited. Try "Purge & Re-vectorize" in Database Browser.`,
-                isCause: true,
-                isOk: false
-            });
-        } else if (notFoundFailures.length > 0) {
-            // Chunks not found - hash mismatch
-            diagnosis.push({
-                label: 'Injection',
-                detail: `${notFoundFailures.length} chunks passed all filters but their hashes don't match any current chat messages.`,
-                fix: `Messages were likely edited or deleted after vectorization. Open Database Browser → select this chat → click "Purge & Re-vectorize" to rebuild the vector index.`,
-                isCause: true,
-                isOk: false
+                detail: `All ${afterConditionsCount} retrieved chunks are already in current chat context.`,
+                fix: `This is normal! The relevant content is already in your recent messages, so no injection was needed. RAG will inject when older/forgotten content becomes relevant.`,
+                isCause: false,
+                isOk: true
             });
         } else {
-            // No specific failure reason tracked - this is likely a bug
+            // No specific failure reason tracked - this shouldn't happen
             diagnosis.push({
                 label: 'Injection',
-                detail: `${afterConditionsCount} chunks passed all filters but none were injected. No specific failure reason was recorded.`,
-                fix: `This appears to be a bug in VectHare. Please report this: Open DevTools (F12) → Console, copy any VectHare errors, and report at the VectHare GitHub issues page.`,
+                detail: `${afterConditionsCount} chunks passed all filters but none were injected. No specific reason was recorded.`,
+                fix: `This may be a bug. Open DevTools (F12) → Console tab, look for "VectHare" errors, and report the issue with console output.`,
                 isCause: true,
                 isOk: false
             });
         }
     } else if (notInjected.length > 0) {
         // Some chunks not injected - explain why
-        const protectedCount = injectionFailures.filter(f => f.reason === 'protected').length;
-        const notFoundCount = injectionFailures.filter(f => f.reason === 'not_found').length;
-
-        let reason = `hit Top K limit (${topK})`;
-        if (protectedCount > 0 || notFoundCount > 0) {
-            const reasons = [];
-            if (protectedCount > 0) reasons.push(`${protectedCount} protected`);
-            if (notFoundCount > 0) reasons.push(`${notFoundCount} hash mismatch`);
-            const remaining = notInjected.length - protectedCount - notFoundCount;
-            if (remaining > 0) reasons.push(`${remaining} hit Top K`);
-            reason = reasons.join(', ');
-        }
+        const reasons = [];
+        if (skippedDuplicates > 0) reasons.push(`${skippedDuplicates} already in context`);
+        const hitTopK = notInjected.length - skippedDuplicates;
+        if (hitTopK > 0) reasons.push(`${hitTopK} hit Top K limit`);
+        const reason = reasons.length > 0 ? reasons.join(', ') : `hit Top K limit (${topK})`;
 
         diagnosis.push({
             label: 'Injection',
@@ -1080,16 +1120,11 @@ function generateDiagnosticDump(data) {
         return `  +${String(ms).padStart(4)}ms [${t.stage.padEnd(12)}] ${t.action}${details ? '\n           ' + details : ''}`;
     });
 
-    // Injection failures - readable
-    const injFailures = (d.injectionFailures || []).map(f => {
-        const hash = String(f.hash).slice(0, 10);
-        if (f.reason === 'protected') {
-            return `  [${hash}] PROTECTED - message #${f.messageIndex} in last ${s.protect} msgs`;
-        } else if (f.reason === 'not_found') {
-            return `  [${hash}] NOT FOUND - hash doesn't match any chat message`;
-        }
-        return `  [${hash}] ${f.reason}: ${f.detail || ''}`;
-    });
+    // Injection info - skipped duplicates (chunks already in context)
+    const skippedCount = d.stats?.skippedDuplicates || 0;
+    const injectionInfo = skippedCount > 0
+        ? `  ${skippedCount} chunks skipped (already in current chat context)`
+        : '  No chunks skipped';
 
     // Build human-readable dump
     const dump = `VECTHARE DEBUG DUMP
@@ -1111,9 +1146,34 @@ PIPELINE RESULTS
   Final Injected: ${st.injected?.length || 0}
 
 INITIAL SCORES (top 10)
-  ${st.initial?.slice(0, 10).map((c, i) => `#${i+1}: ${c.score?.toFixed(3)} [${String(c.hash).slice(0,8)}]`).join('\n  ') || 'none'}
+  ${st.initial?.slice(0, 10).map((c, i) => {
+      const parts = [`#${i+1}: ${c.score?.toFixed(3)}`];
+      if (c.originalScore !== undefined && c.originalScore !== c.score) {
+          parts.push(`(vector: ${c.originalScore?.toFixed(3)}`);
+          if (c.keywordBoost && c.keywordBoost !== 1.0) {
+              parts.push(`× ${c.keywordBoost?.toFixed(2)}x boost`);
+          }
+          if (c.decayMultiplier && c.decayMultiplier !== 1.0) {
+              parts.push(`× ${c.decayMultiplier?.toFixed(2)} decay`);
+          }
+          parts.push(')');
+      }
+      if (c.matchedKeywordsWithWeights?.length > 0) {
+          const kwStr = c.matchedKeywordsWithWeights.map(k =>
+              k.weight !== 1.5 ? `${k.text}(${k.weight}x)` : k.text
+          ).join(', ');
+          parts.push(`[keywords: ${kwStr}]`);
+      } else if (c.matchedKeywords?.length > 0) {
+          parts.push(`[keywords: ${c.matchedKeywords.join(', ')}]`);
+      }
+      parts.push(`[${String(c.hash).slice(0,8)}]`);
+      return parts.join(' ');
+  }).join('\n  ') || 'none'}
 
-${injFailures.length ? `INJECTION FAILURES (${injFailures.length})\n${injFailures.join('\n')}` : 'NO INJECTION FAILURES'}
+INJECTION STATUS
+${injectionInfo}
+  Skipped: ${skippedCount} chunks (already in context)
+  Injected: ${st.injected?.length || 0} chunks
 
 CHUNK FATES
 ${fatesSummary.join('\n\n') || '  none'}
@@ -1121,8 +1181,8 @@ ${fatesSummary.join('\n\n') || '  none'}
 TRACE LOG
 ${traceLines.join('\n') || '  none'}
 
-QUERY (first 300 chars)
-  ${d.query?.slice(0, 300).replace(/\n/g, '\n  ') || 'empty'}${d.query?.length > 300 ? '...' : ''}
+QUERY (full)
+  ${d.query?.replace(/\n/g, '\n  ') || 'empty'}
 ${'='.repeat(50)}`;
 
     return dump;

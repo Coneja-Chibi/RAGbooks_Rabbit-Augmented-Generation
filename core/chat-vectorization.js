@@ -16,13 +16,15 @@ import {
     getSavedHashes,
     insertVectorItems,
     queryCollection,
+    queryActiveCollections,
     deleteVectorItems,
     purgeVectorIndex,
 } from './core-vector-api.js';
 import { isBackendAvailable } from '../backends/backend-manager.js';
 import { applyDecayToResults, applySceneAwareDecay } from './temporal-decay.js';
 import { isChunkDisabledByScene } from './scenes.js';
-import { registerCollection } from './collection-loader.js';
+import { registerCollection, getCollectionRegistry } from './collection-loader.js';
+import { isCollectionEnabled, filterActiveCollections } from './collection-metadata.js';
 import { progressTracker } from '../ui/progress-tracker.js';
 import { buildSearchContext, filterChunksByConditions } from './conditional-activation.js';
 import { getChunkMetadata } from './collection-metadata.js';
@@ -563,7 +565,10 @@ export async function synchronizeChat(settings, batchSize = 5) {
 }
 
 /**
- * Searches for and injects relevant past messages
+ * Searches for and injects relevant past messages from ALL enabled collections
+ * This includes chat collections (if enabled_chats is true) AND any other
+ * enabled collections like lorebooks, documents, character files, etc.
+ *
  * @param {object[]} chat Current chat messages
  * @param {object} settings VectHare settings
  * @param {string} type Generation type
@@ -578,10 +583,6 @@ export async function rearrangeChat(chat, settings, type) {
         // Clear extension prompt
         setExtensionPrompt(EXTENSION_PROMPT_TAG, '', settings.position, settings.depth, false);
 
-        if (!settings.enabled_chats) {
-            return;
-        }
-
         if (!getCurrentChatId() || !Array.isArray(chat)) {
             console.debug('VectHare: No chat selected');
             return;
@@ -592,12 +593,51 @@ export async function rearrangeChat(chat, settings, type) {
             return;
         }
 
-        // Build proper collection ID using chat UUID
-        const collectionId = getChatCollectionId();
-        if (!collectionId) {
-            console.debug('VectHare: Could not get collection ID');
+        // =====================================================================
+        // MULTI-COLLECTION QUERY: Query ALL enabled collections, not just chat
+        // =====================================================================
+        // 1. Get the chat collection ID (if chat vectorization is enabled)
+        // 2. Get all other registered collections that are enabled
+        // 3. Filter by activation conditions (triggers, etc.)
+        // 4. Query all active collections and merge results
+        // =====================================================================
+
+        const chatCollectionId = getChatCollectionId();
+        const collectionsToQuery = [];
+
+        // Include chat collection if enabled_chats is true AND we have a valid collection ID
+        if (settings.enabled_chats && chatCollectionId) {
+            collectionsToQuery.push(chatCollectionId);
+        }
+
+        // Get all other registered collections that are enabled
+        const registry = getCollectionRegistry();
+        for (const registryKey of registry) {
+            // Parse registry key (format: "source:collectionId" or just "collectionId")
+            let collectionId = registryKey;
+            if (registryKey.includes(':')) {
+                const colonIndex = registryKey.indexOf(':');
+                collectionId = registryKey.substring(colonIndex + 1);
+            }
+
+            // Skip if this is the current chat collection (already handled above)
+            if (collectionId === chatCollectionId) {
+                continue;
+            }
+
+            // Check if collection is enabled
+            if (isCollectionEnabled(registryKey)) {
+                collectionsToQuery.push(collectionId);
+            }
+        }
+
+        // If no collections to query, exit early
+        if (collectionsToQuery.length === 0) {
+            console.debug('VectHare: No enabled collections to query');
             return;
         }
+
+        console.log(`VectHare: Will query ${collectionsToQuery.length} collections:`, collectionsToQuery);
 
         // Build query from recent messages
         const recentMessages = chat
@@ -613,10 +653,29 @@ export async function rearrangeChat(chat, settings, type) {
             return;
         }
 
+        // Build search context for activation condition filtering
+        const searchContext = buildSearchContext(chat, settings.query || 10, [], {
+            generationType: type || 'normal',
+            isGroupChat: getContext().groupId != null,
+            currentCharacter: getContext().name2 || null,
+            activeLorebookEntries: []
+        });
+
+        // Filter collections by activation conditions (triggers, alwaysActive, etc.)
+        const activeCollections = await filterActiveCollections(collectionsToQuery, searchContext);
+
+        if (activeCollections.length === 0) {
+            console.debug('VectHare: No collections passed activation conditions');
+            return;
+        }
+
+        console.log(`VectHare: ${activeCollections.length} collections passed activation filters:`, activeCollections);
+
         // Initialize debug data for tracking pipeline stages
         const debugData = createDebugData();
         debugData.query = queryText;
-        debugData.collectionId = collectionId;
+        debugData.collectionId = activeCollections.join(', '); // Show all queried collections
+        debugData.collectionsQueried = activeCollections;
         debugData.settings = {
             threshold: settings.score_threshold,
             topK: settings.insert,
@@ -627,66 +686,106 @@ export async function rearrangeChat(chat, settings, type) {
 
         // TRACE: Pipeline start
         addTrace(debugData, 'init', 'Pipeline started', {
-            collectionId: collectionId,
+            collectionsQueried: activeCollections,
             queryLength: queryText.length,
             threshold: settings.score_threshold,
             topK: settings.insert,
             protect: settings.protect
         });
 
-        // Query vector collection
-        let queryResults = await queryCollection(collectionId, queryText, settings.insert, settings);
+        // Query all active collections and merge results
+        let chunksForVisualizer = [];
 
-        // TRACE: Vector query results
-        addTrace(debugData, 'vector_search', 'Vector query completed', {
-            hashesReturned: queryResults.hashes.length,
-            hashes: queryResults.hashes.slice(0, 10), // First 10 for debugging
-            scores: queryResults.metadata.slice(0, 10).map(m => m.score)
-        });
+        for (const collectionId of activeCollections) {
+            try {
+                const queryResults = await queryCollection(collectionId, queryText, settings.insert, settings);
 
-        console.log(`VectHare: Retrieved ${queryResults.hashes.length} relevant chunks`);
+                // TRACE: Vector query results for this collection with score breakdown
+                addTrace(debugData, 'vector_search', `Query completed for ${collectionId}`, {
+                    hashesReturned: queryResults.hashes.length,
+                    hashes: queryResults.hashes.slice(0, 5),
+                    scoreBreakdown: queryResults.metadata.slice(0, 5).map(m => ({
+                        finalScore: m.score?.toFixed(3),
+                        originalScore: m.originalScore?.toFixed(3),
+                        keywordBoost: m.keywordBoost?.toFixed(2) || '1.00',
+                        matchedKeywords: m.matchedKeywords || [],
+                        keywordBoosted: m.keywordBoosted || false
+                    }))
+                });
 
-        // Build chunks with text for visualizer
-        // Text is stored in metadata from the vector DB, use that first
-        // Fall back to looking up from chat if not present (legacy data)
-        let chunksForVisualizer = queryResults.metadata.map((meta, idx) => {
-            const hash = queryResults.hashes[idx];
+                console.log(`VectHare: Retrieved ${queryResults.hashes.length} chunks from ${collectionId}`);
 
-            // Prefer text from metadata (stored in vector DB)
-            let text = meta.text;
-            let textSource = 'metadata';
+                // Build chunks with text for visualizer
+                // Text is stored in metadata from the vector DB, use that first
+                // Fall back to looking up from chat if not present (legacy data)
+                const collectionChunks = queryResults.metadata.map((meta, idx) => {
+                    const hash = queryResults.hashes[idx];
 
-            // Fallback: try to find in chat messages if not in metadata
-            if (!text) {
-                const chatMessage = chat.find(msg =>
-                    msg.mes && getStringHash(substituteParams(getTextWithoutAttachments(msg))) === hash
-                );
-                text = chatMessage ? substituteParams(chatMessage.mes) : '(text not found)';
-                textSource = chatMessage ? 'chat_lookup' : 'not_found';
+                    // Prefer text from metadata (stored in vector DB)
+                    let text = meta.text;
+                    let textSource = 'metadata';
+
+                    // Fallback: try to find in chat messages if not in metadata
+                    if (!text) {
+                        const chatMessage = chat.find(msg =>
+                            msg.mes && getStringHash(substituteParams(getTextWithoutAttachments(msg))) === hash
+                        );
+                        text = chatMessage ? substituteParams(chatMessage.mes) : '(text not found)';
+                        textSource = chatMessage ? 'chat_lookup' : 'not_found';
+                    }
+
+                    // TRACE: Record initial chunk state with full score breakdown
+                    recordChunkFate(debugData, hash, 'vector_search', 'passed', null, {
+                        finalScore: meta.score || 1.0,
+                        originalScore: meta.originalScore,
+                        keywordBoost: meta.keywordBoost,
+                        matchedKeywords: meta.matchedKeywords,
+                        textSource,
+                        textLength: text?.length || 0,
+                        collectionId
+                    });
+
+                    return {
+                        hash: hash,
+                        metadata: meta,
+                        score: meta.score || 1.0,
+                        originalScore: meta.originalScore,
+                        keywordBoost: meta.keywordBoost,
+                        matchedKeywords: meta.matchedKeywords,
+                        matchedKeywordsWithWeights: meta.matchedKeywordsWithWeights,
+                        keywordBoosted: meta.keywordBoosted,
+                        similarity: meta.score || 1.0,
+                        text: text,
+                        index: meta.messageId || meta.index || 0,
+                        collectionId: collectionId,
+                        decayApplied: false
+                    };
+                });
+
+                chunksForVisualizer.push(...collectionChunks);
+            } catch (error) {
+                console.warn(`VectHare: Failed to query collection ${collectionId}:`, error.message);
+                addTrace(debugData, 'vector_search', `Query failed for ${collectionId}`, {
+                    error: error.message
+                });
             }
+        }
 
-            // TRACE: Record initial chunk state
-            recordChunkFate(debugData, hash, 'vector_search', 'passed', null, {
-                score: meta.score || 1.0,
-                textSource,
-                textLength: text?.length || 0
-            });
+        // Sort merged results by score (descending) and limit to topK
+        chunksForVisualizer.sort((a, b) => b.score - a.score);
+        chunksForVisualizer = chunksForVisualizer.slice(0, settings.insert);
 
-            return {
-                hash: hash,
-                metadata: meta,
-                score: meta.score || 1.0,
-                similarity: meta.score || 1.0,
-                text: text,
-                index: meta.messageId || meta.index || 0,
-                collectionId: collectionId,
-                decayApplied: false
-            };
-        });
+        console.log(`VectHare: Retrieved ${chunksForVisualizer.length} total chunks from ${activeCollections.length} collections`);
 
         // Store initial stage (raw vector search results)
         debugData.stages.initial = [...chunksForVisualizer];
         debugData.stats.retrievedFromVector = chunksForVisualizer.length;
+
+        // Initialize queryResults for use in later stages
+        let queryResults = {
+            hashes: chunksForVisualizer.map(c => c.hash),
+            metadata: chunksForVisualizer.map(c => c.metadata)
+        };
 
         // Apply BananaBread reranking if enabled
         if (settings.source === 'bananabread' && settings.bananabread_rerank && chunksForVisualizer.length > 0) {
@@ -915,182 +1014,90 @@ export async function rearrangeChat(chat, settings, type) {
         console.log(`VectHare: Stored ${chunksForVisualizer.length} chunks for visualizer`);
 
         // TRACE: Start injection phase
-        addTrace(debugData, 'injection', 'Starting message lookup and injection', {
-            hashesToFind: queryResults.hashes.length,
-            protectRange: settings.protect,
+        addTrace(debugData, 'injection', 'Starting deduplication and injection', {
+            chunksToInject: chunksForVisualizer.length,
             chatLength: chat.length
         });
 
-        // For grouped strategies, extract individual message hashes from metadata
-        // For per_message strategy, use chunk hashes directly
-        const queryHashes = [];
-        for (const chunk of chunksForVisualizer) {
-            const messageHashes = chunk.metadata?.messageHashes;
-            if (messageHashes && Array.isArray(messageHashes)) {
-                // Grouped strategy - use stored individual message hashes
-                queryHashes.push(...messageHashes);
-            } else {
-                // Fallback - use chunk hash (works for per_message or legacy data)
-                queryHashes.push(chunk.hash);
-            }
-        }
-        const uniqueQueryHashes = queryHashes.filter(onlyUnique);
-
-        const queriedMessages = [];
-        const insertedHashes = new Set();
-        const retainMessages = chat.slice(-settings.protect);
-
-        // TRACE: Build hash map of all chat messages for debugging
-        const chatHashMap = {};
-        chat.forEach((msg, idx) => {
+        // Build set of hashes currently in chat context (to skip duplicates)
+        const currentChatHashes = new Set();
+        chat.forEach((msg) => {
             if (msg.mes) {
                 const hash = getStringHash(substituteParams(getTextWithoutAttachments(msg)));
-                chatHashMap[hash] = { index: idx, preview: msg.mes.substring(0, 50) };
+                currentChatHashes.add(hash);
             }
         });
-        addTrace(debugData, 'injection', 'Chat hashes computed', {
-            totalMessages: chat.length,
-            hashesComputed: Object.keys(chatHashMap).length,
-            lookingFor: uniqueQueryHashes.map(h => String(h)),
-            existingHashes: Object.keys(chatHashMap).slice(0, 20)
-        });
 
-        // Track injection failures for debug
-        const injectionFailures = [];
+        // Filter chunks: SKIP if already in current chat context, INJECT if not
+        // This is the core RAG logic: inject OLD things that are NOT already in context
+        const chunksToInject = [];
+        const skippedDuplicates = [];
 
-        // Find original messages by hash
-        for (const message of chat) {
-            if (!message.mes) {
-                continue;
-            }
-            const hash = getStringHash(substituteParams(getTextWithoutAttachments(message)));
-
-            // Check if this hash is one we're looking for
-            if (uniqueQueryHashes.includes(hash)) {
-                // Check if it's in protected range
-                if (retainMessages.includes(message)) {
-                    const msgIndex = chat.indexOf(message);
-                    injectionFailures.push({
-                        hash: hash,
-                        reason: 'protected',
-                        detail: `Message #${msgIndex} is within protected range (last ${settings.protect} of ${chat.length} messages)`,
-                        messageIndex: msgIndex
-                    });
-                    // TRACE: Record protected message
-                    recordChunkFate(debugData, hash, 'injection', 'dropped',
-                        `Protected: message #${msgIndex} is in last ${settings.protect} messages`,
-                        { messageIndex: msgIndex, protectRange: settings.protect }
-                    );
-                    continue;
-                }
-
-                // Check if already inserted (duplicate)
-                if (insertedHashes.has(hash)) {
-                    continue; // Already handled, not a failure
-                }
-
-                queriedMessages.push(message);
-                insertedHashes.add(hash);
-
-                // TRACE: Record successful message lookup
-                recordChunkFate(debugData, hash, 'injection', 'passed', 'Message found in chat', {
-                    messageIndex: chat.indexOf(message)
-                });
-            }
-        }
-
-        // Check for hashes that weren't found in chat at all
-        for (const hash of uniqueQueryHashes) {
-            if (!insertedHashes.has(hash) && !injectionFailures.some(f => f.hash === hash)) {
-                const hashStr = String(hash);
-                injectionFailures.push({
-                    hash: hash,
-                    reason: 'not_found',
-                    detail: `Hash ${hashStr.substring(0, 8)}... not found in any of ${chat.length} chat messages`
-                });
-                // TRACE: Record hash mismatch
-                recordChunkFate(debugData, hash, 'injection', 'dropped',
-                    `Hash not found in chat - message edited/deleted after vectorization`,
-                    { searchedMessages: chat.length }
+        for (const chunk of chunksForVisualizer) {
+            // Check if this chunk's hash is already in current chat context
+            if (currentChatHashes.has(chunk.hash)) {
+                // Already in context - skip to avoid duplication
+                skippedDuplicates.push(chunk);
+                recordChunkFate(debugData, chunk.hash, 'injection', 'skipped',
+                    'Already in current chat context - no injection needed',
+                    { score: chunk.score }
+                );
+            } else {
+                // NOT in context - this is what RAG is for, inject it!
+                chunksToInject.push(chunk);
+                recordChunkFate(debugData, chunk.hash, 'injection', 'passed',
+                    'Not in current context - will inject',
+                    { score: chunk.score, collectionId: chunk.collectionId }
                 );
             }
         }
 
-        // Store injection failures in debug data
-        debugData.injectionFailures = injectionFailures;
-
-        addTrace(debugData, 'injection', 'Message lookup completed', {
-            hashesSearched: uniqueQueryHashes.length,
-            messagesFound: queriedMessages.length,
-            protected: injectionFailures.filter(f => f.reason === 'protected').length,
-            notFound: injectionFailures.filter(f => f.reason === 'not_found').length
+        addTrace(debugData, 'injection', 'Deduplication complete', {
+            totalChunks: chunksForVisualizer.length,
+            toInject: chunksToInject.length,
+            skippedDuplicates: skippedDuplicates.length
         });
 
-        // Sort by relevance
-        queriedMessages.sort((a, b) =>
-            uniqueQueryHashes.indexOf(getStringHash(substituteParams(getTextWithoutAttachments(b)))) -
-            uniqueQueryHashes.indexOf(getStringHash(substituteParams(getTextWithoutAttachments(a))))
-        );
-
-        // Remove queried messages from original array
-        for (const message of queriedMessages) {
-            const idx = chat.indexOf(message);
-            if (idx !== -1) {
-                chat.splice(idx, 1);
-            }
-        }
-
-        if (queriedMessages.length === 0) {
-            console.debug('VectHare: No relevant messages found');
-            // Still save debug data even if nothing was injected
+        if (chunksToInject.length === 0) {
+            console.debug('VectHare: All retrieved chunks already in context, nothing to inject');
             debugData.stages.injected = [];
             debugData.stats.actuallyInjected = 0;
+            debugData.stats.skippedDuplicates = skippedDuplicates.length;
 
-            addTrace(debugData, 'injection', 'PIPELINE COMPLETE - NO INJECTION', {
-                reason: 'No messages passed all filters',
-                failures: injectionFailures.length,
-                protectedCount: injectionFailures.filter(f => f.reason === 'protected').length,
-                notFoundCount: injectionFailures.filter(f => f.reason === 'not_found').length
+            addTrace(debugData, 'injection', 'PIPELINE COMPLETE - NO INJECTION NEEDED', {
+                reason: 'All chunks already in current context',
+                skippedCount: skippedDuplicates.length
             });
 
             setLastSearchDebug(debugData);
             return;
         }
 
-        // Format and inject
-        const queriedText = queriedMessages
-            .map(x => `${x.name}: ${x.mes}`.trim())
+        // Format chunks for injection using chunk.text (already populated from metadata or lookup)
+        const injectionText = chunksToInject
+            .map(chunk => chunk.text || '(text not available)')
             .join('\n\n');
 
-        const insertedText = settings.template.replace('{{text}}', queriedText);
+        const insertedText = settings.template.replace('{{text}}', injectionText);
         setExtensionPrompt(EXTENSION_PROMPT_TAG, insertedText, settings.position, settings.depth, false);
 
-        // Store injected stage - map messages back to chunk data
-        const injectedChunks = queriedMessages.map(msg => {
-            const hash = getStringHash(substituteParams(getTextWithoutAttachments(msg)));
-            const matchingChunk = chunksForVisualizer.find(c => c.hash === hash);
-
-            // TRACE: Mark chunk as successfully injected
-            recordChunkFate(debugData, hash, 'final', 'injected', null, {
-                messageIndex: chat.indexOf(msg),
-                score: matchingChunk?.score
+        // Store injected chunks for debug/visualizer
+        chunksToInject.forEach(chunk => {
+            recordChunkFate(debugData, chunk.hash, 'final', 'injected', null, {
+                score: chunk.score,
+                collectionId: chunk.collectionId
             });
+        });
 
-            return matchingChunk || {
-                hash: hash,
-                text: msg.mes,
-                score: 0,
-                index: chat.indexOf(msg)
-            };
-        }).filter(Boolean);
-
-        debugData.stages.injected = injectedChunks;
-        debugData.stats.actuallyInjected = injectedChunks.length;
+        debugData.stages.injected = chunksToInject;
+        debugData.stats.actuallyInjected = chunksToInject.length;
+        debugData.stats.skippedDuplicates = skippedDuplicates.length;
 
         // TRACE: Pipeline complete with successful injection
         addTrace(debugData, 'final', 'PIPELINE COMPLETE - SUCCESS', {
-            injectedCount: injectedChunks.length,
-            injectedHashes: injectedChunks.map(c => c.hash),
+            injectedCount: chunksToInject.length,
+            skippedDuplicates: skippedDuplicates.length,
+            injectedHashes: chunksToInject.map(c => c.hash),
             totalTokens: insertedText.length, // Rough estimate
             position: settings.position,
             depth: settings.depth
@@ -1099,7 +1106,7 @@ export async function rearrangeChat(chat, settings, type) {
         // Save debug data for the Search Debug modal
         setLastSearchDebug(debugData);
 
-        console.log(`VectHare: ✅ Injected ${queriedMessages.length} relevant past messages`);
+        console.log(`VectHare: ✅ Injected ${chunksToInject.length} chunks (${skippedDuplicates.length} skipped - already in context)`);
 
     } catch (error) {
         toastr.error('Generation interceptor aborted. Check console for details.', 'VectHare');

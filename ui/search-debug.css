@@ -854,6 +854,69 @@
  * MOBILE RESPONSIVE
  * ============================================================================ */
 
+/* ============================================================================
+ * SCORE BREAKDOWN
+ * ============================================================================ */
+
+.vecthare-debug-score-breakdown {
+    margin: 6px 0 10px 0;
+    padding: 8px 10px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
+    border-radius: 6px;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    font-size: 0.8em;
+}
+
+.vecthare-score-math {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.vecthare-score-vector {
+    color: var(--vecthare-primary);
+    font-weight: 600;
+}
+
+.vecthare-score-operator {
+    color: #6b7280;
+    font-weight: 400;
+}
+
+.vecthare-score-boost {
+    color: #10b981;
+    font-weight: 600;
+    padding: 1px 6px;
+    background: color-mix(in srgb, #10b981 15%, transparent);
+    border-radius: 4px;
+}
+
+.vecthare-score-decay {
+    color: #f59e0b;
+    font-weight: 600;
+    padding: 1px 6px;
+    background: color-mix(in srgb, #f59e0b 15%, transparent);
+    border-radius: 4px;
+}
+
+.vecthare-score-final {
+    color: var(--SmartThemeBodyColor);
+    font-weight: 700;
+    font-size: 1.1em;
+}
+
+.vecthare-score-keywords {
+    margin-top: 6px;
+    font-size: 0.9em;
+    color: #10b981;
+    opacity: 0.9;
+}
+
+/* ============================================================================
+ * MOBILE RESPONSIVE
+ * ============================================================================ */
+
 @media (max-width: 768px) {
     .vecthare-search-debug-content {
         position: fixed !important;

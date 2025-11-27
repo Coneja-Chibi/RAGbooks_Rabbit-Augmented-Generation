@@ -13,26 +13,71 @@ import { getCurrentChatId, chat_metadata } from '../../../../../script.js';
 import { getSavedHashes } from '../core/core-vector-api.js';
 import { getChatCollectionId, getChatUUID, parseCollectionId } from '../core/chat-vectorization.js';
 import { VALID_EMOTIONS, VALID_GENERATION_TYPES, validateConditionRule } from '../core/conditional-activation.js';
-import { getTemporallyBlindCount, getTemporallyBlindChunks, isChunkTemporallyBlind } from '../core/collection-metadata.js';
+import { getTemporallyBlindCount, getTemporallyBlindChunks, isChunkTemporallyBlind, isCollectionEnabled } from '../core/collection-metadata.js';
+import { getCollectionRegistry } from '../core/collection-loader.js';
 
 /**
- * Check: Chat vectorization enabled
+ * Check: RAG Query Status
+ * Checks if there are ANY enabled collections (chat or otherwise)
+ * that can be queried during generation.
  */
 export function checkChatEnabled(settings) {
-    if (!settings.enabled_chats) {
+    const chatEnabled = settings.enabled_chats;
+    const chatCollectionId = getChatCollectionId();
+
+    // Count other enabled collections (not the current chat)
+    const registry = getCollectionRegistry();
+    let otherEnabledCount = 0;
+    const otherEnabledNames = [];
+
+    for (const registryKey of registry) {
+        // Parse registry key to get collection ID
+        let collectionId = registryKey;
+        if (registryKey.includes(':')) {
+            collectionId = registryKey.substring(registryKey.indexOf(':') + 1);
+        }
+
+        // Skip current chat collection (handled separately)
+        if (collectionId === chatCollectionId) {
+            continue;
+        }
+
+        if (isCollectionEnabled(registryKey)) {
+            otherEnabledCount++;
+            if (otherEnabledNames.length < 3) {
+                otherEnabledNames.push(collectionId.substring(0, 20));
+            }
+        }
+    }
+
+    const hasAnyEnabled = chatEnabled || otherEnabledCount > 0;
+
+    if (!hasAnyEnabled) {
         return {
-            name: 'Chat Vectorization',
+            name: 'RAG Query Status',
             status: 'warning',
-            message: 'Chat vectorization is disabled',
+            message: 'No collections enabled for querying. Enable chat vectorization or enable other collections in the Database Browser.',
             fixable: true,
             fixAction: 'enable_chats'
         };
     }
 
+    // Build status message
+    const parts = [];
+    if (chatEnabled) {
+        parts.push('Chat: enabled');
+    }
+    if (otherEnabledCount > 0) {
+        const names = otherEnabledNames.length < otherEnabledCount
+            ? `${otherEnabledNames.join(', ')}... (+${otherEnabledCount - otherEnabledNames.length} more)`
+            : otherEnabledNames.join(', ');
+        parts.push(`Other collections: ${otherEnabledCount} enabled`);
+    }
+
     return {
-        name: 'Chat Vectorization',
+        name: 'RAG Query Status',
         status: 'pass',
-        message: 'Chat vectorization enabled'
+        message: parts.join(' | ')
     };
 }
 

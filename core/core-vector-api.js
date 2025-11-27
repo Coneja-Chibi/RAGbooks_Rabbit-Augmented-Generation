@@ -432,6 +432,7 @@ export async function queryCollection(collectionId, searchText, topK, settings) 
             originalScore: r.originalScore,
             keywordBoost: r.keywordBoost,
             matchedKeywords: r.matchedKeywords,
+            matchedKeywordsWithWeights: r.matchedKeywordsWithWeights,
             keywordBoosted: r.keywordBoosted
         }))
     };

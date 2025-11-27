@@ -14,8 +14,7 @@ import { getContentType, getContentTypeDefaults, hasFeature } from './content-ty
 import { chunkText } from './chunking.js';
 import { insertVectorItems, purgeVectorIndex } from './core-vector-api.js';
 import { setCollectionMeta, getDefaultDecayForType } from './collection-metadata.js';
-import { extractLorebookKeywords, extractTextKeywords } from './keyword-boost.js';
-import { extractSuggestedKeywords } from './keyword-learner.js';
+import { extractLorebookKeywords, extractTextKeywords, EXTRACTION_LEVELS, DEFAULT_EXTRACTION_LEVEL, DEFAULT_BASE_WEIGHT } from './keyword-boost.js';
 import { progressTracker } from '../ui/progress-tracker.js';
 import { extension_settings, getContext } from '../../../../extensions.js';
 import { getStringHash } from '../../../../utils.js';
@@ -610,50 +609,80 @@ function generateCollectionId(contentType, source, settings) {
 
 /**
  * Enriches chunks with metadata and keywords
+ * @param {Array} chunks - Array of chunk strings or objects
+ * @param {string} contentType - Type of content
+ * @param {object} source - Source info
+ * @param {object} settings - Vectorization settings including keyword options
+ * @param {object} preparedContent - Prepared content data
  */
 function enrichChunks(chunks, contentType, source, settings, preparedContent) {
+    // Get keyword extraction settings
+    const keywordLevel = settings.keywordLevel || 'balanced';
+    const keywordBaseWeight = settings.keywordBaseWeight || 1.5;
+
     return chunks.map((chunk, index) => {
         const chunkText = typeof chunk === 'string' ? chunk : chunk.text;
-        let keywords = [];
-        let learnedKeywords = [];
+        let keywords = []; // Will hold {text, weight} objects
         let entryName = null;
         let entryUid = null;
 
         // For lorebooks with per_entry, get keywords from the entry
         if (contentType === 'lorebook' && preparedContent.entries?.[index]) {
             const entry = preparedContent.entries[index];
-            // Get explicit trigger keys
-            keywords = extractLorebookKeywords(entry);
             entryName = entry.comment || entry.name || entry.key?.[0] || 'Entry';
             entryUid = entry.uid;
-            // Also get learned keywords from word frequency within this entry
-            learnedKeywords = extractSuggestedKeywords(entry.content || chunkText, 3);
+
+            // Get explicit trigger keys (these are manually set, so use base weight)
+            const triggerKeys = extractLorebookKeywords(entry);
+            keywords = triggerKeys.map(k => ({ text: k, weight: keywordBaseWeight }));
+
+            // Also get auto-extracted keywords with frequency-based weights
+            if (keywordLevel !== 'off') {
+                const autoKeywords = extractTextKeywords(entry.content || chunkText, {
+                    level: keywordLevel,
+                    baseWeight: keywordBaseWeight,
+                });
+                keywords = keywords.concat(autoKeywords);
+            }
         } else {
-            // For other content, extract from text
-            keywords = extractTextKeywords(chunkText);
-            // Also add learned keywords from word frequency
-            learnedKeywords = extractSuggestedKeywords(chunkText, 3);
+            // For other content, extract from text with level settings
+            if (keywordLevel !== 'off') {
+                keywords = extractTextKeywords(chunkText, {
+                    level: keywordLevel,
+                    baseWeight: keywordBaseWeight,
+                });
+            }
         }
 
-        // Add character name as keyword
+        // Add character name as keyword with higher weight (it's the main subject)
         if (contentType === 'character' && preparedContent.character?.name) {
-            keywords.push(preparedContent.character.name.toLowerCase());
+            keywords.push({
+                text: preparedContent.character.name.toLowerCase(),
+                weight: keywordBaseWeight + 0.5, // Character name gets bonus weight
+            });
         }
 
-        // Combine keywords, deduplicating
-        const allKeywords = [...new Set([...keywords, ...learnedKeywords])];
+        // Deduplicate keywords (keep highest weight for duplicates)
+        const keywordMap = new Map();
+        for (const kw of keywords) {
+            const existing = keywordMap.get(kw.text);
+            if (!existing || kw.weight > existing.weight) {
+                keywordMap.set(kw.text, kw);
+            }
+        }
+        const dedupedKeywords = Array.from(keywordMap.values());
 
         return {
             text: chunkText,
             index: index,
-            keywords: allKeywords,
+            keywords: dedupedKeywords,
             metadata: {
                 contentType,
                 sourceName: source.name || source.filename || 'Unknown',
                 entryName,
                 entryUid,
-                triggerKeys: keywords, // Store original trigger keys separately
-                learnedKeywords: learnedKeywords, // Store learned keywords separately
+                keywordLevel,
+                keywordBaseWeight,
                 ...(chunk.metadata || {}),
             },
         };

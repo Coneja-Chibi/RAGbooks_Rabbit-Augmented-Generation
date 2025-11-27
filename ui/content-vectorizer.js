@@ -742,21 +742,43 @@ function updateOptionsSection(type) {
         html += renderFieldSelection();
     }
 
-    // Auto-keywords option
+    // Keyword extraction settings
     html += `
-        <div class="vecthare-cv-option-row">
-            <label class="vecthare-cv-toggle-label">
-                <span>Auto-extract Keywords</span>
-                <label class="vecthare-toggle-switch">
-                    <input type="checkbox" id="vecthare_cv_auto_keywords"
-                           ${currentSettings.autoKeywords ? 'checked' : ''}>
-                    <span class="vecthare-toggle-slider"></span>
-                </label>
-            </label>
+        <div class="vecthare-cv-option-row vecthare-cv-keyword-settings">
+            <div class="vecthare-cv-keyword-header">
+                <span>Keyword Extraction</span>
+            </div>
+            <div class="vecthare-cv-keyword-controls">
+                <div class="vecthare-cv-keyword-level">
+                    <label for="vecthare_cv_keyword_level">Level:</label>
+                    <select id="vecthare_cv_keyword_level" class="vecthare-select">
+                        <option value="off" ${currentSettings.keywordLevel === 'off' ? 'selected' : ''}>
+                            Off - Manual only
+                        </option>
+                        <option value="minimal" ${currentSettings.keywordLevel === 'minimal' ? 'selected' : ''}>
+                            Minimal - Title only (3 max)
+                        </option>
+                        <option value="balanced" ${currentSettings.keywordLevel === 'balanced' || !currentSettings.keywordLevel ? 'selected' : ''}>
+                            Balanced - Header area (8 max)
+                        </option>
+                        <option value="aggressive" ${currentSettings.keywordLevel === 'aggressive' ? 'selected' : ''}>
+                            Aggressive - Full text (15 max)
+                        </option>
+                    </select>
+                </div>
+                <div class="vecthare-cv-keyword-weight">
+                    <label for="vecthare_cv_keyword_weight">Base Weight:</label>
+                    <input type="number" id="vecthare_cv_keyword_weight"
+                           min="1.0" max="3.0" step="0.1"
+                           value="${currentSettings.keywordBaseWeight || 1.5}"
+                           class="vecthare-number-input">
+                    <span class="vecthare-cv-weight-hint">×</span>
+                </div>
+            </div>
             <span class="vecthare-cv-option-hint">
-                ${type.id === 'lorebook' ? 'Use WI entry keys as keywords' :
-                  type.id === 'character' ? 'Extract character name and traits' :
-                  'Extract key terms from text'}
+                ${type.id === 'lorebook'
+                    ? 'WI trigger keys always included. Auto-extraction adds more based on text frequency.'
+                    : 'Higher frequency words get higher weights. Base weight applies to all extracted keywords.'}
             </span>
         </div>
     `;
@@ -980,9 +1002,16 @@ function bindEvents() {
         $(this).closest('.vecthare-cv-scope-option').addClass('selected');
     });
 
-    // Auto-keywords toggle
-    $(document).on('change', '#vecthare_cv_auto_keywords', function() {
-        currentSettings.autoKeywords = $(this).prop('checked');
+    // Keyword level dropdown
+    $(document).on('change', '#vecthare_cv_keyword_level', function() {
+        currentSettings.keywordLevel = $(this).val();
+    });
+
+    // Keyword base weight
+    $(document).on('change', '#vecthare_cv_keyword_weight', function() {
+        const value = parseFloat($(this).val());
+        currentSettings.keywordBaseWeight = isNaN(value) ? 1.5 : Math.min(3.0, Math.max(1.0, value));
+        $(this).val(currentSettings.keywordBaseWeight);
     });
 
     // Preview button

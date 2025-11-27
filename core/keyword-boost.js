@@ -4,21 +4,70 @@
  * ============================================================================
  * Keyword extraction and boosting for vector search.
  *
- * For lorebooks: uses the entry's trigger keys
- * For other content: extracts capitalized words (names, places)
+ * EXTRACTION LEVELS:
+ *   - off: No auto-extraction, only manual/WI trigger keys
+ *   - minimal: Title only (first line), max 3 keywords
+ *   - balanced: Header area (first 300 chars), max 8 keywords
+ *   - aggressive: Full text scan, max 15 keywords
+ *
+ * FREQUENCY-BASED WEIGHTING:
+ *   Words that appear more often get higher weights.
+ *   Formula: baseWeight + (frequency - minFreq) * 0.1
+ *   Example: base 1.5x, word appears 5x (min 2) → 1.5 + (5-2)*0.1 = 1.8x
  *
  * BOOST MATH (Additive):
- * Each keyword has a weight (e.g., 1.5x, 2.0x, 3.0x).
- * The boost above 1.0 is added together:
- *   - "magic" (1.5x) + "divine" (2.0x) = 1 + 0.5 + 1.0 = 2.5x total boost
- *   - This prevents exponential explosion while respecting individual weights
+ *   Each keyword has a weight (e.g., 1.5x, 2.0x, 3.0x).
+ *   The boost above 1.0 is added together:
+ *     - "magic" (1.5x) + "divine" (2.0x) = 1 + 0.5 + 1.0 = 2.5x total boost
  *
- * @version 3.2.0
+ * @version 4.0.0
  * ============================================================================
  */
 
-/** Default weight for keywords without explicit weight */
-const DEFAULT_KEYWORD_WEIGHT = 1.5;
+/** Extraction level configurations */
+export const EXTRACTION_LEVELS = {
+    off: {
+        label: 'Off',
+        description: 'No auto-extraction, only WI trigger keys',
+        enabled: false,
+    },
+    minimal: {
+        label: 'Minimal',
+        description: 'Title/first line only, max 3 keywords',
+        enabled: true,
+        headerSize: 100,
+        minFrequency: 1,
+        maxKeywords: 3,
+    },
+    balanced: {
+        label: 'Balanced',
+        description: 'Header area focus, max 8 keywords',
+        enabled: true,
+        headerSize: 300,
+        minFrequency: 2,
+        maxKeywords: 8,
+    },
+    aggressive: {
+        label: 'Aggressive',
+        description: 'Full text scan, max 15 keywords',
+        enabled: true,
+        headerSize: null, // null = full text
+        minFrequency: 3,
+        maxKeywords: 15,
+    },
+};
+
+/** Default extraction level */
+export const DEFAULT_EXTRACTION_LEVEL = 'balanced';
+
+/** Default base weight for keywords */
+export const DEFAULT_BASE_WEIGHT = 1.5;
+
+/** Weight increment per frequency count above minimum */
+const FREQUENCY_WEIGHT_INCREMENT = 0.1;
+
+/** Maximum weight cap (prevent runaway weights) */
+const MAX_KEYWORD_WEIGHT = 3.0;
 
 /**
  * Extract keywords from a lorebook entry
@@ -67,80 +116,126 @@ const KEYWORD_STOP_WORDS = new Set([
     // Very common words
     'the', 'how', 'does', 'your', 'what', 'when', 'where', 'why', 'who',
     'fix', 'new', 'old', 'year', 'years', 'day', 'days',
+    // Common RP/chat terms
+    'character', 'characters', 'would', 'could', 'should', 'will',
+    'have', 'has', 'had', 'been', 'being', 'were', 'was', 'are',
+    'this', 'that', 'these', 'those', 'with', 'from', 'into',
+    'their', 'they', 'them', 'there', 'then', 'than', 'when',
+    'which', 'while', 'where', 'about', 'after', 'before',
 ]);
 
 /**
- * Extract keywords from plain text
+ * Extract keywords from plain text with configurable extraction level
  *
- * Strategy: Focus on the TITLE/HEADER area (first ~200 chars) which describes
- * what the content is ABOUT. Ignore example citations in parentheses/italics.
+ * Returns keywords with frequency-based weights.
+ * Higher frequency = higher weight (capped at MAX_KEYWORD_WEIGHT)
  *
  * @param {string} text - Text to extract from
- * @returns {string[]} Array of keywords
+ * @param {object} options - Extraction options
+ * @param {string} options.level - Extraction level: 'off', 'minimal', 'balanced', 'aggressive'
+ * @param {number} options.baseWeight - Base weight for keywords (default 1.5)
+ * @returns {Array<{text: string, weight: number}>} Array of weighted keywords
  */
-export function extractTextKeywords(text) {
+export function extractTextKeywords(text, options = {}) {
     if (!text || typeof text !== 'string') return [];
 
-    const keywords = [];
+    const level = options.level || DEFAULT_EXTRACTION_LEVEL;
+    const baseWeight = options.baseWeight || DEFAULT_BASE_WEIGHT;
+    const config = EXTRACTION_LEVELS[level];
 
-    // Step 1: Remove example citations (text in parentheses like "(Doctor Who)" or "(Pokemon)")
-    // These are usually franchise/source citations, not the topic
-    let cleanedText = text.replace(/\([^)]+\)/g, ' ');
-
-    // Step 2: Remove italicized example names (text between asterisks like "*The Doctor*")
-    // These are usually example character names
-    cleanedText = cleanedText.replace(/\*[^*]+\*/g, ' ');
-
-    // Step 3: Focus heavily on the title/header area (first 300 chars)
-    // This is where the actual TOPIC is described
-    const headerArea = cleanedText.substring(0, 300);
-
-    // Step 4: Extract lowercase words from header (the actual topic words)
-    // Words like "time", "divine", "god", "temporal" - not proper nouns
-    const topicWords = headerArea.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
-
-    // Count topic word frequency in header
-    const topicCounts = new Map();
-    for (const word of topicWords) {
-        if (KEYWORD_STOP_WORDS.has(word)) continue;
-        topicCounts.set(word, (topicCounts.get(word) || 0) + 1);
+    // If extraction is disabled, return empty
+    if (!config || !config.enabled) {
+        return [];
     }
 
-    // Add words that appear 2+ times in header (likely the main topic)
-    for (const [word, count] of topicCounts) {
-        if (count >= 2) {
-            keywords.push(word);
+    // Step 1: Clean text - remove example citations and italics
+    let cleanedText = text.replace(/\([^)]+\)/g, ' '); // Remove (parenthetical citations)
+    cleanedText = cleanedText.replace(/\*[^*]+\*/g, ' '); // Remove *italicized examples*
+
+    // Step 2: Determine scan area based on level
+    const scanArea = config.headerSize
+        ? cleanedText.substring(0, config.headerSize)
+        : cleanedText;
+
+    // Step 3: Extract and count words
+    const topicWords = scanArea.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+    const wordCounts = new Map();
+
+    for (const word of topicWords) {
+        if (KEYWORD_STOP_WORDS.has(word)) continue;
+        wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
+    }
+
+    // Step 4: Filter by minimum frequency and build weighted keywords
+    const weightedKeywords = [];
+
+    for (const [word, count] of wordCounts) {
+        if (count >= config.minFrequency) {
+            // Calculate weight based on frequency
+            // More occurrences = higher weight
+            const frequencyBonus = (count - config.minFrequency) * FREQUENCY_WEIGHT_INCREMENT;
+            const weight = Math.min(MAX_KEYWORD_WEIGHT, baseWeight + frequencyBonus);
+
+            weightedKeywords.push({ text: word, weight, frequency: count });
         }
     }
 
-    // Step 5: Also check for domain-specific compound terms in header
-    // Like "time_god", "divine/time", etc.
-    const compoundMatches = headerArea.match(/\b\w+[/_]\w+\b/gi) || [];
+    // Step 5: Extract compound terms (e.g., "divine/time", "time_god")
+    const compoundMatches = scanArea.match(/\b\w+[/_]\w+\b/gi) || [];
     for (const compound of compoundMatches) {
         const normalized = compound.toLowerCase().replace(/[/_]/g, '_');
         if (normalized.length >= 4) {
-            keywords.push(normalized);
+            // Compound terms get a slight weight bonus
+            weightedKeywords.push({
+                text: normalized,
+                weight: Math.min(MAX_KEYWORD_WEIGHT, baseWeight + 0.2),
+                frequency: 1,
+            });
         }
     }
 
-    // Dedupe and limit
-    return [...new Set(keywords)].slice(0, 8);
+    // Step 6: Sort by weight (highest first), dedupe, and limit
+    const seen = new Set();
+    const result = [];
+
+    weightedKeywords.sort((a, b) => b.weight - a.weight);
+
+    for (const kw of weightedKeywords) {
+        if (!seen.has(kw.text)) {
+            seen.add(kw.text);
+            result.push(kw);
+            if (result.length >= config.maxKeywords) break;
+        }
+    }
+
+    return result;
+}
+
+/**
+ * Simple string array version for backwards compatibility
+ * @param {string} text - Text to extract from
+ * @param {object} options - Extraction options
+ * @returns {string[]} Array of keyword strings
+ */
+export function extractTextKeywordsSimple(text, options = {}) {
+    return extractTextKeywords(text, options).map(kw => kw.text);
 }
 
 /**
  * Normalize a keyword to { text, weight } format
  * Handles both string and object formats
  * @param {string|object} kw - Keyword (string or { text, weight })
+ * @param {number} defaultWeight - Default weight for string keywords
  * @returns {{ text: string, weight: number }}
  */
-function normalizeKeyword(kw) {
+function normalizeKeyword(kw, defaultWeight = DEFAULT_BASE_WEIGHT) {
     if (typeof kw === 'string') {
-        return { text: kw.toLowerCase(), weight: DEFAULT_KEYWORD_WEIGHT };
+        return { text: kw.toLowerCase(), weight: defaultWeight };
     }
     if (kw && typeof kw === 'object' && kw.text) {
         return {
             text: kw.text.toLowerCase(),
-            weight: typeof kw.weight === 'number' ? kw.weight : DEFAULT_KEYWORD_WEIGHT
+            weight: typeof kw.weight === 'number' ? kw.weight : defaultWeight
         };
     }
     return null;

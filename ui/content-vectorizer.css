@@ -668,6 +668,55 @@
     opacity: 0.6;
 }
 
+/* Keyword Settings */
+.vecthare-cv-keyword-settings {
+    background: color-mix(in srgb, var(--vecthare-primary) 5%, transparent);
+    border-radius: 8px;
+    padding: 12px !important;
+    margin: 4px 0;
+}
+
+.vecthare-cv-keyword-header {
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: var(--vecthare-primary);
+}
+
+.vecthare-cv-keyword-controls {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.vecthare-cv-keyword-level,
+.vecthare-cv-keyword-weight {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.vecthare-cv-keyword-level label,
+.vecthare-cv-keyword-weight label {
+    font-size: 0.85em;
+    opacity: 0.8;
+    white-space: nowrap;
+}
+
+.vecthare-cv-keyword-level select {
+    min-width: 180px;
+}
+
+.vecthare-cv-keyword-weight input {
+    width: 60px;
+    text-align: center;
+}
+
+.vecthare-cv-weight-hint {
+    font-size: 0.9em;
+    opacity: 0.6;
+}
+
 /* Scope Selection */
 .vecthare-cv-scope-select {
     padding-bottom: 16px;

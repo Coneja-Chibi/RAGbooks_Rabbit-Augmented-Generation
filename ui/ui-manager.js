@@ -818,25 +818,31 @@ function bindSettingsEvents(settings, callbacks) {
                     return;
                 }
 
-                // Check if collection exists
+                // Check if collection exists and has vectors
                 const collectionId = getChatCollectionId();
-                if (collectionId) {
-                    try {
-                        const existingHashes = await getSavedHashes(collectionId, settings);
-                        if (existingHashes.length === 0) {
-                            // No vectors yet - open vectorizer panel
-                            $(this).prop('checked', false); // Don't enable yet
-                            toastr.info('Set up your chat vectorization first');
-                            openContentVectorizer('chat');
-                            return;
-                        }
-                    } catch (e) {
-                        // Collection doesn't exist - open vectorizer panel
-                        $(this).prop('checked', false);
+                if (!collectionId) {
+                    // No collection yet - open vectorizer panel to set it up
+                    $(this).prop('checked', false);
+                    toastr.info('Set up your chat vectorization first');
+                    openContentVectorizer('chat');
+                    return;
+                }
+
+                try {
+                    const existingHashes = await getSavedHashes(collectionId, settings);
+                    if (existingHashes.length === 0) {
+                        // No vectors yet - open vectorizer panel
+                        $(this).prop('checked', false); // Don't enable yet
                         toastr.info('Set up your chat vectorization first');
                         openContentVectorizer('chat');
                         return;
                     }
+                } catch (e) {
+                    // Collection doesn't exist or error - open vectorizer panel
+                    $(this).prop('checked', false);
+                    toastr.info('Set up your chat vectorization first');
+                    openContentVectorizer('chat');
+                    return;
                 }
             }
 

@@ -1569,8 +1569,8 @@ function bindEvents() {
         renderChunkList();
     });
 
-    // Chunk selection
-    $(document).on('click', '.vecthare-chunk-item', function(e) {
+    // Chunk selection - bind to container, not document (because modal stops propagation)
+    $('#vecthare_visualizer_modal').on('click', '.vecthare-chunk-item', function(e) {
         e.preventDefault();
         e.stopPropagation();
         const uid = $(this).attr('data-uid');
@@ -1592,7 +1592,7 @@ function bindEvents() {
     });
 
     // Load more
-    $(document).on('click', '#vecthare_load_more', function() {
+    $('#vecthare_visualizer_modal').on('click', '#vecthare_load_more', function() {
         displayLimit += 50;
         renderChunkList();
     });

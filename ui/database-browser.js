@@ -1498,7 +1498,7 @@ function closeActivationEditor() {
 function createActivationEditorModal() {
     const modalHtml = `
         <div id="vecthare_activation_editor_modal" class="vecthare-modal">
-            <div class="vecthare-modal-content vecthare-activation-editor popup">
+            <div class="vecthare-activation-editor">
                 <div class="vecthare-modal-header">
                     <h3>⚙️ Collection Settings</h3>
                     <button class="vecthare-btn-icon" id="vecthare_activation_close">✕</button>

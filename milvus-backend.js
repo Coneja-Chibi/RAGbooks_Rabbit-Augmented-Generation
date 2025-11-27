@@ -26,7 +26,7 @@ class MilvusBackend {
         this.baseParams = { metric_type: 'COSINE', index_type: 'IVF_FLAT', params: { nlist: 1024 } };
         this.isConnected = false;
         this.config = {
-            address: 'localhost:19530',
+            address: '127.0.0.1:19530',
             token: '', // API token or user:password
             ssl: false,
         };

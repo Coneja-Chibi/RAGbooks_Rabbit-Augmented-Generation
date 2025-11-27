@@ -44,6 +44,14 @@ import { world_names, loadWorldInfo } from '../../../../world-info.js';
 import { icons } from './icons.js';
 import { openVisualizer } from './chunk-visualizer.js';
 import { queryCollection } from '../core/core-vector-api.js';
+import {
+    exportCollection,
+    importCollection,
+    downloadExport,
+    readImportFile,
+    validateImportData,
+    getExportInfo,
+} from '../core/collection-export.js';
 
 // Browser state
 let browserState = {
@@ -174,10 +182,17 @@ function createBrowserModal() {
                         <!-- Stats Footer -->
                         <div class="vecthare-browser-stats">
                             <span id="vecthare_browser_stats_text">No collections</span>
-                            <button id="vecthare_reset_registry" class="vecthare-reset-btn" title="Clear registry and rescan from disk">
-                                <i class="fa-solid fa-arrows-rotate"></i> Resync
-                            </button>
+                            <div class="vecthare-browser-actions">
+                                <button id="vecthare_import_collection" class="vecthare-btn-sm" title="Import collection from file">
+                                    📥 Import
+                                </button>
+                                <button id="vecthare_reset_registry" class="vecthare-reset-btn" title="Clear registry and rescan from disk">
+                                    <i class="fa-solid fa-arrows-rotate"></i> Resync
+                                </button>
+                            </div>
                         </div>
+                        <!-- Hidden file input for import -->
+                        <input type="file" id="vecthare_import_file" accept=".json,.vecthare.json" style="display: none;">
                     </div>
 
                     <!-- Other tabs (Phase 2+) -->
@@ -284,6 +299,81 @@ function bindBrowserEvents() {
 
         if (e.key === 'Escape') {
             closeDatabaseBrowser();
+        }
+    });
+
+    // Import button
+    $('#vecthare_import_collection').on('click', function(e) {
+        e.stopPropagation();
+        $('#vecthare_import_file').click();
+    });
+
+    // Import file handler
+    $('#vecthare_import_file').on('change', async function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // Reset input so same file can be selected again
+        $(this).val('');
+
+        try {
+            toastr.info('Reading import file...', 'VectHare');
+
+            const data = await readImportFile(file);
+            const info = getExportInfo(data);
+            const validation = validateImportData(data, browserState.settings);
+
+            // Show import confirmation dialog
+            let message = `Import "${info.collections[0]?.name || 'collection'}"?\n\n`;
+            message += `• ${info.totalChunks} chunks\n`;
+            message += `• ${info.totalChunksWithVectors} with vectors\n`;
+
+            if (info.embedding) {
+                message += `\nEmbedding: ${info.embedding.source}/${info.embedding.model || 'default'}\n`;
+                message += `Dimension: ${info.embedding.dimension || 'unknown'}\n`;
+            }
+
+            if (validation.warnings.length > 0) {
+                message += `\n⚠️ Warnings:\n`;
+                validation.warnings.forEach(w => {
+                    message += `• ${w}\n`;
+                });
+            }
+
+            if (!validation.compatible && info.totalChunksWithVectors > 0) {
+                message += `\n⚠️ Your embedding settings don't match.\n`;
+                message += `To use existing vectors, change your settings to:\n`;
+                message += `  Source: ${info.embedding?.source || 'unknown'}\n`;
+                message += `  Model: ${info.embedding?.model || 'default'}\n`;
+                message += `\nOr continue to re-embed with current settings.`;
+            }
+
+            if (!validation.valid) {
+                toastr.error(`Invalid export file:\n${validation.errors.join('\n')}`, 'VectHare Import');
+                return;
+            }
+
+            const confirmed = confirm(message);
+            if (!confirmed) return;
+
+            // Perform import
+            const result = await importCollection(data, browserState.settings, {
+                overwrite: true, // Overwrite if exists
+            });
+
+            if (result.success) {
+                const vectorMsg = result.usedVectors ? '(used existing vectors)' : '(re-embedded)';
+                toastr.success(
+                    `Imported ${result.chunkCount} chunks ${vectorMsg}`,
+                    'VectHare Import'
+                );
+
+                // Refresh collections list
+                await refreshCollections();
+            }
+        } catch (error) {
+            console.error('VectHare: Import failed', error);
+            toastr.error(`Import failed: ${error.message}`, 'VectHare');
         }
     });
 }
@@ -506,6 +596,15 @@ function renderCollectionCard(collection) {
                         title="View and edit chunks in this collection">
                     👁️ View Chunks
                 </button>
+                <button class="vecthare-btn-sm vecthare-action-export"
+                        data-collection-key="${uniqueKey}"
+                        data-collection-id="${collection.id}"
+                        data-backend="${collection.backend}"
+                        data-source="${collection.source || 'transformers'}"
+                        data-model="${collection.model || ''}"
+                        title="Export collection to file (includes vectors)">
+                    📤 Export
+                </button>
                 <button class="vecthare-btn-sm vecthare-btn-danger vecthare-action-delete"
                         data-collection-key="${uniqueKey}">
                     🗑️ Delete
@@ -692,6 +791,39 @@ function bindCollectionCardEvents() {
         } catch (error) {
             console.error('VectHare: Failed to load chunks', error);
             toastr.error('Failed to load chunks. Check console.', 'VectHare');
+        }
+    });
+
+    // Export collection
+    $('.vecthare-action-export').off('click').on('click', async function(e) {
+        e.stopPropagation();
+        const collectionKey = $(this).data('collection-key');
+        const collectionId = $(this).data('collection-id');
+        const backend = $(this).data('backend');
+        const source = $(this).data('source');
+        const model = $(this).data('model');
+
+        const collection = findCollectionByKey(collectionKey);
+        if (!collection) return;
+
+        try {
+            toastr.info('Exporting collection...', 'VectHare');
+
+            const exportData = await exportCollection(collectionId, browserState.settings, {
+                backend,
+                source,
+                model,
+            });
+
+            downloadExport(exportData, collection.name || collectionId);
+
+            toastr.success(
+                `Exported ${exportData.stats.chunkCount} chunks (${exportData.stats.chunksWithVectors} with vectors)`,
+                'VectHare Export'
+            );
+        } catch (error) {
+            console.error('VectHare: Export failed', error);
+            toastr.error(`Export failed: ${error.message}`, 'VectHare');
         }
     });
 

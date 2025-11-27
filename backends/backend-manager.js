@@ -14,12 +14,14 @@ import { extension_settings } from '../../../../extensions.js';
 import { StandardBackend } from './standard.js';
 import { LanceDBBackend } from './lancedb.js';
 import { QdrantBackend } from './qdrant.js';
+import { MilvusBackend } from './milvus.js';
 
 // Backend registry - add new backends here
 const BACKENDS = {
     standard: StandardBackend,
     lancedb: LanceDBBackend,
     qdrant: QdrantBackend,
+    milvus: MilvusBackend,
 };
 
 // Backend name aliases (server uses 'vectra', we use 'standard')

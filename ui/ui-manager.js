@@ -63,11 +63,13 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <option value="standard">Standard (ST's Vectra - file-based)</option>
                                 <option value="lancedb">LanceDB (disk-based, scalable)</option>
                                 <option value="qdrant">Qdrant (production vector search)</option>
+                                <option value="milvus">Milvus (popular open source engine)</option>
                             </select>
                             <small class="vecthare-help-text" style="display: block; margin-top: -8px; margin-bottom: 16px; opacity: 0.7; font-size: 0.85em; line-height: 1.5;">
                                 • Standard: ST's built-in Vectra (best for <100k vectors)<br>
                                 • LanceDB: Disk-based, handles millions of vectors (requires plugin)<br>
-                                • Qdrant: Production-grade with HNSW, filtering, cloud support
+                                • Qdrant: Production-grade with HNSW, filtering, cloud support<br>
+                                • Milvus: High-performance, scalable vector database
                             </small>
 
                             <!-- Qdrant Settings (shown only when Qdrant backend is selected) -->
@@ -102,6 +104,40 @@ export function renderSettings(containerId, settings, callbacks) {
                                     </label>
                                     <input type="password" id="vecthare_qdrant_api_key" class="vecthare-input" placeholder="Your Qdrant Cloud API key" />
                                 </div>
+                            </div>
+
+                            <!-- Milvus Settings (shown only when Milvus backend is selected) -->
+                            <div id="vecthare_milvus_settings" style="display: none;">
+                                <label for="vecthare_milvus_host">
+                                    <small>Milvus Host:</small>
+                                </label>
+                                <input type="text" id="vecthare_milvus_host" class="vecthare-input" placeholder="localhost" />
+
+                                <label for="vecthare_milvus_port">
+                                    <small>Milvus Port:</small>
+                                </label>
+                                <input type="number" id="vecthare_milvus_port" class="vecthare-input" placeholder="19530" />
+                                
+                                <label for="vecthare_milvus_address">
+                                    <small>Full Address (Optional):</small>
+                                </label>
+                                <input type="text" id="vecthare_milvus_address" class="vecthare-input" placeholder="http://localhost:19530" />
+                                <small class="vecthare_hint">Overrides Host/Port if set (e.g. for cloud instances)</small>
+
+                                <label for="vecthare_milvus_username">
+                                    <small>Username (Optional):</small>
+                                </label>
+                                <input type="text" id="vecthare_milvus_username" class="vecthare-input" />
+
+                                <label for="vecthare_milvus_password">
+                                    <small>Password (Optional):</small>
+                                </label>
+                                <input type="password" id="vecthare_milvus_password" class="vecthare-input" />
+
+                                <label for="vecthare_milvus_token">
+                                    <small>API Token (Optional):</small>
+                                </label>
+                                <input type="password" id="vecthare_milvus_token" class="vecthare-input" placeholder="For cloud instances" />
                             </div>
 
                             <label for="vecthare_source">
@@ -918,6 +954,11 @@ function bindSettingsEvents(settings, callbacks) {
             } else {
                 $('#vecthare_qdrant_settings').hide();
             }
+            if (settings.vector_backend === 'milvus') {
+                $('#vecthare_milvus_settings').show();
+            } else {
+                $('#vecthare_milvus_settings').hide();
+            }
 
             console.log(`VectHare: Vector backend changed to ${settings.vector_backend}`);
             // Reset health cache so new backend gets properly initialized
@@ -980,6 +1021,61 @@ function bindSettingsEvents(settings, callbacks) {
     // Show Qdrant settings if backend is qdrant
     if (settings.vector_backend === 'qdrant') {
         $('#vecthare_qdrant_settings').show();
+    }
+
+    // Milvus settings
+    $('#vecthare_milvus_host')
+        .val(settings.milvus_host || 'localhost')
+        .on('input', function() {
+            settings.milvus_host = String($(this).val());
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#vecthare_milvus_port')
+        .val(settings.milvus_port || 19530)
+        .on('input', function() {
+            const value = parseInt($(this).val());
+            settings.milvus_port = isNaN(value) ? 19530 : value;
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#vecthare_milvus_username')
+        .val(settings.milvus_username || '')
+        .on('input', function() {
+            settings.milvus_username = String($(this).val());
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#vecthare_milvus_password')
+        .val(settings.milvus_password || '')
+        .on('input', function() {
+            settings.milvus_password = String($(this).val());
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+        
+    $('#vecthare_milvus_token')
+        .val(settings.milvus_token || '')
+        .on('input', function() {
+            settings.milvus_token = String($(this).val());
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#vecthare_milvus_address')
+        .val(settings.milvus_address || '')
+        .on('input', function() {
+            settings.milvus_address = String($(this).val());
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+
+    // Show Milvus settings if backend is milvus
+    if (settings.vector_backend === 'milvus') {
+        $('#vecthare_milvus_settings').show();
     }
 
     // Embedding provider

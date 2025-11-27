@@ -629,6 +629,11 @@ function initializeDiagnosticsModal() {
         closeDiagnosticsModal();
     });
 
+    // Stop propagation on ALL clicks within modal (prevents extension panel from closing)
+    $('#vecthare_diagnostics_modal').on('click', function(e) {
+        e.stopPropagation();
+    });
+
     // ESC key to close
     $(document).on('keydown', function(e) {
         if (e.key === 'Escape' && $('#vecthare_diagnostics_modal').is(':visible')) {

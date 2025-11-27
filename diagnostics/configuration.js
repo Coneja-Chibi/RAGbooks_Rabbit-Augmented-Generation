@@ -667,3 +667,45 @@ export async function checkConditionRuleValidity(settings) {
         };
     }
 }
+
+/**
+ * Check: Collection Registry Status
+ * Verifies collections are discoverable and the registry is populated.
+ * Empty registry with available backend = discovery issue.
+ */
+export async function checkCollectionRegistryStatus(settings) {
+    const registry = getCollectionRegistry();
+    const registryCount = registry.length;
+
+    if (registryCount === 0) {
+        // Try to determine if there SHOULD be collections by checking the backend
+        // If the user has the plugin, we can check for actual collections
+        const hasPlugin = settings.vector_backend === 'lancedb' || settings.vector_backend === 'qdrant';
+
+        if (hasPlugin) {
+            return {
+                name: 'Collection Registry',
+                status: 'warning',
+                message: 'Registry empty. Collections will auto-discover on first message. Open Database Browser to populate now.',
+                category: 'configuration'
+            };
+        }
+
+        return {
+            name: 'Collection Registry',
+            status: 'pass',
+            message: 'Registry empty (no collections vectorized yet)',
+            category: 'configuration'
+        };
+    }
+
+    // Count enabled collections
+    const enabledCount = registry.filter(key => isCollectionEnabled(key)).length;
+
+    return {
+        name: 'Collection Registry',
+        status: 'pass',
+        message: `${registryCount} collection(s) registered, ${enabledCount} enabled for querying`,
+        category: 'configuration'
+    };
+}

@@ -28,7 +28,7 @@ import { purgeAllVectorIndexes, purgeVectorIndex } from './core/core-vector-api.
 import { getChatCollectionId } from './core/chat-vectorization.js';
 import { getDefaultDecaySettings } from './core/temporal-decay.js';
 import { migrateOldEnabledKeys } from './core/collection-metadata.js';
-import { clearCollectionRegistry } from './core/collection-loader.js';
+import { clearCollectionRegistry, discoverExistingCollections } from './core/collection-loader.js';
 
 // VectHare modules - UI
 import { renderSettings, openDiagnosticsModal } from './ui/ui-manager.js';
@@ -211,6 +211,15 @@ jQuery(async () => {
     // Initialize scene markers on chat messages (settings needed for DB operations)
     setSceneSettings(settings);
     initializeSceneMarkers();
+
+    // Discover existing collections on load (async, non-blocking)
+    discoverExistingCollections(settings).then(collections => {
+        if (collections.length > 0) {
+            console.log(`VectHare: Discovered ${collections.length} existing collections`);
+        }
+    }).catch(err => {
+        console.warn('VectHare: Collection discovery failed:', err.message);
+    });
 
     // Register event handlers
     eventSource.on(event_types.MESSAGE_DELETED, onChatEvent);

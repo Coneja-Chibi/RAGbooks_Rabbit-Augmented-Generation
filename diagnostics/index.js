@@ -36,7 +36,8 @@ import {
     checkCollectionIdFormat,
     checkHashCollisionRate,
     checkChatMetadataIntegrity,
-    checkConditionRuleValidity
+    checkConditionRuleValidity,
+    checkCollectionRegistryStatus
 } from './configuration.js';
 
 import {
@@ -127,6 +128,9 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
 
     // Condition rule validity (validates chunk condition rules)
     categories.configuration.push(await checkConditionRuleValidity(settings));
+
+    // Collection registry status (verifies collections are discoverable)
+    categories.configuration.push(await checkCollectionRegistryStatus(settings));
 
     // ========== VISUALIZER CHECKS ==========
     // Fast checks always run, slow (API) checks only with production tests

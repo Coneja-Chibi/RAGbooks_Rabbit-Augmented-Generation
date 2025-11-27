@@ -182,28 +182,25 @@ Supports 28 emotion types with Character Expressions integration!
 
 ## 💾 Installation
 
-### Prerequisites
-- ✅ SillyTavern installed and running
-- ✅ Git installed on your system
+### Step 1: Install the Extension
 
-### Step 1: Clone the Extension
-
-```bash
-cd SillyTavern/public/scripts/extensions/third-party
-git clone https://github.com/Coneja-Chibi/VectHare.git
-```
-
-### Step 2: Enable in SillyTavern
 1. Open SillyTavern in your browser
-2. Go to **Extensions** panel
-3. Find **VectHare** and enable it
+2. Go to **Extensions** panel (puzzle piece icon)
+3. Click **"Install Extension"**
+4. Paste this URL:
+   ```
+   https://github.com/Coneja-Chibi/VectHare
+   ```
+5. Click **Install**
 
-### Step 3: Configure Embedding Provider
-1. Open **VectHare Settings** (🐰 icon)
+That's it! VectHare will be downloaded and enabled automatically.
+
+### Step 2: Configure Embedding Provider
+1. Open **VectHare Settings** (🐰 icon in the extensions panel)
 2. Select your embedding provider (Transformers, OpenAI, Ollama, BananaBread, etc.)
 3. Configure API keys if using cloud providers
 
-### Step 4: (Optional) Install Similharity Plugin
+### Step 3: (Optional) Install Similharity Plugin
 
 **Only needed for LanceDB or Qdrant backends!**
 

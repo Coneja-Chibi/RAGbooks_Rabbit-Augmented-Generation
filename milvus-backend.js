@@ -92,7 +92,29 @@ class MilvusBackend {
             const exists = collections.find(c => c.name === collectionName);
             
             if (exists) {
-                // If exists, loading it into memory is required for search
+                // Check if index exists
+                try {
+                    const indexInfo = await this.client.describeIndex({
+                        collection_name: collectionName
+                    });
+                    
+                    // If status is success (index exists)
+                    // Note: Milvus 2.x might return empty or error if no index
+                    if (indexInfo.status.error_code === 'Success') {
+                         console.log(`[Milvus] Collection and index found for ${collectionName}`);
+                    } else {
+                         throw new Error('Index missing');
+                    }
+                } catch (err) {
+                    console.log(`[Milvus] Index missing for existing collection ${collectionName}, creating...`);
+                    await this.client.createIndex({
+                        collection_name: collectionName,
+                        field_name: 'vector',
+                        extra_params: this.baseParams
+                    });
+                }
+
+                // Load collection
                 await this.client.loadCollection({
                     collection_name: collectionName
                 });

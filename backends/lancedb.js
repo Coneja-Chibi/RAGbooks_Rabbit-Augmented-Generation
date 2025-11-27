@@ -16,6 +16,7 @@
 import { getRequestHeaders } from '../../../../../script.js';
 import { VectorBackend } from './backend-interface.js';
 import { getModelField } from '../core/providers.js';
+import { VECTOR_LIST_LIMIT } from '../core/constants.js';
 
 const BACKEND_TYPE = 'lancedb';
 
@@ -68,7 +69,7 @@ export class LanceDBBackend extends VectorBackend {
                 collectionId: collectionId,
                 source: settings.source || 'transformers',
                 model: getModelFromSettings(settings),
-                limit: 10000, // Get all for hash comparison
+                limit: VECTOR_LIST_LIMIT, // Get all for hash comparison
             }),
         });
 

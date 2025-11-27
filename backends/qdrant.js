@@ -20,6 +20,7 @@
 import { getRequestHeaders } from '../../../../../script.js';
 import { VectorBackend } from './backend-interface.js';
 import { getModelField } from '../core/providers.js';
+import { VECTOR_LIST_LIMIT } from '../core/constants.js';
 
 const BACKEND_TYPE = 'qdrant';
 
@@ -123,7 +124,7 @@ export class QdrantBackend extends VectorBackend {
                 collectionId: 'vecthare_main', // Always use main collection
                 source: settings.source || 'transformers',
                 model: getModelFromSettings(settings),
-                limit: 10000,
+                limit: VECTOR_LIST_LIMIT,
                 filters: { type, sourceId }, // Filter by tenant
             }),
         });

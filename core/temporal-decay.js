@@ -5,6 +5,7 @@
 // =============================================================================
 
 import { isChunkTemporallyBlind } from './collection-metadata.js';
+import { DEFAULT_DECAY_HALF_LIFE, DEFAULT_DECAY_FLOOR } from './constants.js';
 
 /**
  * Calculates exponential decay multiplier
@@ -202,9 +203,9 @@ export function getDefaultDecaySettings() {
     return {
         enabled: false,              // OFF by default
         mode: 'exponential',         // 'exponential' or 'linear'
-        halfLife: 50,               // Messages until 50% relevance
+        halfLife: DEFAULT_DECAY_HALF_LIFE,  // Messages until 50% relevance
         linearRate: 0.01,           // % per message (linear mode)
-        minRelevance: 0.3,          // Never decay below 30%
+        minRelevance: DEFAULT_DECAY_FLOOR,  // Never decay below this
         sceneAware: false           // Reset decay at scene boundaries
     };
 }

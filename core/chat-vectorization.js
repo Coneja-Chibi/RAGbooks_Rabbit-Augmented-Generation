@@ -31,11 +31,10 @@ import { getChunkMetadata } from './collection-metadata.js';
 import { createDebugData, setLastSearchDebug, addTrace, recordChunkFate } from '../ui/search-debug.js';
 import { Queue, LRUCache } from '../utils/data-structures.js';
 import { getRequestHeaders } from '../../../../../script.js';
+import { EXTENSION_PROMPT_TAG, HASH_CACHE_SIZE } from './constants.js';
 
-const EXTENSION_PROMPT_TAG = '3_vecthare';
-
-// Hash cache for performance (LRU with 10k capacity)
-const hashCache = new LRUCache(10000);
+// Hash cache for performance
+const hashCache = new LRUCache(HASH_CACHE_SIZE);
 
 // Synchronization state
 let syncBlocked = false;

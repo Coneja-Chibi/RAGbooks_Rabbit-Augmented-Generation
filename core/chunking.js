@@ -10,6 +10,8 @@
  * ============================================================================
  */
 
+import { DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP, SENTENCE_SEARCH_WINDOW } from './constants.js';
+
 // Note: Scenes are now stored as chunks directly in the vector DB with isScene:true metadata
 // The by_scene chunking strategy is deprecated - scenes are created via UI markers
 
@@ -25,8 +27,8 @@
 export async function chunkText(text, options = {}) {
     const {
         strategy = 'paragraph',
-        chunkSize = 500,
-        chunkOverlap = 50,
+        chunkSize = DEFAULT_CHUNK_SIZE,
+        chunkOverlap = DEFAULT_CHUNK_OVERLAP,
     } = options;
 
     // Allow arrays for unit-based strategies (per_entry, by_message)
@@ -166,8 +168,8 @@ const STRATEGIES = {
             // Try to break at a natural boundary
             if (end < text.length) {
                 // Look for sentence end
-                const searchStart = Math.max(end - 50, start);
-                const segment = text.slice(searchStart, end + 50);
+                const searchStart = Math.max(end - SENTENCE_SEARCH_WINDOW, start);
+                const segment = text.slice(searchStart, end + SENTENCE_SEARCH_WINDOW);
                 const sentenceEnd = segment.search(/[.!?]\s/);
 
                 if (sentenceEnd !== -1) {

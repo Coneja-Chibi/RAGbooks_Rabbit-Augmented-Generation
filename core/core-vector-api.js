@@ -41,23 +41,28 @@ import {
 import { applyKeywordBoosts, getOverfetchAmount } from './keyword-boost.js';
 import AsyncUtils from '../utils/async-utils.js';
 import StringUtils from '../utils/string-utils.js';
+import {
+    RATE_LIMIT_CALLS,
+    RATE_LIMIT_WINDOW_MS,
+    API_TIMEOUT_MS,
+    RETRY_MAX_ATTEMPTS,
+    RETRY_INITIAL_DELAY_MS,
+    RETRY_MAX_DELAY_MS,
+    RETRY_BACKOFF_MULTIPLIER
+} from './constants.js';
 
 // Initialize WebLLM provider
 const webllmProvider = new WebLlmVectorProvider();
 
-// Rate limiter for embedding API calls (default: 50 calls per minute)
-// This prevents 429 errors when bulk vectorizing
-const embeddingRateLimiter = AsyncUtils.rateLimiter(50, 60000);
-
-// Default timeout for API calls (30 seconds)
-const API_TIMEOUT_MS = 30000;
+// Rate limiter for embedding API calls - prevents 429 errors when bulk vectorizing
+const embeddingRateLimiter = AsyncUtils.rateLimiter(RATE_LIMIT_CALLS, RATE_LIMIT_WINDOW_MS);
 
 // Retry configuration for transient failures (matches AsyncUtils.retry signature)
 const RETRY_CONFIG = {
-    maxAttempts: 3,
-    delay: 1000,
-    maxDelay: 10000,
-    backoffFactor: 2,
+    maxAttempts: RETRY_MAX_ATTEMPTS,
+    delay: RETRY_INITIAL_DELAY_MS,
+    maxDelay: RETRY_MAX_DELAY_MS,
+    backoffFactor: RETRY_BACKOFF_MULTIPLIER,
     shouldRetry: (error) => {
         // Retry on network errors and rate limits
         const message = error?.message?.toLowerCase() || '';

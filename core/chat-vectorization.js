@@ -26,8 +26,9 @@ import { isChunkDisabledByScene } from './scenes.js';
 import { registerCollection, getCollectionRegistry } from './collection-loader.js';
 import { isCollectionEnabled, filterActiveCollections } from './collection-metadata.js';
 import { progressTracker } from '../ui/progress-tracker.js';
-import { buildSearchContext, filterChunksByConditions } from './conditional-activation.js';
-import { getChunkMetadata } from './collection-metadata.js';
+import { buildSearchContext, filterChunksByConditions, processChunkLinks } from './conditional-activation.js';
+import { getChunkMetadata, getCollectionMeta } from './collection-metadata.js';
+import { processChunkGroups, mergeVirtualLinks } from './chunk-groups.js';
 import { createDebugData, setLastSearchDebug, addTrace, recordChunkFate } from '../ui/search-debug.js';
 import { Queue, LRUCache } from '../utils/data-structures.js';
 import { getRequestHeaders } from '../../../../../script.js';
@@ -1070,6 +1071,159 @@ async function applyConditionsStage(chunks, chat, settings, debugData) {
 }
 
 /**
+ * Stage 6.5: Process chunk groups and links
+ * - Applies exclusive group filtering (only highest-scoring member passes)
+ * - Expands inclusive groups into virtual links
+ * - Processes chunk links (both explicit and group-generated)
+ * @param {object[]} chunks Chunks to process
+ * @param {string[]} activeCollections Active collection IDs
+ * @param {object} settings VectHare settings
+ * @param {object} debugData Debug tracking object
+ * @returns {Promise<object[]>} Processed chunks with links applied
+ */
+async function applyGroupsAndLinksStage(chunks, activeCollections, settings, debugData) {
+    const beforeCount = chunks.length;
+    let processedChunks = [...chunks];
+
+    addTrace(debugData, 'groups', 'Starting groups and links processing', {
+        chunksCount: beforeCount,
+        collectionsToCheck: activeCollections.length
+    });
+
+    // Collect groups from all active collections
+    const allGroups = [];
+    for (const collectionId of activeCollections) {
+        const meta = getCollectionMeta(collectionId);
+        if (meta.groups && meta.groups.length > 0) {
+            allGroups.push(...meta.groups);
+        }
+    }
+
+    if (allGroups.length === 0) {
+        addTrace(debugData, 'groups', 'No groups defined in active collections', {});
+        // Still process explicit chunk links even without groups
+    } else {
+        addTrace(debugData, 'groups', `Found ${allGroups.length} groups across collections`, {
+            inclusive: allGroups.filter(g => g.mode === 'inclusive').length,
+            exclusive: allGroups.filter(g => g.mode === 'exclusive').length
+        });
+
+        // Build a map of all chunks for mandatory group lookup
+        const allChunksMap = new Map(chunks.map(c => [String(c.hash), c]));
+
+        // Process groups
+        const groupResult = processChunkGroups(chunks, allGroups, allChunksMap, {
+            softBoost: settings.group_soft_boost || 0.15
+        });
+
+        processedChunks = groupResult.chunks;
+
+        // Log group processing results
+        if (groupResult.debug.excluded.length > 0) {
+            addTrace(debugData, 'groups', `Exclusive groups filtered ${groupResult.debug.excluded.length} chunks`, {
+                excluded: groupResult.debug.excluded.map(e => ({
+                    hash: String(e.hash).substring(0, 8),
+                    group: e.groupName,
+                    beatBy: String(e.beatBy).substring(0, 8)
+                }))
+            });
+
+            // Record fates for excluded chunks
+            for (const ex of groupResult.debug.excluded) {
+                recordChunkFate(debugData, ex.hash, 'groups', 'dropped',
+                    `Excluded by group "${ex.groupName}" - beaten by chunk #${String(ex.beatBy).substring(0, 8)}`,
+                    { score: ex.score, winnerScore: ex.winnerScore }
+                );
+            }
+        }
+
+        if (groupResult.debug.forced.length > 0) {
+            addTrace(debugData, 'groups', `Mandatory groups force-included ${groupResult.debug.forced.length} chunks`, {
+                forced: groupResult.debug.forced.map(f => ({
+                    hash: String(f.hash).substring(0, 8),
+                    group: f.groupName
+                }))
+            });
+
+            // Record fates for forced chunks
+            for (const f of groupResult.debug.forced) {
+                recordChunkFate(debugData, f.hash, 'groups', 'passed',
+                    `Force-included by mandatory group "${f.groupName}"`,
+                    { reason: f.reason }
+                );
+            }
+        }
+
+        // If there are virtual links from inclusive groups, merge them with chunk metadata
+        if (groupResult.virtualLinks && groupResult.virtualLinks.size > 0) {
+            addTrace(debugData, 'groups', `Inclusive groups generated ${groupResult.debug.virtualLinksCreated} virtual links`, {});
+
+            // Build chunk metadata map for link processing
+            const chunkMetadataMap = new Map();
+            for (const chunk of processedChunks) {
+                const meta = getChunkMetadata(chunk.collectionId, chunk.hash) || {};
+                chunkMetadataMap.set(String(chunk.hash), meta);
+            }
+
+            // Merge virtual links into metadata
+            const mergedMetadata = mergeVirtualLinks(chunkMetadataMap, groupResult.virtualLinks);
+
+            // Process links (both explicit and group-generated)
+            const linkResult = processChunkLinks(processedChunks, mergedMetadata, settings.group_soft_boost || 0.15);
+            processedChunks = linkResult.chunks;
+
+            // Handle hard-linked chunks that need to be fetched
+            if (linkResult.missingHardLinks && linkResult.missingHardLinks.length > 0) {
+                addTrace(debugData, 'groups', `Hard links require ${linkResult.missingHardLinks.length} additional chunks`, {
+                    hashes: linkResult.missingHardLinks.map(h => String(h).substring(0, 8))
+                });
+                // TODO: Fetch missing hard-linked chunks from backend
+                // For now, just log - fetching requires additional backend calls
+            }
+
+            // Log soft link boosts
+            const boostedChunks = processedChunks.filter(c => c.softLinked);
+            if (boostedChunks.length > 0) {
+                addTrace(debugData, 'groups', `Soft links boosted ${boostedChunks.length} chunks`, {
+                    boosted: boostedChunks.map(c => ({
+                        hash: String(c.hash).substring(0, 8),
+                        boost: c.linkBoost
+                    }))
+                });
+            }
+        }
+    }
+
+    // Also process explicit chunk links even if no groups
+    // (Chunks can have links defined directly without being in a group)
+    const chunkMetadataMap = new Map();
+    for (const chunk of processedChunks) {
+        const meta = getChunkMetadata(chunk.collectionId, chunk.hash) || {};
+        if (meta.links && meta.links.length > 0) {
+            chunkMetadataMap.set(String(chunk.hash), meta);
+        }
+    }
+
+    if (chunkMetadataMap.size > 0) {
+        const linkResult = processChunkLinks(processedChunks, chunkMetadataMap, settings.group_soft_boost || 0.15);
+        processedChunks = linkResult.chunks;
+
+        const boostedByExplicitLinks = processedChunks.filter(c => c.softLinked && !c.groupBoosted);
+        if (boostedByExplicitLinks.length > 0) {
+            addTrace(debugData, 'links', `Explicit links boosted ${boostedByExplicitLinks.length} chunks`, {});
+        }
+    }
+
+    addTrace(debugData, 'groups', 'Groups and links processing complete', {
+        before: beforeCount,
+        after: processedChunks.length,
+        groupsProcessed: allGroups.length
+    });
+
+    return processedChunks;
+}
+
+/**
  * Stage 7: Deduplicate chunks already in chat context
  * @param {object[]} chunks Chunks to deduplicate
  * @param {object[]} chat Current chat messages
@@ -1287,6 +1441,11 @@ export async function rearrangeChat(chat, settings, type) {
         chunks = await applyConditionsStage(chunks, chat, settings, debugData);
         debugData.stages.afterConditions = [...chunks];
         debugData.stats.afterConditions = chunks.length;
+
+        // === STAGE 8.5: Chunk Groups and Links ===
+        chunks = await applyGroupsAndLinksStage(chunks, activeCollections, settings, debugData);
+        debugData.stages.afterGroups = [...chunks];
+        debugData.stats.afterGroups = chunks.length;
 
         // Store for legacy visualizer
         window.VectHare_LastSearch = {

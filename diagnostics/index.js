@@ -37,7 +37,10 @@ import {
     checkHashCollisionRate,
     checkChatMetadataIntegrity,
     checkConditionRuleValidity,
-    checkCollectionRegistryStatus
+    checkCollectionRegistryStatus,
+    checkChunkGroupsModule,
+    checkChunkGroupsValidity,
+    checkChunkGroupMemberIntegrity
 } from './configuration.js';
 
 import {
@@ -132,6 +135,11 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
     // Collection registry status (verifies collections are discoverable)
     categories.configuration.push(await checkCollectionRegistryStatus(settings));
 
+    // Chunk groups module and validity checks
+    categories.configuration.push(await checkChunkGroupsModule());
+    categories.configuration.push(await checkChunkGroupsValidity(settings));
+    categories.configuration.push(await checkChunkGroupMemberIntegrity(settings));
+
     // ========== VISUALIZER CHECKS ==========
     // Fast checks always run, slow (API) checks only with production tests
     const visualizerResults = await runVisualizerTests(settings, includeProductionTests);
@@ -220,6 +228,15 @@ export function getFixSuggestion(check) {
         case 'Condition Rule Validity':
             return 'Open the Chunk Editor and review the condition rules on affected chunks. Remove invalid operators or fix malformed values.';
 
+        case 'Chunk Groups Module':
+            return 'The chunk groups module failed to load. Try refreshing the page. If this persists, check console for import errors.';
+
+        case 'Chunk Groups Validity':
+            return 'Some groups have invalid configuration. Open the Groups tab in the Chunk Visualizer and review the affected groups.';
+
+        case 'Group Member Integrity':
+            return 'Click "Fix Now" to remove group members that reference deleted chunks. This can happen after purging or deleting vectors.';
+
         default:
             return 'Check the console for more details.';
     }
@@ -251,7 +268,75 @@ export async function executeFixAction(check) {
             }
             return { success: false, message: 'No duplicate data found in check' };
 
+        case 'cleanOrphanedGroupMembers':
+            return await fixOrphanedGroupMembers();
+
         default:
             return { success: false, message: `Unknown fix action: ${check.fixAction}` };
+    }
+}
+
+/**
+ * Removes orphaned group members that reference non-existent chunks.
+ * @returns {Promise<object>} Fix result
+ */
+async function fixOrphanedGroupMembers() {
+    try {
+        const { getCollectionMeta, saveCollectionMeta } = await import('../core/collection-metadata.js');
+        const { getCollectionRegistry } = await import('../core/collection-loader.js');
+        const { getSavedHashes } = await import('../core/core-vector-api.js');
+        const { getVectHareSettings } = await import('../ui/ui-settings.js');
+
+        const settings = getVectHareSettings();
+        const registry = getCollectionRegistry();
+        let totalCleaned = 0;
+        let collectionsFixed = 0;
+
+        for (const registryKey of registry) {
+            let collectionId = registryKey;
+            if (registryKey.includes(':')) {
+                collectionId = registryKey.substring(registryKey.indexOf(':') + 1);
+            }
+
+            const meta = getCollectionMeta(collectionId);
+            const groups = meta?.groups || [];
+
+            if (groups.length === 0) continue;
+
+            // Get actual chunk hashes
+            let existingHashes;
+            try {
+                existingHashes = new Set((await getSavedHashes(collectionId, settings)).map(h => String(h)));
+            } catch {
+                continue;
+            }
+
+            let collectionModified = false;
+            for (const group of groups) {
+                const originalLength = group.members?.length || 0;
+                group.members = (group.members || []).filter(hash => existingHashes.has(String(hash)));
+                const removed = originalLength - group.members.length;
+                if (removed > 0) {
+                    totalCleaned += removed;
+                    collectionModified = true;
+                }
+            }
+
+            if (collectionModified) {
+                saveCollectionMeta(collectionId, meta);
+                collectionsFixed++;
+            }
+        }
+
+        if (totalCleaned > 0) {
+            return {
+                success: true,
+                message: `Removed ${totalCleaned} orphaned member(s) from ${collectionsFixed} collection(s)`
+            };
+        }
+
+        return { success: true, message: 'No orphaned members found to clean' };
+    } catch (error) {
+        return { success: false, message: `Fix failed: ${error.message}` };
     }
 }

@@ -1494,3 +1494,375 @@
     }
 }
 
+/* ============================================================================
+ * CHUNK GROUPS TAB
+ * ============================================================================ */
+
+.vecthare-groups-tab {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.vecthare-groups-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor);
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, var(--SmartThemeBlurTintColor));
+}
+
+.vecthare-groups-stats {
+    display: flex;
+    gap: 8px;
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.vecthare-stat-divider {
+    opacity: 0.4;
+}
+
+.vecthare-groups-container {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+}
+
+.vecthare-groups-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    text-align: center;
+    width: 100%;
+    opacity: 0.6;
+}
+
+.vecthare-groups-empty i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.vecthare-groups-empty p {
+    font-size: 16px;
+    margin: 0 0 8px 0;
+}
+
+.vecthare-groups-empty span {
+    font-size: 13px;
+    opacity: 0.7;
+}
+
+/* Split panel layout */
+.vecthare-group-list-panel {
+    width: 280px;
+    min-width: 220px;
+    border-right: 1px solid var(--SmartThemeBorderColor);
+    overflow-y: auto;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 3%, var(--SmartThemeBlurTintColor));
+}
+
+.vecthare-group-detail-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+}
+
+/* Group list items */
+.vecthare-group-list {
+    padding: 8px;
+}
+
+.vecthare-group-item {
+    padding: 12px;
+    margin-bottom: 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, var(--SmartThemeBlurTintColor));
+    transition: all 0.15s ease;
+}
+
+.vecthare-group-item:hover {
+    background: color-mix(in srgb, var(--vecthare-primary) 10%, var(--SmartThemeBlurTintColor));
+    border-color: color-mix(in srgb, var(--vecthare-primary) 20%, transparent);
+}
+
+.vecthare-group-item.selected {
+    background: color-mix(in srgb, var(--vecthare-primary) 15%, var(--SmartThemeBlurTintColor));
+    border-color: var(--vecthare-primary);
+}
+
+.vecthare-group-item-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.vecthare-group-item-header i {
+    opacity: 0.7;
+    font-size: 12px;
+}
+
+.vecthare-group-name {
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.vecthare-group-item-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+/* Group detail panel */
+.vecthare-group-detail-content {
+    max-width: 600px;
+}
+
+.vecthare-group-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.vecthare-group-name-input {
+    flex: 1;
+    padding: 10px 14px;
+    font-size: 16px;
+    font-weight: 500;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+}
+
+.vecthare-group-name-input:focus {
+    border-color: var(--vecthare-primary);
+    outline: none;
+}
+
+.vecthare-group-settings {
+    margin-bottom: 24px;
+    padding: 16px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 3%, var(--SmartThemeBlurTintColor));
+}
+
+.vecthare-group-setting-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.vecthare-group-setting-row:last-child {
+    margin-bottom: 0;
+}
+
+.vecthare-group-setting-row label {
+    min-width: 100px;
+    font-size: 13px;
+}
+
+.vecthare-group-select,
+.vecthare-group-input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+    font-size: 13px;
+}
+
+.vecthare-group-input[type="number"] {
+    width: 80px;
+    flex: none;
+}
+
+/* Group members section */
+.vecthare-group-members-section {
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.vecthare-group-members-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, var(--SmartThemeBlurTintColor));
+    border-bottom: 1px solid var(--SmartThemeBorderColor);
+}
+
+.vecthare-group-members-header h4 {
+    margin: 0;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.vecthare-group-members-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.vecthare-group-member {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 50%, transparent);
+}
+
+.vecthare-group-member:last-child {
+    border-bottom: none;
+}
+
+.vecthare-group-member:hover {
+    background: color-mix(in srgb, var(--vecthare-primary) 5%, transparent);
+}
+
+.vecthare-group-member-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.vecthare-member-preview {
+    display: block;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 2px;
+}
+
+.vecthare-member-hash {
+    font-size: 11px;
+    opacity: 0.5;
+    font-family: monospace;
+}
+
+.vecthare-member-missing {
+    color: var(--vecthare-warning);
+    font-style: italic;
+}
+
+.vecthare-member-remove {
+    padding: 6px 8px;
+    background: transparent;
+    border: none;
+    color: var(--vecthare-danger);
+    cursor: pointer;
+    opacity: 0.5;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+}
+
+.vecthare-member-remove:hover {
+    opacity: 1;
+    background: color-mix(in srgb, var(--vecthare-danger) 15%, transparent);
+}
+
+.vecthare-empty-hint {
+    padding: 20px;
+    text-align: center;
+    opacity: 0.6;
+    font-size: 13px;
+}
+
+/* Add member dialog */
+.vecthare-add-member-dialog {
+    width: 500px;
+    max-width: 90vw;
+}
+
+.vecthare-member-search {
+    margin-bottom: 12px;
+}
+
+.vecthare-member-search input {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+    font-size: 14px;
+}
+
+.vecthare-member-list {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+}
+
+.vecthare-member-option {
+    padding: 10px 14px;
+    cursor: pointer;
+    border-bottom: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 50%, transparent);
+    transition: background 0.15s ease;
+}
+
+.vecthare-member-option:last-child {
+    border-bottom: none;
+}
+
+.vecthare-member-option:hover {
+    background: color-mix(in srgb, var(--vecthare-primary) 10%, transparent);
+}
+
+.vecthare-member-more {
+    padding: 12px;
+    text-align: center;
+    font-size: 12px;
+    opacity: 0.6;
+    font-style: italic;
+}
+
+/* Utility buttons */
+.vecthare-btn-small {
+    padding: 6px 12px;
+    font-size: 12px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+}
+
+.vecthare-btn-small:hover {
+    background: color-mix(in srgb, var(--vecthare-primary) 15%, var(--SmartThemeBlurTintColor));
+    border-color: var(--vecthare-primary);
+}
+
+.vecthare-btn-danger {
+    padding: 8px 12px;
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--vecthare-danger) 30%, var(--SmartThemeBorderColor));
+    border-radius: 6px;
+    color: var(--vecthare-danger);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.vecthare-btn-danger:hover {
+    background: color-mix(in srgb, var(--vecthare-danger) 15%, transparent);
+    border-color: var(--vecthare-danger);
+}

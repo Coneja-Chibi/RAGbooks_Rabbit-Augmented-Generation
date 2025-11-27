@@ -71,6 +71,17 @@ const defaultCollectionMeta = {
         minRelevance: 0.3,        // Never decay below this (0-1)
         sceneAware: false,        // Reset decay at scene boundaries
     },
+
+    // =========================================================================
+    // CHUNK GROUPS (Per-Collection)
+    // =========================================================================
+    // Groups chunks together for collective activation or mutual exclusion.
+    // - Inclusive mode: When any member matches, affect other members
+    //   - Soft link: Other members get score boost
+    //   - Hard link: Other members are force-included
+    // - Exclusive mode: Only highest-scoring member passes through
+    //   - Mandatory: At least one member MUST be included
+    groups: [],  // Array of ChunkGroup objects (see core/chunk-groups.js)
 };
 
 /**

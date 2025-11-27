@@ -147,8 +147,26 @@ class LanceDBBackend {
         // Cache key includes source
         const cacheKey = `${source}:${tableName}`;
 
+        // Filter out items with invalid vectors
+        const validItems = items.filter(item => {
+            if (!Array.isArray(item.vector) || item.vector.length === 0) {
+                console.warn(`[LanceDB] Skipping item with invalid vector (hash: ${item.hash})`);
+                return false;
+            }
+            return true;
+        });
+
+        if (validItems.length === 0) {
+            console.warn('[LanceDB] No valid items to insert (all had invalid vectors)');
+            return;
+        }
+
+        if (validItems.length < items.length) {
+            console.warn(`[LanceDB] Filtered out ${items.length - validItems.length} items with invalid vectors`);
+        }
+
         // Format items for LanceDB
-        const records = items.map(item => ({
+        const records = validItems.map(item => ({
             hash: item.hash,
             text: item.text,
             vector: item.vector,
@@ -209,6 +227,49 @@ class LanceDBBackend {
             text: result.text,
             score: 1 / (1 + result._distance), // Convert L2 distance to similarity (0-1, higher is better)
             metadata: JSON.parse(result.metadata || '{}'),
+        }));
+    }
+
+    /**
+     * List all items in a collection
+     * @param {string} collectionId - Collection ID
+     * @param {string} source - Embedding source (transformers, openai, palm, etc.)
+     * @param {object} options - Options { includeVectors }
+     * @returns {Promise<Array>} Array of items with {hash, text, metadata, vector?}
+     */
+    async listItems(collectionId, source = 'transformers', options = {}) {
+        if (!this.basePath) throw new Error('LanceDB not initialized');
+
+        // Sanitize table name
+        const tableName = sanitizeTableName(collectionId);
+
+        // Get database for this source
+        const db = await this.getDatabase(source);
+
+        const tableNames = await db.tableNames();
+        if (!tableNames.includes(tableName)) {
+            return []; // Collection doesn't exist
+        }
+
+        const collection = await this.getCollection(collectionId, source);
+
+        // Select columns based on options
+        const columns = ['hash', 'text', 'metadata'];
+        if (options.includeVectors) {
+            columns.push('vector');
+        }
+
+        // Get all records
+        const results = await collection
+            .query()
+            .select(columns)
+            .toArray();
+
+        return results.map(r => ({
+            hash: Number(r.hash),
+            text: r.text,
+            metadata: JSON.parse(r.metadata || '{}'),
+            vector: options.includeVectors ? r.vector : undefined,
         }));
     }
 

@@ -65,6 +65,9 @@ class QdrantBackend {
         }
 
         console.log('[Qdrant] Initialized:', this.config.url || `${this.config.host}:${this.config.port}`);
+
+        // Ensure indexes exist on any existing vecthare_main collection
+        await this.ensurePayloadIndexes('vecthare_main');
     }
 
     /**
@@ -83,7 +86,7 @@ class QdrantBackend {
     }
 
     /**
-     * Ensure collection exists with proper schema
+     * Ensure collection exists with proper schema and payload indexes
      * @param {string} collectionName - Collection name
      * @param {number} vectorSize - Vector dimension (e.g., 768)
      */
@@ -102,10 +105,65 @@ class QdrantBackend {
                     },
                 });
                 console.log(`[Qdrant] Created collection: ${collectionName} (dim=${vectorSize})`);
+
+                // Create payload indexes for filterable fields
+                await this.createPayloadIndexes(collectionName);
             }
         } catch (error) {
             console.error(`[Qdrant] Failed to ensure collection ${collectionName}:`, error);
             throw error;
+        }
+    }
+
+    /**
+     * Create payload indexes for filterable fields
+     * @param {string} collectionName - Collection name
+     */
+    async createPayloadIndexes(collectionName) {
+        // Fields that need indexes for filtering
+        const indexConfigs = [
+            { field: 'type', schema: 'keyword' },
+            { field: 'sourceId', schema: 'keyword' },
+            { field: 'embeddingSource', schema: 'keyword' },
+            { field: 'hash', schema: 'integer' },
+            { field: 'timestamp', schema: 'integer' },
+            { field: 'importance', schema: 'integer' },
+            { field: 'characterName', schema: 'keyword' },
+            { field: 'chatId', schema: 'keyword' },
+            { field: 'keywords', schema: 'keyword' },  // Array of keywords
+        ];
+
+        for (const { field, schema } of indexConfigs) {
+            try {
+                await this.client.createPayloadIndex(collectionName, {
+                    field_name: field,
+                    field_schema: schema,
+                });
+                console.log(`[Qdrant] Created index for ${field} (${schema})`);
+            } catch (error) {
+                // Index might already exist, that's fine
+                if (!error.message?.includes('already exists')) {
+                    console.warn(`[Qdrant] Failed to create index for ${field}:`, error.message);
+                }
+            }
+        }
+    }
+
+    /**
+     * Ensure payload indexes exist on an existing collection
+     * Call this to fix missing indexes on collections created before indexes were added
+     * @param {string} collectionName - Collection name
+     */
+    async ensurePayloadIndexes(collectionName = 'vecthare_main') {
+        try {
+            const collections = await this.client.getCollections();
+            const exists = collections.collections.some(c => c.name === collectionName);
+            if (exists) {
+                await this.createPayloadIndexes(collectionName);
+                console.log(`[Qdrant] Ensured payload indexes for ${collectionName}`);
+            }
+        } catch (error) {
+            console.error(`[Qdrant] Failed to ensure indexes for ${collectionName}:`, error);
         }
     }
 
@@ -311,6 +369,77 @@ class QdrantBackend {
             }));
         } catch (error) {
             console.error(`[Qdrant] Query failed for ${mainCollection}:`, error);
+            return [];
+        }
+    }
+
+    /**
+     * List all items in a collection (MULTITENANCY)
+     * @param {string} collectionName - Collection name (always "vecthare_main")
+     * @param {object} filters - Payload filters {type, sourceId}
+     * @param {object} options - Options { includeVectors }
+     * @returns {Promise<Array>} Array of items with {hash, text, metadata, vector?}
+     */
+    async listItems(collectionName, filters = {}, options = {}) {
+        if (!this.client) throw new Error('Qdrant not initialized');
+
+        // MULTITENANCY: Always use vecthare_main collection
+        const mainCollection = 'vecthare_main';
+
+        try {
+            // Check if collection exists
+            const collections = await this.client.getCollections();
+            const exists = collections.collections.some(c => c.name === mainCollection);
+            if (!exists) {
+                return [];
+            }
+
+            // Build filter conditions
+            const must = [];
+            if (filters.type) {
+                must.push({
+                    key: 'type',
+                    match: { value: filters.type }
+                });
+            }
+            if (filters.sourceId) {
+                must.push({
+                    key: 'sourceId',
+                    match: { value: filters.sourceId }
+                });
+            }
+
+            // Scroll through all points
+            const items = [];
+            let offset = null;
+
+            do {
+                const scrollPayload = {
+                    limit: 100,
+                    offset: offset,
+                    with_payload: true,
+                    with_vector: options.includeVectors || false,
+                };
+
+                // Add filters if any
+                if (must.length > 0) {
+                    scrollPayload.filter = { must };
+                }
+
+                const response = await this.client.scroll(mainCollection, scrollPayload);
+
+                items.push(...response.points.map(p => ({
+                    hash: p.payload.hash,
+                    text: p.payload.text,
+                    metadata: p.payload,
+                    vector: options.includeVectors ? p.vector : undefined,
+                })));
+                offset = response.next_page_offset;
+            } while (offset !== null && offset !== undefined);
+
+            return items;
+        } catch (error) {
+            console.error(`[Qdrant] Failed to list items from ${mainCollection}:`, error);
             return [];
         }
     }

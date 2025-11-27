@@ -723,6 +723,148 @@ async function queryAndMergeCollections(activeCollections, queryText, settings, 
 }
 
 /**
+ * Stage 3.5: Expand summary chunks to their parent chunks (dual-vector system)
+ * When a summary chunk matches a query, we want to inject the full parent text instead.
+ * The summary's score is preserved since that's what semantically matched.
+ *
+ * @param {object[]} chunks Chunks from query results
+ * @param {string[]} activeCollections Collections that were queried
+ * @param {object} settings VectHare settings
+ * @param {object} debugData Debug tracking object
+ * @returns {Promise<object[]>} Chunks with summaries expanded to parents
+ */
+async function expandSummaryChunks(chunks, activeCollections, settings, debugData) {
+    const expandedChunks = [];
+    const parentHashesNeeded = new Map(); // parentHash -> { summaryChunk, collectionId }
+
+    // First pass: identify which chunks are summaries and need parent expansion
+    for (const chunk of chunks) {
+        const meta = chunk.metadata || {};
+        const isSummary = meta.isSummaryChunk || meta.isSummary || meta.isSummaryVector;
+        const parentHash = meta.parentHash;
+
+        if (isSummary && parentHash) {
+            // Track this summary for parent lookup
+            parentHashesNeeded.set(String(parentHash), {
+                summaryChunk: chunk,
+                collectionId: chunk.collectionId
+            });
+
+            addTrace(debugData, 'summary_expansion', `Summary chunk found, will expand to parent`, {
+                summaryHash: chunk.hash,
+                parentHash: parentHash,
+                summaryScore: chunk.score?.toFixed(3),
+                collectionId: chunk.collectionId
+            });
+        } else {
+            // Not a summary, keep as-is
+            expandedChunks.push(chunk);
+        }
+    }
+
+    // If no summaries found, return original chunks
+    if (parentHashesNeeded.size === 0) {
+        return chunks;
+    }
+
+    // Second pass: fetch parent chunks from the vector DB
+    // Group by collection for efficiency
+    const parentsByCollection = new Map();
+    for (const [parentHash, info] of parentHashesNeeded) {
+        const collectionId = info.collectionId;
+        if (!parentsByCollection.has(collectionId)) {
+            parentsByCollection.set(collectionId, []);
+        }
+        parentsByCollection.get(collectionId).push({ parentHash, summaryChunk: info.summaryChunk });
+    }
+
+    // Fetch parents from each collection
+    for (const [collectionId, parentInfos] of parentsByCollection) {
+        try {
+            // Get all chunks from this collection with metadata
+            const collectionData = await getSavedHashes(collectionId, settings, true);
+
+            if (collectionData && collectionData.metadata) {
+                // Build a lookup map of hash -> chunk data
+                const chunkLookup = new Map();
+                for (let i = 0; i < collectionData.hashes.length; i++) {
+                    const hash = String(collectionData.hashes[i]);
+                    chunkLookup.set(hash, collectionData.metadata[i]);
+                }
+
+                // Find each parent and create expanded chunk
+                for (const { parentHash, summaryChunk } of parentInfos) {
+                    const parentData = chunkLookup.get(String(parentHash));
+
+                    if (parentData) {
+                        // Found parent - create expanded chunk with parent's text but summary's score
+                        const expandedChunk = {
+                            ...summaryChunk,
+                            hash: parentHash, // Use parent's hash for deduplication
+                            text: parentData.text || parentData.mes || '(parent text not found)',
+                            metadata: {
+                                ...parentData,
+                                expandedFromSummary: true,
+                                originalSummaryHash: summaryChunk.hash,
+                                originalSummaryScore: summaryChunk.score
+                            },
+                            // Keep summary's score since that's what matched the query
+                            score: summaryChunk.score,
+                            originalScore: summaryChunk.originalScore,
+                            expandedFromSummary: true
+                        };
+
+                        expandedChunks.push(expandedChunk);
+
+                        recordChunkFate(debugData, parentHash, 'summary_expansion', 'passed',
+                            `Expanded from summary #${summaryChunk.hash}`, {
+                                summaryHash: summaryChunk.hash,
+                                parentTextLength: expandedChunk.text?.length || 0,
+                                inheritedScore: summaryChunk.score?.toFixed(3)
+                            });
+
+                        addTrace(debugData, 'summary_expansion', `Parent chunk retrieved`, {
+                            parentHash: parentHash,
+                            summaryHash: summaryChunk.hash,
+                            parentTextLength: expandedChunk.text?.length || 0
+                        });
+                    } else {
+                        // Parent not found - keep the summary chunk as fallback
+                        console.warn(`VectHare: Parent chunk ${parentHash} not found for summary ${summaryChunk.hash}, using summary text`);
+                        expandedChunks.push(summaryChunk);
+
+                        recordChunkFate(debugData, summaryChunk.hash, 'summary_expansion', 'passed',
+                            `Parent not found, using summary text`, {
+                                parentHash: parentHash,
+                                fallback: true
+                            });
+                    }
+                }
+            } else {
+                // Couldn't get collection data - keep summaries as-is
+                for (const { summaryChunk } of parentInfos) {
+                    expandedChunks.push(summaryChunk);
+                }
+            }
+        } catch (error) {
+            console.warn(`VectHare: Failed to expand summaries from ${collectionId}:`, error.message);
+            // Keep summaries as-is on error
+            for (const { summaryChunk } of parentInfos) {
+                expandedChunks.push(summaryChunk);
+            }
+        }
+    }
+
+    addTrace(debugData, 'summary_expansion', 'Summary expansion complete', {
+        originalCount: chunks.length,
+        summariesExpanded: parentHashesNeeded.size,
+        finalCount: expandedChunks.length
+    });
+
+    return expandedChunks;
+}
+
+/**
  * Stage 4: Apply threshold filter to chunks
  * @param {object[]} chunks Chunks to filter
  * @param {number} threshold Score threshold
@@ -1109,6 +1251,16 @@ export async function rearrangeChat(chat, settings, type) {
 
         debugData.stages.initial = [...chunks];
         debugData.stats.retrievedFromVector = chunks.length;
+
+        // === STAGE 4.5: Expand summary chunks to parent chunks (dual-vector) ===
+        const chunksBeforeExpansion = chunks.length;
+        chunks = await expandSummaryChunks(chunks, activeCollections, settings, debugData);
+        if (chunks.length !== chunksBeforeExpansion || chunks.some(c => c.expandedFromSummary)) {
+            const expandedCount = chunks.filter(c => c.expandedFromSummary).length;
+            console.log(`VectHare: Expanded ${expandedCount} summary chunks to parent text`);
+            debugData.stages.afterSummaryExpansion = [...chunks];
+            debugData.stats.summariesExpanded = expandedCount;
+        }
 
         // === STAGE 5: BananaBread reranking (optional) ===
         if (settings.source === 'bananabread' && settings.bananabread_rerank && chunks.length > 0) {

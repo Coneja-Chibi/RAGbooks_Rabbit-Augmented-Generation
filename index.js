@@ -637,6 +637,15 @@ export async function init(router) {
         try {
             const { hash } = req.params;
             const { backend = 'vectra', collectionId, source = 'transformers', model = '' } = req.query;
+            // Parse filters from query string (JSON encoded)
+            let filters = {};
+            if (req.query.filters) {
+                try {
+                    filters = JSON.parse(req.query.filters);
+                } catch (e) {
+                    console.warn(`[${pluginName}] Invalid filters JSON:`, req.query.filters);
+                }
+            }
 
             if (!collectionId) {
                 return res.status(400).json({ error: 'collectionId is required' });
@@ -647,7 +656,7 @@ export async function init(router) {
             }
 
             const handler = getBackendHandler(backend);
-            const chunk = await handler.get(collectionId, hash, source, model, req.user.directories);
+            const chunk = await handler.get(collectionId, hash, source, model, req.user.directories, filters);
 
             if (!chunk) {
                 return res.status(404).json({ error: 'Chunk not found' });
@@ -1227,26 +1236,22 @@ async function scanAllSourcesForCollections(vectorsPath) {
             }
         } catch (e) { /* no lancedb folder */ }
 
-        // Scan Qdrant
+        // Scan Qdrant (uses REST API, so check if initialized via baseUrl)
         try {
-            if (qdrantBackend.client) {
-                const collections = await qdrantBackend.client.getCollections();
-
-                for (const collection of collections.collections) {
-                    if (!collection.name.startsWith('similharity_') && !collection.name.startsWith('vecthare_')) {
-                        continue;
-                    }
-
-                    try {
-                        const info = await qdrantBackend.client.getCollection(collection.name);
+            if (qdrantBackend.baseUrl) {
+                const healthy = await qdrantBackend.healthCheck();
+                if (healthy) {
+                    // List items from vecthare_main collection
+                    const items = await qdrantBackend.listItems('vecthare_main', {});
+                    if (items.length > 0) {
                         allCollections.push({
-                            id: collection.name,
+                            id: 'vecthare_main',
                             source: 'qdrant',
                             backend: 'qdrant',
-                            chunkCount: info.points_count || 0,
+                            chunkCount: items.length,
                             modelCount: 1
                         });
-                    } catch (e) { /* ignore */ }
+                    }
                 }
             }
         } catch (e) { /* qdrant not available */ }

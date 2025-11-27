@@ -28,6 +28,7 @@ import { buildSearchContext, filterChunksByConditions } from './conditional-acti
 import { getChunkMetadata } from './collection-metadata.js';
 import { createDebugData, setLastSearchDebug, addTrace, recordChunkFate } from '../ui/search-debug.js';
 import { Queue, LRUCache } from '../utils/data-structures.js';
+import { getRequestHeaders } from '../../../../../script.js';
 
 const EXTENSION_PROMPT_TAG = '3_vecthare';
 
@@ -289,6 +290,59 @@ function trackChunkActivation(hash, messageCount) {
 }
 
 /**
+ * Rerank chunks using BananaBread's reranking endpoint
+ * @param {string} query The search query
+ * @param {Array} chunks Array of chunks with text
+ * @param {object} settings VectHare settings
+ * @returns {Promise<Array>} Chunks with updated scores from reranker
+ */
+async function rerankWithBananaBread(query, chunks, settings) {
+    if (!chunks.length) return chunks;
+
+    const apiUrl = settings.api_url_custom || 'http://localhost:8008';
+    const documents = chunks.map(c => c.text);
+
+    try {
+        const response = await fetch('/api/plugins/similharity/rerank', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                apiUrl,
+                query,
+                documents,
+                top_k: chunks.length
+            }),
+        });
+
+        if (!response.ok) {
+            console.warn('VectHare: Reranking failed, using original scores');
+            return chunks;
+        }
+
+        const data = await response.json();
+        if (!data.results || !Array.isArray(data.results)) {
+            return chunks;
+        }
+
+        // Apply rerank scores - results are sorted by score desc
+        // Each result has { index, score } where index refers to original position
+        const rerankedChunks = data.results.map(r => {
+            const chunk = { ...chunks[r.index] };
+            chunk.rerankScore = r.score;
+            chunk.originalScore = chunk.score;
+            chunk.score = r.score; // Replace score with rerank score
+            return chunk;
+        });
+
+        console.log(`VectHare: Reranked ${rerankedChunks.length} chunks with BananaBread`);
+        return rerankedChunks;
+    } catch (error) {
+        console.warn('VectHare: Reranking error:', error.message);
+        return chunks;
+    }
+}
+
+/**
  * Synchronizes chat with vector index using simple FIFO queue
  *
  * How it works:
@@ -510,6 +564,22 @@ export async function rearrangeChat(chat, settings, type) {
         // Store initial stage (raw vector search results)
         debugData.stages.initial = [...chunksForVisualizer];
         debugData.stats.retrievedFromVector = chunksForVisualizer.length;
+
+        // Apply BananaBread reranking if enabled
+        if (settings.source === 'bananabread' && settings.bananabread_rerank && chunksForVisualizer.length > 0) {
+            addTrace(debugData, 'rerank', 'Starting BananaBread reranking', {
+                chunks: chunksForVisualizer.length,
+                query: queryText.substring(0, 100)
+            });
+
+            chunksForVisualizer = await rerankWithBananaBread(queryText, chunksForVisualizer, settings);
+
+            // Update debug data
+            debugData.stages.afterRerank = [...chunksForVisualizer];
+            addTrace(debugData, 'rerank', 'Reranking complete', {
+                rerankedCount: chunksForVisualizer.length
+            });
+        }
 
         // TRACE: Apply threshold filter
         const threshold = settings.score_threshold || 0;

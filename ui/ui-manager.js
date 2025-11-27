@@ -110,6 +110,7 @@ export function renderSettings(containerId, settings, callbacks) {
                             </label>
                             <select id="vecthare_source" class="vecthare-select">
                             <option value="transformers">Transformers (Local)</option>
+                            <option value="bananabread">BananaBread</option>
                             <option value="openai">OpenAI</option>
                             <option value="ollama">Ollama</option>
                             <option value="cohere">Cohere</option>
@@ -143,13 +144,26 @@ export function renderSettings(containerId, settings, callbacks) {
                             </div>
 
                             <!-- Alternative Endpoint (for local providers) -->
-                            <div class="vecthare_provider_setting" data-provider="ollama,vllm,llamacpp,koboldcpp">
+                            <div class="vecthare_provider_setting" data-provider="ollama,vllm,llamacpp,koboldcpp,bananabread">
                                 <label class="checkbox_label">
                                     <input type="checkbox" id="vecthare_use_alt_endpoint" />
                                     <span>Use Alternative Endpoint</span>
                                 </label>
                                 <input type="text" id="vecthare_alt_endpoint_url" class="vecthare-input" placeholder="http://localhost:11434" />
                                 <small class="vecthare_hint">Override default API URL for this provider</small>
+                            </div>
+
+                            <!-- BananaBread Info & Reranking -->
+                            <div class="vecthare_provider_setting" data-provider="bananabread">
+                                <small class="vecthare_info">
+                                    <i class="fa-solid fa-info-circle"></i>
+                                    BananaBread default: http://localhost:8008. Supports MixedBread AI and Qwen3 embedding models.
+                                </small>
+                                <label class="checkbox_label" style="margin-top: 8px;">
+                                    <input type="checkbox" id="vecthare_bananabread_rerank" />
+                                    <span>Enable Reranking</span>
+                                </label>
+                                <small class="vecthare_hint">Re-score results using BananaBread's reranker for better relevance</small>
                             </div>
 
                             <!-- WebLLM Model -->
@@ -912,6 +926,15 @@ function bindSettingsEvents(settings, callbacks) {
         .prop('checked', settings.ollama_keep)
         .on('input', function() {
             settings.ollama_keep = $(this).prop('checked');
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+
+    // BananaBread reranking
+    $('#vecthare_bananabread_rerank')
+        .prop('checked', settings.bananabread_rerank)
+        .on('input', function() {
+            settings.bananabread_rerank = $(this).prop('checked');
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
         });

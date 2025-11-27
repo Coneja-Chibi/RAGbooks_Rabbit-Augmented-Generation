@@ -35,6 +35,14 @@ export const EMBEDDING_PROVIDERS = {
     },
 
     // Local server providers (need URL)
+    bananabread: {
+        name: 'BananaBread',
+        local: true,
+        requiresModel: false,
+        requiresApiKey: false,
+        requiresUrl: true,
+        defaultUrl: 'http://localhost:8008',
+    },
     ollama: {
         name: 'Ollama',
         local: true,

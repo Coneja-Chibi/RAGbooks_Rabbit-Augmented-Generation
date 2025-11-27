@@ -3,7 +3,7 @@
  * VECTHARE - ADVANCED RAG SYSTEM
  * ============================================================================
  * Entry point - lean and clean
- * All logic is in separate modules per CLAUDE.md
+ * All logic is in separate modules - see project guidelines
  *
  * @author Coneja Chibi
  * @version 2.0.0-alpha

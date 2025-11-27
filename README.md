@@ -16,42 +16,80 @@ Server-side plugin for [the VectHare](https://github.com/Conejachibi/VectHare) e
 
 ---
 
-## Setup
+## Installation
 
-### 1. Enable Server Plugins
+### Step 1: Enable Server Plugins
 
-Add to `config.yaml`:
+Add to your `config.yaml` (in SillyTavern root folder):
 
 ```yaml
 enableServerPlugins: true
 ```
 
-### 2. Install Plugin
+### Step 2: Install Plugin via Git (RECOMMENDED)
 
-Download this branch and extract/place the contents so the structure is:
-```
-SillyTavern/plugins/similharity/
-├── index.js
-├── package.json
-├── lancedb-backend.js
-├── qdrant-backend.js
-└── README.md
-```
+**This method enables automatic updates!**
 
-### 3. Install Dependencies
+Open a terminal/command prompt in your SillyTavern folder and run:
 
-Open a terminal in the plugin folder and run:
 ```bash
-cd SillyTavern/plugins/similharity
+cd plugins
+git clone -b Similharity-Plugin https://github.com/Coneja-Chibi/VectHare.git similharity
+cd similharity
 npm install
 ```
 
-### 4. Restart SillyTavern
+Your folder structure should now look like:
+```
+SillyTavern/
+└── plugins/
+    └── similharity/
+        ├── .git/          <-- THIS IS IMPORTANT FOR AUTO-UPDATES
+        ├── index.js
+        ├── package.json
+        ├── lancedb-backend.js
+        ├── qdrant-backend.js
+        └── README.md
+```
+
+### Step 3: Restart SillyTavern
 
 Check console for:
 ```
-[similharity] Initializing v2.0.0...
+[similharity] Initializing v3.0.0...
 [similharity] Plugin initialized successfully
+```
+
+---
+
+## Auto-Updates
+
+**If you installed via `git clone` (Step 2 above)**, the plugin will automatically update every time you restart SillyTavern!
+
+SillyTavern runs `git pull` on all plugin folders that are git repositories on startup. This is enabled by default.
+
+### Verify Auto-Update is Working
+
+1. Check that `.git` folder exists inside `plugins/similharity/`
+2. On startup, look for this message in console:
+   ```
+   Auto-updating server plugins...
+   ```
+
+### If You Downloaded Manually (ZIP)
+
+If you downloaded the plugin as a ZIP file instead of using `git clone`, auto-updates **will not work**. To fix this:
+
+1. Delete the `plugins/similharity` folder
+2. Follow Step 2 above to reinstall via git
+3. Your settings and data are stored separately and won't be lost
+
+### Disable Auto-Updates (Optional)
+
+If you want to disable auto-updates, add to `config.yaml`:
+
+```yaml
+enableServerPluginsAutoUpdate: false
 ```
 
 ---

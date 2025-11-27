@@ -1,2 +1,3 @@
-# Documentation files
-*.md
+# Documentation files (except README)
+docs/*.md
+!README.md

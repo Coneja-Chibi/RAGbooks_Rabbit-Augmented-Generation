@@ -315,16 +315,14 @@ class QdrantBackend {
                 const existingDimension = collectionInfo.result?.config?.params?.vectors?.size;
 
                 if (existingDimension && existingDimension !== expectedDimension) {
-                    throw new Error(`[Qdrant] Vector dimension mismatch with existing collection. Collection has ${existingDimension} dimensions, but trying to insert ${expectedDimension}. This usually means you're using a different embedding model. Either purge the collection or switch to the same model.`);
+                    console.warn(`[Qdrant] Vector dimension mismatch. Collection has ${existingDimension} dimensions, but insert requires ${expectedDimension}. Dropping collection to recreate...`);
+                    await this.purgeAll();
+                    // Wait slightly for deletion to propagate (optional but safe)
+                    await new Promise(resolve => setTimeout(resolve, 500));
                 }
             }
         } catch (error) {
-            // If it's our dimension error, re-throw it
-            if (error.message?.includes('Vector dimension mismatch with existing collection')) {
-                throw error;
-            }
-            // Otherwise log and continue - ensureCollection will handle creation
-            console.debug('[Qdrant] Could not check existing collection dimension:', error.message);
+             console.debug('[Qdrant] Could not check existing collection dimension:', error.message);
         }
 
         // Ensure collection exists (use first vector's size)

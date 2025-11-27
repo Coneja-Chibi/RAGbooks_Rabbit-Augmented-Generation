@@ -69,10 +69,15 @@ export async function checkVectorsExtension() {
 /**
  * Check: ST Vector API endpoints
  * Tests all /api/vector/* endpoints comprehensively
+ * NOTE: Always uses 'transformers' source for this check because native ST
+ * endpoints don't recognize custom sources like bananabread. VectHare uses
+ * the Similharity plugin endpoints for actual operations, not these.
  */
 export async function checkBackendEndpoints(settings) {
     const results = [];
-    const source = settings.source || 'transformers';
+    // Always use 'transformers' - native ST endpoints don't know custom sources
+    // This check tests "do endpoints respond?" not "does my provider work?"
+    const source = 'transformers';
 
     const endpoints = [
         { name: 'list', method: 'POST', url: '/api/vector/list', body: { collectionId: 'vecthare_diag', source } },

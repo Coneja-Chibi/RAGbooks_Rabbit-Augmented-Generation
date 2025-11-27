@@ -59,28 +59,33 @@ function getProviderBody(settings) {
 
 /**
  * Test: Can we generate an embedding?
+ * Uses Similharity plugin to test actual configured provider (incl. bananabread)
  */
 export async function testEmbeddingGeneration(settings) {
     try {
         const testText = 'This is a test message for embedding generation.';
+        const backend = settings.db || 'standard';
+        const backendType = backend === 'standard' ? 'vectra' : backend;
 
-        const response = await fetch('/api/vector/query', {
+        const response = await fetch('/api/plugins/similharity/chunks/query', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
-                collectionId: '__vecthare_test__',
+                backend: backendType,
+                collectionId: 'vh:test:embed_gen',
                 searchText: testText,
                 topK: 1,
-                source: settings.source,
-                ...getProviderBody(settings)
+                source: settings.source || 'transformers',
+                model: settings[getModelField(settings.source)] || null,
             })
         });
 
         if (!response.ok) {
+            const errorText = await response.text();
             return {
                 name: '[PROD] Embedding Generation',
                 status: 'fail',
-                message: `Failed to generate embedding: ${response.status} ${response.statusText}`,
+                message: `Failed to generate embedding: ${response.status} ${response.statusText} - ${errorText}`,
                 category: 'production'
             };
         }
@@ -103,33 +108,38 @@ export async function testEmbeddingGeneration(settings) {
 
 /**
  * Test: Can we store and retrieve a vector?
+ * Uses Similharity plugin to test actual configured provider (incl. bananabread)
  */
 export async function testVectorStorage(settings) {
     try {
-        const testCollectionId = `__vecthare_test_${Date.now()}__`;
+        const testCollectionId = `vh:test:storage_${Date.now()}`;
         const testHash = Math.floor(Math.random() * 1000000);
         const testText = 'VectHare storage test message';
+        const backend = settings.db || 'standard';
+        const backendType = backend === 'standard' ? 'vectra' : backend;
 
-        const insertResponse = await fetch('/api/vector/insert', {
+        const insertResponse = await fetch('/api/plugins/similharity/chunks/insert', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
+                backend: backendType,
                 collectionId: testCollectionId,
                 items: [{
                     hash: testHash,
                     text: testText,
                     index: 0
                 }],
-                source: settings.source,
-                ...getProviderBody(settings)
+                source: settings.source || 'transformers',
+                model: settings[getModelField(settings.source)] || null,
             })
         });
 
         if (!insertResponse.ok) {
+            const errorText = await insertResponse.text();
             return {
                 name: '[PROD] Vector Storage',
                 status: 'fail',
-                message: `Failed to store vector: ${insertResponse.status}`,
+                message: `Failed to store vector: ${insertResponse.status} - ${errorText}`,
                 category: 'production'
             };
         }
@@ -288,30 +298,34 @@ export async function testVectorDimensions(settings) {
         }
 
         // Generate a test embedding to get current dimensions
-        const testCollectionId = `__vecthare_dim_test_${Date.now()}__`;
+        const testCollectionId = `vh:test:dim_${Date.now()}`;
         const testHash = Math.floor(Math.random() * 1000000);
         const testText = 'Dimension test';
+        const backend = settings.db || 'standard';
+        const backendType = backend === 'standard' ? 'vectra' : backend;
 
-        const insertResponse = await fetch('/api/vector/insert', {
+        const insertResponse = await fetch('/api/plugins/similharity/chunks/insert', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
+                backend: backendType,
                 collectionId: testCollectionId,
                 items: [{
                     hash: testHash,
                     text: testText,
                     index: 0
                 }],
-                source: settings.source,
-                ...getProviderBody(settings)
+                source: settings.source || 'transformers',
+                model: settings[getModelField(settings.source)] || null,
             })
         });
 
         if (!insertResponse.ok) {
+            const errorText = await insertResponse.text();
             return {
                 name: '[PROD] Vector Dimensions',
                 status: 'warning',
-                message: `Could not generate test embedding: ${insertResponse.status}`,
+                message: `Could not generate test embedding: ${insertResponse.status} - ${errorText}`,
                 category: 'production'
             };
         }
@@ -807,7 +821,7 @@ export async function testPluginEmbeddingGeneration(settings) {
     }
 
     try {
-        const testCollectionId = `__vecthare_embed_test_${Date.now()}__`;
+        const testCollectionId = `vh:test:embed_${Date.now()}`;
         const testHash = Math.floor(Math.random() * 1000000);
         const testText = 'Plugin embedding generation test';
 

@@ -776,51 +776,41 @@ async function getVectorsForSource(source, texts, model, directories, req) {
             throw new Error(`BananaBread: Invalid URL format "${apiUrl}" - ${e.message}`);
         }
 
-        const allEmbeddings = [];
-        // Chunk requests to avoid overwhelming the server (max 10)
-        const chunkSize = 10;
-        
-        for (let i = 0; i < texts.length; i += chunkSize) {
-            const chunk = texts.slice(i, i + chunkSize);
-            
-            try {
-                const response = await fetch(url.toString(), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ content: chunk }),
-                });
+        try {
+            const response = await fetch(url.toString(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // Backend accepts array of documents
+                body: JSON.stringify({ content: texts }),
+            });
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`BananaBread: ${response.statusText} ${errorText}`);
-                }
-
-                const data = await response.json();
-                const embeddings = data.embedding; // Could be [[...], [...]] or flattened if not standard?
-
-                if (!embeddings) {
-                    throw new Error('BananaBread: Invalid response format (missing embedding)');
-                }
-
-                // Handle possible response formats
-                // Standard: array of arrays (one vector per text)
-                if (Array.isArray(embeddings) && Array.isArray(embeddings[0])) {
-                    allEmbeddings.push(...embeddings);
-                } 
-                // Single item fallback (some servers might flatten single result)
-                else if (chunk.length === 1 && Array.isArray(embeddings)) {
-                    allEmbeddings.push(embeddings);
-                }
-                else {
-                    throw new Error('BananaBread: Unexpected embedding format');
-                }
-            } catch (e) {
-                console.error(`[BananaBread] Batch embedding error (chunk ${i}-${i+chunkSize}):`, e);
-                throw e;
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`BananaBread: ${response.statusText} ${errorText}`);
             }
+
+            const data = await response.json();
+            const embeddings = data.embedding;
+
+            if (!embeddings) {
+                throw new Error('BananaBread: Invalid response format (missing embedding)');
+            }
+
+            // Standard: array of arrays (one vector per text)
+            if (Array.isArray(embeddings) && Array.isArray(embeddings[0])) {
+                return embeddings;
+            } 
+            // Single item fallback (if only 1 text sent, might be flattened)
+            else if (texts.length === 1 && Array.isArray(embeddings)) {
+                return [embeddings];
+            }
+            else {
+                throw new Error('BananaBread: Unexpected embedding format');
+            }
+        } catch (e) {
+            console.error(`[BananaBread] Batch embedding error:`, e);
+            throw e;
         }
-        
-        return allEmbeddings;
     }
 
     // Default fallback: sequential processing for other sources

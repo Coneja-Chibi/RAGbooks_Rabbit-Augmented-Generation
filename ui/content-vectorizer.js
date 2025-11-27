@@ -769,7 +769,7 @@ function updateOptionsSection(type) {
                 <div class="vecthare-cv-keyword-weight">
                     <label for="vecthare_cv_keyword_weight">Base Weight:</label>
                     <input type="number" id="vecthare_cv_keyword_weight"
-                           min="1.0" max="3.0" step="0.1"
+                           min="0.01" max="3.0" step="0.01"
                            value="${currentSettings.keywordBaseWeight || 1.5}"
                            class="vecthare-number-input">
                     <span class="vecthare-cv-weight-hint">×</span>
@@ -1010,7 +1010,7 @@ function bindEvents() {
     // Keyword base weight
     $(document).on('change', '#vecthare_cv_keyword_weight', function() {
         const value = parseFloat($(this).val());
-        currentSettings.keywordBaseWeight = isNaN(value) ? 1.5 : Math.min(3.0, Math.max(1.0, value));
+        currentSettings.keywordBaseWeight = isNaN(value) ? 1.5 : Math.min(3.0, Math.max(0.01, value));
         $(this).val(currentSettings.keywordBaseWeight);
     });
 

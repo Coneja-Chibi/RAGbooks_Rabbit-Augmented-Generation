@@ -299,38 +299,60 @@ async function createKoboldCppEmbeddings(items, settings) {
 
     return await dynamicRateLimiter.execute(async () => {
         return await AsyncUtils.retry(async () => {
-            const fetchPromise = fetch('/api/backends/kobold/embed', {
+            const serverUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : textgenerationwebui_settings.server_urls[textgen_types.KOBOLDCPP];
+            if (!serverUrl) {
+                throw new Error('KoboldCpp URL not found');
+            }
+
+            const cleanUrl = serverUrl.replace(/\/$/, '');
+            const fetchPromise = fetch(`${cleanUrl}/v1/embeddings`, {
                 method: 'POST',
-                headers: getRequestHeaders(),
+                headers: {
+                    'Content-Type': 'application/json',
+                },
                 body: JSON.stringify({
-                    items: cleanedItems,
-                    server: settings.use_alt_endpoint ? settings.alt_endpoint_url : textgenerationwebui_settings.server_urls[textgen_types.KOBOLDCPP],
+                    input: cleanedItems,
+                    model: settings.koboldcpp_model || 'koboldcpp',
                 }),
             });
 
             const response = await AsyncUtils.timeout(fetchPromise, API_TIMEOUT_MS, 'KoboldCpp embedding request timed out');
 
             if (!response.ok) {
+                // Try legacy endpoint if v1 fails (fallback)
+                if (response.status === 404) {
+                    console.warn('VectHare: KoboldCpp /v1/embeddings not found, trying legacy endpoint...');
+                    // Fallthrough to retry or handle legacy?
+                    // Better to throw specific error so we can potentially retry with legacy logic if we wanted, 
+                    // but for now let's stick to the directive of using OpenAI compatible endpoint.
+                }
                 throw new Error(`Failed to get KoboldCpp embeddings: ${response.status} ${response.statusText}`);
             }
 
             const data = await response.json();
-            if (!Array.isArray(data.embeddings) || !data.model || data.embeddings.length !== cleanedItems.length) {
-                throw new Error('Invalid response from KoboldCpp embeddings');
+            
+            // OpenAI format: { data: [{ embedding: [], index: 0, ... }, ...], model: "..." }
+            if (!data.data || !Array.isArray(data.data) || data.data.length !== cleanedItems.length) {
+                 throw new Error('Invalid response from KoboldCpp embeddings (OpenAI format)');
             }
 
             const embeddings = /** @type {Record<string, number[]>} */ ({});
-            for (let i = 0; i < data.embeddings.length; i++) {
-                if (!Array.isArray(data.embeddings[i]) || data.embeddings[i].length === 0) {
-                    throw new Error('KoboldCpp returned an empty embedding. Reduce the chunk size and/or size threshold and try again.');
+            
+            // Sort by index to ensure order matches items
+            data.data.sort((a, b) => a.index - b.index);
+
+            for (let i = 0; i < data.data.length; i++) {
+                const embedding = data.data[i].embedding;
+                if (!Array.isArray(embedding) || embedding.length === 0) {
+                    throw new Error('KoboldCpp returned an empty embedding.');
                 }
                 // Map back to original items (not cleaned) for hash consistency
-                embeddings[items[i]] = data.embeddings[i];
+                embeddings[items[i]] = embedding;
             }
 
             return {
                 embeddings: embeddings,
-                model: data.model,
+                model: data.model || 'koboldcpp',
             };
         }, {
             ...RETRY_CONFIG,

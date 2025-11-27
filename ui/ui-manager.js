@@ -12,6 +12,7 @@
 
 import { saveSettingsDebounced } from '../../../../../script.js';
 import { extension_settings } from '../../../../extensions.js';
+import { writeSecret, SECRET_KEYS, secret_state, readSecretState } from '../../../../secrets.js';
 import { openVisualizer } from './chunk-visualizer.js';
 import { openDatabaseBrowser } from './database-browser.js';
 import { openContentVectorizer } from './content-vectorizer.js';
@@ -275,6 +276,10 @@ export function renderSettings(containerId, settings, callbacks) {
                                 </label>
                                 <input type="text" id="vecthare_openrouter_model" class="vecthare-input" placeholder="openai/text-embedding-3-large" />
                                 <small class="vecthare_hint">Enter OpenRouter-compatible model ID</small>
+                                <label for="vecthare_openrouter_apikey" style="margin-top: 8px;">
+                                    <small>OpenRouter API Key:</small>
+                                </label>
+                                <input type="password" id="vecthare_openrouter_apikey" class="vecthare-input" placeholder="Paste key here to save..." autocomplete="off" />
                             </div>
 
                         </div>
@@ -963,6 +968,31 @@ function bindSettingsEvents(settings, callbacks) {
             settings.openrouter_model = String($(this).val());
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
+        });
+
+    // OpenRouter API key - saves directly to ST secrets
+    // Show existing key if set
+    const updateOpenRouterKeyDisplay = () => {
+        const secrets = secret_state[SECRET_KEYS.OPENROUTER];
+        if (Array.isArray(secrets) && secrets.length > 0) {
+            const activeSecret = secrets.find(s => s.active) || secrets[0];
+            if (activeSecret?.value) {
+                $('#vecthare_openrouter_apikey').attr('placeholder', activeSecret.value);
+            }
+        }
+    };
+    updateOpenRouterKeyDisplay();
+
+    $('#vecthare_openrouter_apikey')
+        .on('change', async function() {
+            const value = String($(this).val()).trim();
+            if (value) {
+                await writeSecret(SECRET_KEYS.OPENROUTER, value);
+                await readSecretState(); // Refresh state to get masked value
+                toastr.success('OpenRouter API key saved');
+                $(this).val(''); // Clear input
+                updateOpenRouterKeyDisplay(); // Show masked key in placeholder
+            }
         });
 
     // Action buttons

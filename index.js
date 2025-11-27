@@ -772,7 +772,7 @@ async function getVectorsForSource(source, texts, model, directories, req) {
         let url;
         try {
             url = new URL(apiUrl);
-            url.pathname = '/embedding';
+            url.pathname = '/v1/embeddings';
         } catch (e) {
             throw new Error(`BananaBread: Invalid URL format "${apiUrl}" - ${e.message}`);
         }

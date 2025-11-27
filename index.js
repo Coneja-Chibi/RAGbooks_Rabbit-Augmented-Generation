@@ -266,7 +266,17 @@ export async function init(router) {
 
                     list: async (collectionId, source, model, directories, options = {}) => {
                         const items = await lancedbBackend.listItems(collectionId, source, options);
-                        return items;
+                        // Return same format as Vectra handler for consistency
+                        const offset = options.offset || 0;
+                        const limit = options.limit || items.length;
+                        const paginatedItems = items.slice(offset, offset + limit);
+                        return {
+                            items: paginatedItems,
+                            total: items.length,
+                            offset,
+                            limit,
+                            hasMore: offset + limit < items.length
+                        };
                     },
 
                     get: async (collectionId, hash, source) => {
@@ -329,7 +339,17 @@ export async function init(router) {
 
                     list: async (collectionId, source, model, directories, options = {}) => {
                         const items = await qdrantBackend.listItems(collectionId, options.filters || {}, options);
-                        return items;
+                        // Return same format as Vectra handler for consistency
+                        const offset = options.offset || 0;
+                        const limit = options.limit || items.length;
+                        const paginatedItems = items.slice(offset, offset + limit);
+                        return {
+                            items: paginatedItems,
+                            total: items.length,
+                            offset,
+                            limit,
+                            hasMore: offset + limit < items.length
+                        };
                     },
 
                     get: async (collectionId, hash, source, model, directories, filters = {}) => {
@@ -428,7 +448,9 @@ export async function init(router) {
             let folderPath;
 
             if (backend === 'lancedb') {
-                folderPath = path.join(vectorsPath, 'lancedb', `${collectionId}.lance`);
+                // LanceDB structure: lancedb/{source}/{collectionId}.lance
+                const effectiveSource = source || 'bananabread';
+                folderPath = path.join(vectorsPath, 'lancedb', effectiveSource, `${collectionId}.lance`);
             } else if (backend === 'qdrant') {
                 return res.status(400).json({ error: 'Qdrant collections are stored remotely' });
             } else {
@@ -1227,9 +1249,21 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
         }
         case 'bananabread': {
             // BananaBread llama.cpp-compatible endpoint (no model param needed - uses server config)
-            const apiUrl = req.body.apiUrl || 'http://localhost:8008';
-            const url = new URL(apiUrl);
-            url.pathname = '/embedding';
+            let apiUrl = req.body.apiUrl || 'http://localhost:8008';
+
+            // Validate URL before attempting to use it
+            if (!apiUrl || typeof apiUrl !== 'string' || apiUrl.trim() === '') {
+                throw new Error('BananaBread: apiUrl is missing or invalid. Configure the embedding URL in VectHare settings.');
+            }
+            apiUrl = apiUrl.trim();
+
+            let url;
+            try {
+                url = new URL(apiUrl);
+                url.pathname = '/embedding';
+            } catch (e) {
+                throw new Error(`BananaBread: Invalid URL format "${apiUrl}" - ${e.message}`);
+            }
 
             const response = await fetch(url.toString(), {
                 method: 'POST',

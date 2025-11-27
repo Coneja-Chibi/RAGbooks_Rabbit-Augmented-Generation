@@ -364,9 +364,25 @@ class LanceDBBackend {
             return; // Collection doesn't exist
         }
 
-        await db.dropTable(tableName);
+        try {
+            await db.dropTable(tableName);
+        } catch (error) {
+            console.warn(`[LanceDB] dropTable failed for ${tableName}:`, error.message);
+        }
+
         this.collections.delete(cacheKey);
         this.tableNameMap.delete(collectionId);
+
+        // EXTRA CLEANUP: Explicitly remove the .lance directory
+        // This handles cases where dropTable leaves the directory (e.g. Windows file locking)
+        // causing tableNames() to still report it as existing ("ghost table")
+        try {
+            const tablePath = path.join(this.basePath, source, `${tableName}.lance`);
+            await fs.rm(tablePath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+            console.log(`[LanceDB] Enforced directory removal for: ${tablePath}`);
+        } catch (error) {
+            console.warn(`[LanceDB] Failed to force remove directory for ${tableName}:`, error.message);
+        }
 
         console.log(`[LanceDB] Purged collection: ${source}/${tableName} (${collectionId})`);
     }

@@ -54,8 +54,69 @@ import {
 // Initialize WebLLM provider
 const webllmProvider = new WebLlmVectorProvider();
 
-// Rate limiter for embedding API calls - prevents 429 errors when bulk vectorizing
-const embeddingRateLimiter = AsyncUtils.rateLimiter(RATE_LIMIT_CALLS, RATE_LIMIT_WINDOW_MS);
+/**
+ * Rate limiter that respects user settings dynamically.
+ */
+class DynamicRateLimiter {
+    constructor() {
+        this.timestamps = [];
+    }
+
+    /**
+     * Executes a function if rate limits allow, or waits until they do.
+     * @param {Function} fn Function to execute
+     * @param {object} settings Settings containing rate_limit_calls and rate_limit_interval
+     * @returns {Promise<any>} Result of the function
+     */
+    async execute(fn, settings) {
+        const maxCalls = settings.rate_limit_calls || 0; // 0 = disabled
+        const intervalMs = (settings.rate_limit_interval || 60) * 1000;
+
+        if (maxCalls <= 0) {
+            return await fn();
+        }
+
+        // Clean up old timestamps
+        const now = Date.now();
+        this.timestamps = this.timestamps.filter(t => now - t < intervalMs);
+
+        if (this.timestamps.length >= maxCalls) {
+            // Calculate wait time
+            const oldest = this.timestamps[0];
+            const waitTime = (oldest + intervalMs) - now;
+
+            if (waitTime > 0) {
+                console.log(`VectHare: Rate limit reached. Waiting ${Math.round(waitTime / 1000)}s...`);
+                await AsyncUtils.sleep(waitTime + 100); // Add small buffer
+            }
+            
+            // Recursive call to re-check
+            return this.execute(fn, settings);
+        }
+
+        // Add timestamp and execute
+        this.timestamps.push(Date.now());
+        return await fn();
+    }
+}
+
+// Global rate limiter instance
+const dynamicRateLimiter = new DynamicRateLimiter();
+
+/**
+ * Helper to batch array into chunks
+ * @template T
+ * @param {T[]} array
+ * @param {number} size
+ * @returns {T[][]}
+ */
+function chunkArray(array, size) {
+    const chunks = [];
+    for (let i = 0; i < array.length; i += size) {
+        chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
+}
 
 // Retry configuration for transient failures (matches AsyncUtils.retry signature)
 const RETRY_CONFIG = {
@@ -229,7 +290,7 @@ async function createKoboldCppEmbeddings(items, settings) {
     // Clean text before embedding (strip HTML/Markdown)
     const cleanedItems = items.map(item => stripFormatting(item) || item);
 
-    return await embeddingRateLimiter.execute(async () => {
+    return await dynamicRateLimiter.execute(async () => {
         return await AsyncUtils.retry(async () => {
             const fetchPromise = fetch('/api/backends/kobold/embed', {
                 method: 'POST',
@@ -270,7 +331,7 @@ async function createKoboldCppEmbeddings(items, settings) {
                 console.warn(`VectHare: KoboldCpp embedding retry ${attempt} - ${error.message}`);
             }
         });
-    });
+    }, settings);
 }
 
 /**
@@ -382,6 +443,7 @@ export async function getSavedHashes(collectionId, settings, includeMetadata = f
 
 /**
  * Inserts vector items into a collection
+ * Handles batching and rate limiting.
  * @param {string} collectionId - The collection to insert into
  * @param {{ hash: number, text: string }[]} items - The items to insert
  * @param {object} settings VectHare settings object
@@ -389,7 +451,29 @@ export async function getSavedHashes(collectionId, settings, includeMetadata = f
  */
 export async function insertVectorItems(collectionId, items, settings) {
     const backend = await getBackend(settings);
-    return await backend.insertVectorItems(collectionId, items, settings);
+
+    // If rate limiting is enabled, batch execution
+    if (settings.rate_limit_calls > 0) {
+        // Use a reasonable batch size for the APIs (e.g. 10 items per request)
+        // This ensures we don't send too many items in one go, but also don't span too many requests
+        const BATCH_SIZE = 10;
+        const batches = chunkArray(items, BATCH_SIZE);
+
+        console.log(`VectHare: Processing ${items.length} items in ${batches.length} batches with rate limit (Max ${settings.rate_limit_calls} calls / ${settings.rate_limit_interval}s)`);
+
+        for (let i = 0; i < batches.length; i++) {
+            await dynamicRateLimiter.execute(async () => {
+                await AsyncUtils.retry(async () => {
+                    await backend.insertVectorItems(collectionId, batches[i], settings);
+                }, RETRY_CONFIG);
+            }, settings);
+            
+            // Optional: UI update for progress could go here if we passed a callback
+        }
+    } else {
+        // No rate limit - execute all at once (backend handles it)
+        return await backend.insertVectorItems(collectionId, items, settings);
+    }
 }
 
 /**

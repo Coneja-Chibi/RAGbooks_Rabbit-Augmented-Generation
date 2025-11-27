@@ -51,6 +51,8 @@ const defaultSettings = {
     qdrant_use_cloud: false,
     alt_endpoint_url: '',
     use_alt_endpoint: false,
+    rate_limit_calls: 5,
+    rate_limit_interval: 60, // seconds
     togetherai_model: 'togethercomputer/m2-bert-80M-32k-retrieval',
     openai_model: 'text-embedding-ada-002',
     electronhub_model: 'text-embedding-3-small',

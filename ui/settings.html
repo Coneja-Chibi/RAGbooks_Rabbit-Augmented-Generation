@@ -48,6 +48,23 @@
                 </label>
                 <input id="vector_altEndpoint_address" class="text_pole" type="text" placeholder="e.g. http://localhost:5001" />
             </div>
+            <div class="flex-container flexFlowColumn" title="Rate limit settings for API calls. (0 = disabled)">
+                <label data-i18n="API Rate Limiting">API Rate Limiting</label>
+                <div class="flex-container">
+                    <div class="flex1">
+                        <label for="vecthare_rate_limit_calls">
+                            <small data-i18n="Max Calls">Max Calls</small>
+                        </label>
+                        <input id="vecthare_rate_limit_calls" class="text_pole" type="number" min="0" placeholder="5" />
+                    </div>
+                    <div class="flex1">
+                        <label for="vecthare_rate_limit_interval">
+                            <small data-i18n="Interval (sec)">Interval (sec)</small>
+                        </label>
+                        <input id="vecthare_rate_limit_interval" class="text_pole" type="number" min="1" placeholder="60" />
+                    </div>
+                </div>
+            </div>
             <div class="flex-container flexFlowColumn" id="webllm_VectHareModel">
                 <label for="vecthare_webllm_model" data-i18n="Vectorization Model">
                     Vectorization Model

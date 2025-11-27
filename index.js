@@ -17,6 +17,7 @@ import sanitize from 'sanitize-filename';
 import vectra from 'vectra';
 import lancedbBackend from './lancedb-backend.js';
 import qdrantBackend from './qdrant-backend.js';
+import milvusBackend from './milvus-backend.js';
 
 const pluginName = 'similharity';
 const pluginVersion = '3.0.0';
@@ -410,6 +411,75 @@ export async function init(router) {
                     }
                 };
 
+            case 'milvus':
+                return {
+                    type: 'milvus',
+
+                    list: async (collectionId, source, model, directories, options = {}) => {
+                        const items = await milvusBackend.listItems(collectionId, options.filters || {}, options);
+                        const offset = options.offset || 0;
+                        const limit = options.limit || items.length;
+                        return {
+                            items: items,
+                            total: items.length,
+                            offset,
+                            limit,
+                            hasMore: items.length >= limit
+                        };
+                    },
+
+                    get: async (collectionId, hash, source, model, directories, filters = {}) => {
+                        return await milvusBackend.getItem(collectionId, hash, filters);
+                    },
+
+                    insert: async (collectionId, items, source, model, directories, req, filters = {}) => {
+                        const itemsWithVectors = [];
+                        for (const item of items) {
+                            let vector = item.vector;
+                            if (!vector) {
+                                console.log(`[Milvus] Generating embedding for item hash=${item.hash}`);
+                                vector = await getEmbeddingForSource(source, item.text, model, directories, req);
+                            }
+                            itemsWithVectors.push({ ...item, vector });
+                        }
+                        await milvusBackend.insertVectors(collectionId, itemsWithVectors, {
+                            ...filters,
+                            embeddingSource: source,
+                            embeddingModel: model,
+                        });
+                    },
+
+                    updateText: async (collectionId, hash, newText, source, model, directories, req, filters = {}) => {
+                        const newVector = await getEmbeddingForSource(source, newText, model, directories, req);
+                        const newHash = getStringHash(newText);
+                        await milvusBackend.updateItem(collectionId, hash, { text: newText, hash: newHash, vector: newVector }, filters);
+                        return { oldHash: hash, newHash, text: newText };
+                    },
+
+                    updateMetadata: async (collectionId, hash, metadata, source, model, directories, filters = {}) => {
+                        await milvusBackend.updateItem(collectionId, hash, metadata, filters);
+                        return { hash, metadata };
+                    },
+
+                    delete: async (collectionId, hashes, source, model, directories, filters = {}) => {
+                        await milvusBackend.deleteVectors(collectionId, hashes);
+                        return hashes.length;
+                    },
+
+                    query: async (collectionId, queryVector, topK, threshold, source, model, directories, options = {}) => {
+                        const results = await milvusBackend.queryCollection(collectionId, queryVector, topK, options.filters || {});
+                        return results.filter(r => r.score >= threshold);
+                    },
+
+                    purge: async (collectionId, source, model, directories, filters = {}) => {
+                        await milvusBackend.purgeCollection(collectionId, filters);
+                    },
+
+                    stats: async (collectionId, source, model, directories, filters = {}) => {
+                        return await milvusBackend.getCollectionStats(collectionId, filters);
+                    }
+                };
+
             default:
                 throw new Error(`Unknown backend: ${backend}`);
         }
@@ -428,7 +498,7 @@ export async function init(router) {
             status: 'ok',
             plugin: pluginName,
             version: pluginVersion,
-            backends: ['vectra', 'lancedb', 'qdrant']
+            backends: ['vectra', 'lancedb', 'qdrant', 'milvus']
         });
     });
 
@@ -598,6 +668,11 @@ export async function init(router) {
                     message = healthy ? 'Qdrant connected' : 'Qdrant not available';
                     break;
 
+                case 'milvus':
+                    healthy = await milvusBackend.healthCheck();
+                    message = healthy ? 'Milvus connected' : 'Milvus not available';
+                    break;
+
                 default:
                     return res.status(400).json({ error: `Unknown backend: ${backend}` });
             }
@@ -633,6 +708,11 @@ export async function init(router) {
                 case 'qdrant':
                     await qdrantBackend.initialize(config);
                     res.json({ success: true, message: 'Qdrant initialized' });
+                    break;
+
+                case 'milvus':
+                    await milvusBackend.initialize(config);
+                    res.json({ success: true, message: 'Milvus initialized' });
                     break;
 
                 default:
@@ -1437,6 +1517,25 @@ async function scanAllSourcesForCollections(vectorsPath) {
             }
         } catch (e) {
             console.warn(`[${pluginName}] Qdrant: Failed to scan collections:`, e.message);
+        }
+
+        // Scan Milvus
+        try {
+            if (milvusBackend.isConnected) {
+                const items = await milvusBackend.listItems('vecthare_main', {}, { limit: 1 });
+                if (items.length > 0) {
+                    const stats = await milvusBackend.getCollectionStats('vecthare_main');
+                    allCollections.push({
+                        id: 'vecthare_main',
+                        source: 'milvus',
+                        backend: 'milvus',
+                        chunkCount: stats.chunkCount,
+                        modelCount: 1
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn(`[${pluginName}] Milvus: Failed to scan collections:`, e.message);
         }
 
     } catch (error) {

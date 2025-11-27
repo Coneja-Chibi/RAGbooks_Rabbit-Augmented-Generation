@@ -225,10 +225,11 @@ function bindBrowserEvents() {
         closeDatabaseBrowser();
     });
 
-    // Close on background click (modal itself, not content)
+    // Stop propagation on ALL clicks within modal (prevents extension panel from closing)
+    // Only close when clicking directly on the modal background (overlay)
     $('#vecthare_database_browser_modal').on('click', function(e) {
+        e.stopPropagation();
         if (e.target === this) {
-            e.stopPropagation();
             e.preventDefault();
             closeDatabaseBrowser();
         }
@@ -909,7 +910,9 @@ function openRenameDialog(collectionId, currentName) {
 
         // Bind events
         $('#vecthare_rename_close, #vecthare_rename_cancel').on('click', closeRenameDialog);
+        // Stop propagation on ALL clicks (prevents extension panel from closing)
         $('#vecthare_rename_modal').on('click', function(e) {
+            e.stopPropagation();
             if (e.target === this) closeRenameDialog();
         });
         $('#vecthare_rename_input').on('keydown', function(e) {
@@ -997,7 +1000,9 @@ function openModelSwitcher(collection) {
 
         // Bind close
         $('#vecthare_model_switcher_close').on('click', closeModelSwitcher);
+        // Stop propagation on ALL clicks (prevents extension panel from closing)
         $('#vecthare_model_switcher_modal').on('click', function(e) {
+            e.stopPropagation();
             if (e.target === this) closeModelSwitcher();
         });
     }
@@ -1355,8 +1360,9 @@ function bindActivationEditorEvents() {
 
     $('#vecthare_add_condition').on('click', addConditionRule);
 
-    // Close on background click
+    // Stop propagation on ALL clicks (prevents extension panel from closing)
     $('#vecthare_activation_editor_modal').on('click', function(e) {
+        e.stopPropagation();
         if (e.target === this) closeActivationEditor();
     });
 

@@ -1044,7 +1044,9 @@ function bindEvents() {
 
     // Close
     $('#vecthare_visualizer_close').on('click', closeVisualizer);
+    // Stop propagation on ALL clicks within modal (prevents extension panel from closing)
     $('#vecthare_visualizer_modal').on('click', function(e) {
+        e.stopPropagation();
         if (e.target === this) closeVisualizer();
     });
 

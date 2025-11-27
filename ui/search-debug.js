@@ -1454,8 +1454,10 @@ function bindEvents() {
     // Copy diagnostic dump
     $('#vecthare_copy_diagnostic').on('click', copyDiagnosticDump);
 
-    // Click outside to close
+    // Stop propagation on ALL clicks within modal (prevents extension panel from closing)
+    // Only close when clicking directly on the modal background
     $('#vecthare_search_debug_modal').on('click', function(e) {
+        e.stopPropagation();
         if (e.target === this) {
             closeSearchDebugModal();
         }

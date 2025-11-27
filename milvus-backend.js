@@ -23,7 +23,12 @@ import { MilvusClient, DataType } from '@zilliz/milvus2-sdk-node';
 class MilvusBackend {
     constructor() {
         this.client = null;
-        this.baseParams = { metric_type: 'COSINE', index_type: 'IVF_FLAT', params: { nlist: 1024 } };
+        // params must be stringified for some SDK versions
+        this.baseParams = { 
+            metric_type: 'COSINE', 
+            index_type: 'IVF_FLAT', 
+            params: JSON.stringify({ nlist: 1024 }) 
+        };
         this.isConnected = false;
         this.config = {
             address: '127.0.0.1:19530',
@@ -92,33 +97,50 @@ class MilvusBackend {
             const exists = collections.find(c => c.name === collectionName);
             
             if (exists) {
-                // Check if index exists
+                // Verify schema has 'vector' field
                 try {
-                    const indexInfo = await this.client.describeIndex({
-                        collection_name: collectionName
-                    });
-                    
-                    // If status is success (index exists)
-                    // Note: Milvus 2.x might return empty or error if no index
-                    if (indexInfo.status.error_code === 'Success') {
-                         console.log(`[Milvus] Collection and index found for ${collectionName}`);
-                    } else {
-                         throw new Error('Index missing');
+                    const desc = await this.client.describeCollection({ collection_name: collectionName });
+                    const hasVector = desc.schema.fields.some(f => f.name === 'vector');
+                    if (!hasVector) {
+                        console.warn(`[Milvus] Existing collection ${collectionName} missing 'vector' field. Dropping...`);
+                        await this.client.dropCollection({ collection_name: collectionName });
+                        // Proceed to create new below
+                        exists = false; 
                     }
-                } catch (err) {
-                    console.log(`[Milvus] Index missing for existing collection ${collectionName}, creating...`);
-                    await this.client.createIndex({
-                        collection_name: collectionName,
-                        field_name: 'vector',
-                        extra_params: this.baseParams
-                    });
+                } catch (e) {
+                    // Ignore describe error, proceed to check index
                 }
 
-                // Load collection
-                await this.client.loadCollection({
-                    collection_name: collectionName
-                });
-                return;
+                if (exists) {
+                    // Check if index exists
+                    let indexExists = false;
+                    try {
+                        const indexInfo = await this.client.describeIndex({
+                            collection_name: collectionName
+                        });
+                        if (indexInfo.status.error_code === 'Success') {
+                            indexExists = true;
+                            console.log(`[Milvus] Collection and index found for ${collectionName}`);
+                        }
+                    } catch (err) {
+                        // Index missing
+                    }
+
+                    if (!indexExists) {
+                        console.log(`[Milvus] Index missing for existing collection ${collectionName}, creating...`);
+                        await this.client.createIndex({
+                            collection_name: collectionName,
+                            field_name: 'vector',
+                            extra_params: this.baseParams
+                        });
+                    }
+
+                    // Load collection
+                    await this.client.loadCollection({
+                        collection_name: collectionName
+                    });
+                    return;
+                }
             }
 
             console.log(`[Milvus] Creating collection ${collectionName}...`);

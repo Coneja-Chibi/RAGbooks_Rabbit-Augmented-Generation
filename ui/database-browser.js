@@ -17,7 +17,7 @@ import {
     unregisterCollection,
     clearCollectionRegistry,
 } from '../core/collection-loader.js';
-import { purgeVectorIndex } from '../core/core-vector-api.js';
+import { purgeVectorIndex, queryMultipleCollections } from '../core/core-vector-api.js';
 import { getRequestHeaders } from '../../../../../script.js';
 import {
     cleanupOrphanedMeta,
@@ -33,7 +33,8 @@ import {
     getCollectionDecaySettings,
     setCollectionDecaySettings,
     hasCustomDecaySettings,
-    getDefaultDecayForType
+    getDefaultDecayForType,
+    isCollectionEnabled,
 } from '../core/collection-metadata.js';
 import {
     VALID_EMOTIONS,
@@ -52,6 +53,14 @@ import {
     validateImportData,
     getExportInfo,
 } from '../core/collection-export.js';
+import {
+    embedDataInPNG,
+    extractDataFromPNG,
+    downloadPNG,
+    readPNGFile,
+    convertToPNG,
+    isVectHarePNG,
+} from '../core/png-export.js';
 
 // Browser state
 let browserState = {
@@ -63,7 +72,15 @@ let browserState = {
         collectionType: 'all', // 'all', 'chat', 'file', 'lorebook'
         searchQuery: ''
     },
-    settings: null
+    settings: null,
+    // Bulk operations state
+    bulkSelected: new Set(),
+    bulkFilter: 'all', // 'all', 'enabled', 'disabled'
+    // Search state
+    searchResults: null,
+    isSearching: false,
+    // PNG export state
+    pendingPngExport: null,
 };
 
 /**
@@ -121,16 +138,16 @@ function createBrowserModal() {
                     <button class="vecthare-btn-icon" id="vecthare_browser_close">✕</button>
                 </div>
 
-                <!-- Tabs (Phase 1: Collections only) -->
+                <!-- Browser Tabs -->
                 <div class="vecthare-browser-tabs">
                     <button class="vecthare-tab-btn active" data-tab="collections">
-                        📂 Collections
+                        ${icons.folder(16)} Collections
                     </button>
-                    <button class="vecthare-tab-btn" data-tab="search" disabled title="Coming in Phase 2">
-                        🔍 Search
+                    <button class="vecthare-tab-btn" data-tab="search">
+                        ${icons.search(16)} Search
                     </button>
-                    <button class="vecthare-tab-btn" data-tab="bulk" disabled title="Coming in Phase 4">
-                        ✓ Bulk Operations
+                    <button class="vecthare-tab-btn" data-tab="bulk">
+                        ${icons.listChecks(16)} Bulk Operations
                     </button>
                 </div>
 
@@ -154,15 +171,23 @@ function createBrowserModal() {
                             </label>
                             <label>
                                 <input type="radio" name="vecthare_type_filter" value="chat">
-                                💬 Chats
-                            </label>
-                            <label>
-                                <input type="radio" name="vecthare_type_filter" value="file">
-                                📄 Files
+                                ${icons.messageSquare(14)} Chats
                             </label>
                             <label>
                                 <input type="radio" name="vecthare_type_filter" value="lorebook">
-                                📖 Lorebooks
+                                ${icons.bookOpen(14)} Lorebooks
+                            </label>
+                            <label>
+                                <input type="radio" name="vecthare_type_filter" value="character">
+                                ${icons.user(14)} Characters
+                            </label>
+                            <label>
+                                <input type="radio" name="vecthare_type_filter" value="document">
+                                ${icons.fileText(14)} Documents
+                            </label>
+                            <label>
+                                <input type="radio" name="vecthare_type_filter" value="web">
+                                ${icons.globe(14)} Web
                             </label>
                         </div>
 
@@ -191,17 +216,96 @@ function createBrowserModal() {
                                 </button>
                             </div>
                         </div>
-                        <!-- Hidden file input for import -->
-                        <input type="file" id="vecthare_import_file" accept=".json,.vecthare.json" style="display: none;">
+                        <!-- Hidden file inputs for import -->
+                        <input type="file" id="vecthare_import_file" accept=".json,.vecthare.json,.png,image/png" style="display: none;">
+                        <input type="file" id="vecthare_png_image_picker" accept="image/*" style="display: none;">
                     </div>
 
-                    <!-- Other tabs (Phase 2+) -->
+                    <!-- Search Tab -->
                     <div id="vecthare_tab_search" class="vecthare-tab-content">
-                        <p>Search across all collections - Coming in Phase 2</p>
+                        <div class="vecthare-search-panel">
+                            <!-- Search Input -->
+                            <div class="vecthare-search-input-row">
+                                <input type="text"
+                                       id="vecthare_semantic_search"
+                                       class="vecthare-search-input"
+                                       placeholder="Search across all collections..."
+                                       autocomplete="off">
+                                <button id="vecthare_search_btn" class="vecthare-btn vecthare-btn-primary">
+                                    ${icons.search(16)} Search
+                                </button>
+                            </div>
+
+                            <!-- Search Options -->
+                            <div class="vecthare-search-options">
+                                <div class="vecthare-search-option">
+                                    <label>Results per collection:</label>
+                                    <input type="number" id="vecthare_search_topk" value="5" min="1" max="50">
+                                </div>
+                                <div class="vecthare-search-option">
+                                    <label>Min score:</label>
+                                    <input type="number" id="vecthare_search_threshold" value="0.3" min="0" max="1" step="0.05">
+                                </div>
+                                <div class="vecthare-search-option">
+                                    <label>
+                                        <input type="checkbox" id="vecthare_search_enabled_only" checked>
+                                        Enabled collections only
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Search Results -->
+                            <div id="vecthare_search_results" class="vecthare-search-results">
+                                <div class="vecthare-search-empty">
+                                    ${icons.search(48)}
+                                    <p>Enter a query to search across all collections</p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
+                    <!-- Bulk Operations Tab -->
                     <div id="vecthare_tab_bulk" class="vecthare-tab-content">
-                        <p>Bulk operations - Coming in Phase 4</p>
+                        <div class="vecthare-bulk-panel">
+                            <!-- Selection Info -->
+                            <div class="vecthare-bulk-header">
+                                <div class="vecthare-bulk-select-all">
+                                    <label>
+                                        <input type="checkbox" id="vecthare_bulk_select_all">
+                                        Select All Visible
+                                    </label>
+                                    <span id="vecthare_bulk_count">0 selected</span>
+                                </div>
+                                <div class="vecthare-bulk-filter">
+                                    <select id="vecthare_bulk_filter">
+                                        <option value="all">All Collections</option>
+                                        <option value="enabled">Enabled Only</option>
+                                        <option value="disabled">Disabled Only</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Bulk Actions -->
+                            <div class="vecthare-bulk-actions">
+                                <button id="vecthare_bulk_enable" class="vecthare-btn vecthare-btn-sm" disabled>
+                                    ${icons.toggleRight(16)} Enable Selected
+                                </button>
+                                <button id="vecthare_bulk_disable" class="vecthare-btn vecthare-btn-sm" disabled>
+                                    ${icons.toggleLeft(16)} Disable Selected
+                                </button>
+                                <button id="vecthare_bulk_export" class="vecthare-btn vecthare-btn-sm" disabled>
+                                    ${icons.download(16)} Export Selected
+                                </button>
+                                <button id="vecthare_bulk_delete" class="vecthare-btn vecthare-btn-sm vecthare-btn-danger" disabled>
+                                    ${icons.trash(16)} Delete Selected
+                                </button>
+                            </div>
+
+                            <!-- Collection List with Checkboxes -->
+                            <div id="vecthare_bulk_list" class="vecthare-bulk-list">
+                                <div class="vecthare-loading">Loading collections...</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -309,7 +413,7 @@ function bindBrowserEvents() {
         $('#vecthare_import_file').click();
     });
 
-    // Import file handler
+    // Import file handler (supports JSON and PNG)
     $('#vecthare_import_file').on('change', async function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -320,7 +424,24 @@ function bindBrowserEvents() {
         try {
             toastr.info('Reading import file...', 'VectHare');
 
-            const data = await readImportFile(file);
+            let data;
+
+            // Check if it's a PNG file
+            if (file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')) {
+                const pngData = await readPNGFile(file);
+                data = await extractDataFromPNG(pngData);
+
+                if (!data) {
+                    toastr.error('This PNG does not contain VectHare data.', 'VectHare Import');
+                    return;
+                }
+
+                toastr.info('Found VectHare data in PNG!', 'VectHare');
+            } else {
+                // JSON file
+                data = await readImportFile(file);
+            }
+
             const info = getExportInfo(data);
             const validation = validateImportData(data, browserState.settings);
 
@@ -389,6 +510,14 @@ function switchTab(tabName) {
 
     $('.vecthare-tab-content').removeClass('active');
     $(`#vecthare_tab_${tabName}`).addClass('active');
+
+    // Initialize tab-specific content
+    if (tabName === 'bulk') {
+        renderBulkList();
+        bindBulkEvents();
+    } else if (tabName === 'search') {
+        bindSearchEvents();
+    }
 }
 
 /**
@@ -429,9 +558,19 @@ function renderCollections() {
             return false;
         }
 
-        // Type filter
-        if (browserState.filters.collectionType !== 'all' && c.type !== browserState.filters.collectionType) {
-            return false;
+        // Type filter - map filter categories to actual collection types
+        if (browserState.filters.collectionType !== 'all') {
+            const typeMap = {
+                chat: ['chat'],
+                lorebook: ['lorebook'],
+                character: ['character', 'persona'],
+                document: ['file', 'doc', 'paste', 'select', 'current'],
+                web: ['url', 'wiki', 'youtube'],
+            };
+            const allowedTypes = typeMap[browserState.filters.collectionType];
+            if (allowedTypes && !allowedTypes.includes(c.type)) {
+                return false;
+            }
         }
 
         // Search filter
@@ -473,12 +612,23 @@ function renderCollections() {
  * @returns {string} Card HTML
  */
 function renderCollectionCard(collection) {
-    const typeIcon = {
-        chat: '💬',
-        file: '📄',
-        lorebook: '📖',
-        unknown: '❓'
-    }[collection.type] || '❓';
+    // Map collection types to icon functions
+    const typeIconMap = {
+        chat: icons.messageSquare,
+        file: icons.fileText,
+        doc: icons.fileText,
+        paste: icons.fileText,
+        select: icons.fileText,
+        current: icons.fileText,
+        lorebook: icons.bookOpen,
+        character: icons.user,
+        persona: icons.user,
+        url: icons.globe,
+        wiki: icons.globe,
+        youtube: icons.globe,
+    };
+    const iconFn = typeIconMap[collection.type] || icons.box;
+    const typeIcon = iconFn(14, 'vecthare-type-icon');
 
     const scopeBadge = {
         global: '<span class="vecthare-badge vecthare-badge-global">Global</span>',
@@ -542,7 +692,7 @@ function renderCollectionCard(collection) {
         <div class="vecthare-collection-card" data-collection-key="${uniqueKey}" data-status="${collection.enabled ? 'active' : 'paused'}">
             <div class="vecthare-collection-header">
                 <span class="vecthare-collection-title">
-                    ${collection.name}
+                    ${typeIcon} ${collection.name}
                 </span>
                 <div class="vecthare-collection-badges">
                     ${scopeBadge}
@@ -563,18 +713,18 @@ function renderCollectionCard(collection) {
                 <button class="vecthare-btn-sm vecthare-action-toggle"
                         data-collection-key="${uniqueKey}"
                         data-enabled="${collection.enabled}">
-                    ${collection.enabled ? '⏸️ Pause' : '▶️ Enable'}
+                    ${collection.enabled ? icons.pause(16) + ' Pause' : icons.play(16) + ' Enable'}
                 </button>
                 <button class="vecthare-btn-sm vecthare-action-rename"
                         data-collection-key="${uniqueKey}"
                         data-current-name="${collection.name.replace(/"/g, '&quot;')}"
                         title="Rename this collection">
-                    ✏️ Rename
+                    ${icons.pencil(16)} Rename
                 </button>
                 <button class="vecthare-btn-sm vecthare-action-activation ${activationSummary.mode !== 'auto' || decaySummary.isCustom ? 'vecthare-has-settings' : ''}"
                         data-collection-key="${uniqueKey}"
                         title="Configure activation, triggers, conditions, and temporal decay">
-                    ⚙️ Settings
+                    ${icons.settings(16)} Settings
                 </button>
                 ${hasMultipleModels ? `
                 <button class="vecthare-btn-sm vecthare-action-switch-model"
@@ -588,27 +738,44 @@ function renderCollectionCard(collection) {
                         data-backend="${collection.backend}"
                         data-source="${collection.source || 'transformers'}"
                         title="Open in file explorer">
-                    📁 Open Folder
+                    ${icons.folderOpen(16)} Open Folder
                 </button>
                 <button class="vecthare-btn-sm vecthare-action-visualize"
                         data-collection-key="${uniqueKey}"
                         data-backend="${collection.backend}"
                         data-source="${collection.source || 'transformers'}"
                         title="View and edit chunks in this collection">
-                    👁️ View Chunks
+                    ${icons.eye(16)} View Chunks
                 </button>
-                <button class="vecthare-btn-sm vecthare-action-export"
-                        data-collection-key="${uniqueKey}"
-                        data-collection-id="${collection.id}"
-                        data-backend="${collection.backend}"
-                        data-source="${collection.source || 'transformers'}"
-                        data-model="${collection.model || ''}"
-                        title="Export collection to file (includes vectors)">
-                    📤 Export
-                </button>
+                <div class="vecthare-export-dropdown">
+                    <button class="vecthare-btn-sm vecthare-btn-export vecthare-action-export-toggle"
+                            title="Export collection">
+                        ${icons.download(16)} Export
+                    </button>
+                    <div class="vecthare-export-options">
+                        <button class="vecthare-btn-sm vecthare-btn-json vecthare-action-export"
+                                data-collection-key="${uniqueKey}"
+                                data-collection-id="${collection.id}"
+                                data-backend="${collection.backend}"
+                                data-source="${collection.source || 'transformers'}"
+                                data-model="${collection.model || ''}"
+                                title="Export as JSON (includes vectors)">
+                            ${icons.fileExport(16)} JSON
+                        </button>
+                        <button class="vecthare-btn-sm vecthare-btn-png vecthare-action-export-png"
+                                data-collection-key="${uniqueKey}"
+                                data-collection-id="${collection.id}"
+                                data-backend="${collection.backend}"
+                                data-source="${collection.source || 'transformers'}"
+                                data-model="${collection.model || ''}"
+                                title="Export as PNG (shareable image)">
+                            ${icons.image(16)} PNG
+                        </button>
+                    </div>
+                </div>
                 <button class="vecthare-btn-sm vecthare-btn-danger vecthare-action-delete"
                         data-collection-key="${uniqueKey}">
-                    🗑️ Delete
+                    ${icons.trash(16)} Delete
                 </button>
             </div>
         </div>
@@ -620,6 +787,86 @@ function renderCollectionCard(collection) {
  */
 function findCollectionByKey(key) {
     return browserState.collections.find(c => (c.registryKey || c.id) === key);
+}
+
+/**
+ * Performs PNG export with optional custom image
+ * @param {File|null} imageFile - Custom image file or null for default
+ */
+async function performPngExport(imageFile) {
+    const pending = browserState.pendingPngExport;
+    if (!pending) {
+        toastr.error('No export pending', 'VectHare');
+        return;
+    }
+
+    browserState.pendingPngExport = null;
+
+    try {
+        toastr.info('Preparing PNG export...', 'VectHare');
+
+        // Get export data
+        const exportData = await exportCollection(pending.collectionId, browserState.settings, {
+            backend: pending.backend,
+            source: pending.source,
+            model: pending.model,
+        });
+
+        // Convert custom image to PNG if provided
+        let pngData = null;
+        if (imageFile) {
+            toastr.info('Converting image...', 'VectHare');
+            pngData = await convertToPNG(imageFile);
+        }
+
+        // Embed data in PNG
+        toastr.info('Embedding data in PNG...', 'VectHare');
+        const pngWithData = await embedDataInPNG(exportData, pngData);
+
+        // Download
+        const filename = `${pending.collection.name || pending.collectionId}.vecthare`;
+        downloadPNG(pngWithData, filename);
+
+        // Show compression stats
+        const jsonSize = JSON.stringify(exportData).length;
+        const pngSize = pngWithData.length;
+        const ratio = Math.round((pngSize / jsonSize) * 100);
+
+        toastr.success(
+            `PNG export complete!\n${exportData.stats.chunkCount} chunks\n` +
+            `Original: ${formatBytes(jsonSize)}\n` +
+            `PNG: ${formatBytes(pngSize)} (${ratio}%)`,
+            'VectHare Export'
+        );
+    } catch (error) {
+        console.error('VectHare: PNG export failed', error);
+        toastr.error(`PNG export failed: ${error.message}`, 'VectHare');
+    }
+}
+
+/**
+ * Formats bytes to human readable string
+ * @param {number} bytes
+ * @returns {string}
+ */
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+/**
+ * Escapes HTML special characters to prevent XSS
+ * @param {string} text Text to escape
+ * @returns {string} Escaped text
+ */
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 /**
@@ -795,7 +1042,27 @@ function bindCollectionCardEvents() {
         }
     });
 
-    // Export collection
+    // Export toggle - show/hide export options
+    $('.vecthare-action-export-toggle').off('click').on('click', function(e) {
+        e.stopPropagation();
+        const $dropdown = $(this).closest('.vecthare-export-dropdown');
+        const isExpanded = $dropdown.hasClass('expanded');
+
+        // Close any other open dropdowns
+        $('.vecthare-export-dropdown.expanded').not($dropdown).removeClass('expanded');
+
+        // Toggle this one
+        $dropdown.toggleClass('expanded', !isExpanded);
+    });
+
+    // Close export dropdown when clicking elsewhere
+    $(document).off('click.vecthare-export').on('click.vecthare-export', function(e) {
+        if (!$(e.target).closest('.vecthare-export-dropdown').length) {
+            $('.vecthare-export-dropdown.expanded').removeClass('expanded');
+        }
+    });
+
+    // Export collection (JSON)
     $('.vecthare-action-export').off('click').on('click', async function(e) {
         e.stopPropagation();
         const collectionKey = $(this).data('collection-key');
@@ -826,6 +1093,57 @@ function bindCollectionCardEvents() {
             console.error('VectHare: Export failed', error);
             toastr.error(`Export failed: ${error.message}`, 'VectHare');
         }
+    });
+
+    // Export collection (PNG)
+    $('.vecthare-action-export-png').off('click').on('click', async function(e) {
+        e.stopPropagation();
+        const collectionKey = $(this).data('collection-key');
+        const collectionId = $(this).data('collection-id');
+        const backend = $(this).data('backend');
+        const source = $(this).data('source');
+        const model = $(this).data('model');
+
+        const collection = findCollectionByKey(collectionKey);
+        if (!collection) return;
+
+        // Store export context for image picker callback
+        browserState.pendingPngExport = {
+            collectionKey,
+            collectionId,
+            backend,
+            source,
+            model,
+            collection,
+        };
+
+        // Ask if they want to use a custom image
+        const useCustomImage = confirm(
+            'Export as PNG\n\n' +
+            'Would you like to use a custom image?\n\n' +
+            '• Click OK to choose an image file\n' +
+            '• Click Cancel to use default VectHare image'
+        );
+
+        if (useCustomImage) {
+            $('#vecthare_png_image_picker').click();
+        } else {
+            // Export with default image
+            await performPngExport(null);
+        }
+    });
+
+    // PNG image picker handler
+    $('#vecthare_png_image_picker').off('change').on('change', async function(e) {
+        const file = e.target.files[0];
+        $(this).val(''); // Reset for next use
+
+        if (!file) {
+            browserState.pendingPngExport = null;
+            return;
+        }
+
+        await performPngExport(file);
     });
 
     // Activation editor (triggers + conditions)
@@ -1383,11 +1701,23 @@ function createActivationEditorModal() {
  * Binds event handlers for activation editor
  */
 function bindActivationEditorEvents() {
-    $('#vecthare_activation_close, #vecthare_activation_cancel').on('click', closeActivationEditor);
+    $('#vecthare_activation_close, #vecthare_activation_cancel').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeActivationEditor();
+    });
 
-    $('#vecthare_activation_save').on('click', saveActivation);
+    $('#vecthare_activation_save').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        saveActivation();
+    });
 
-    $('#vecthare_add_condition').on('click', addConditionRule);
+    $('#vecthare_add_condition').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        addConditionRule();
+    });
 
     // Stop propagation on ALL clicks (prevents extension panel from closing)
     $('#vecthare_activation_editor_modal').on('click', function(e) {
@@ -1395,20 +1725,28 @@ function bindActivationEditorEvents() {
         if (e.target === this) closeActivationEditor();
     });
 
+    // Stop propagation on modal content
+    $('#vecthare_activation_editor_modal .vecthare-modal-content').on('click', function(e) {
+        e.stopPropagation();
+    });
+
     // Always active disables other sections
-    $('#vecthare_always_active').on('change', function() {
+    $('#vecthare_always_active').on('change', function(e) {
+        e.stopPropagation();
         const isAlwaysActive = $(this).prop('checked');
         $('.vecthare-triggers-section, .vecthare-conditions-section').toggleClass('vecthare-disabled', isAlwaysActive);
     });
 
     // Decay enabled toggle shows/hides advanced settings
-    $('#vecthare_decay_enabled').on('change', function() {
+    $('#vecthare_decay_enabled').on('change', function(e) {
+        e.stopPropagation();
         const enabled = $(this).prop('checked');
         $('#vecthare_decay_advanced').toggle(enabled);
     });
 
     // Decay mode toggle shows/hides exponential vs linear settings
-    $('#vecthare_decay_mode').on('change', function() {
+    $('#vecthare_decay_mode').on('change', function(e) {
+        e.stopPropagation();
         const mode = $(this).val();
         $('.vecthare-decay-exponential').toggle(mode === 'exponential');
         $('.vecthare-decay-linear').toggle(mode === 'linear');
@@ -1734,7 +2072,8 @@ function renderConditionSettings(rule, index) {
  */
 function bindConditionRuleEvents() {
     // Type change
-    $('.vecthare-condition-type').off('change').on('change', function() {
+    $('.vecthare-condition-type').off('change').on('change', function(e) {
+        e.stopPropagation();
         const idx = $(this).data('rule-index');
         activationEditorState.conditions.rules[idx].type = $(this).val();
         activationEditorState.conditions.rules[idx].settings = {};
@@ -1742,20 +2081,24 @@ function bindConditionRuleEvents() {
     });
 
     // Negate toggle
-    $('.vecthare-condition-negate input').off('change').on('change', function() {
+    $('.vecthare-condition-negate input').off('change').on('change', function(e) {
+        e.stopPropagation();
         const idx = $(this).data('rule-index');
         activationEditorState.conditions.rules[idx].negate = $(this).prop('checked');
     });
 
     // Remove rule
-    $('.vecthare-condition-remove').off('click').on('click', function() {
+    $('.vecthare-condition-remove').off('click').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
         const idx = $(this).data('rule-index');
         activationEditorState.conditions.rules.splice(idx, 1);
         renderConditionRules();
     });
 
     // Settings fields (inputs, selects, and textareas)
-    $('.vecthare-condition-settings input, .vecthare-condition-settings select, .vecthare-condition-settings textarea').off('change').on('change', function() {
+    $('.vecthare-condition-settings input, .vecthare-condition-settings select, .vecthare-condition-settings textarea').off('change').on('change', function(e) {
+        e.stopPropagation();
         const idx = $(this).data('rule-index');
         const field = $(this).data('field');
         let value = $(this).val();
@@ -1797,7 +2140,8 @@ function bindConditionRuleEvents() {
     });
 
     // Lorebook picker: world select change - load entries
-    $('.vecthare-lorebook-select').off('change').on('change', async function() {
+    $('.vecthare-lorebook-select').off('change').on('change', async function(e) {
+        e.stopPropagation();
         const idx = $(this).data('rule-index');
         const worldName = $(this).val();
         const entrySelect = $(`.vecthare-lorebook-entry-select[data-rule-index="${idx}"]`);
@@ -1827,7 +2171,9 @@ function bindConditionRuleEvents() {
     });
 
     // Lorebook picker: add button
-    $('.vecthare-lorebook-add').off('click').on('click', function() {
+    $('.vecthare-lorebook-add').off('click').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
         const idx = $(this).data('rule-index');
         const worldSelect = $(`.vecthare-lorebook-select[data-rule-index="${idx}"]`);
         const entrySelect = $(`.vecthare-lorebook-entry-select[data-rule-index="${idx}"]`);
@@ -1927,4 +2273,373 @@ function addConditionRule() {
     });
 
     renderConditionRules();
+}
+
+// ============================================================================
+// SEARCH TAB FUNCTIONS
+// ============================================================================
+
+let searchEventsBound = false;
+
+/**
+ * Binds search tab events
+ */
+function bindSearchEvents() {
+    if (searchEventsBound) return;
+    searchEventsBound = true;
+
+    // Search button click
+    $('#vecthare_search_btn').off('click').on('click', performSearch);
+
+    // Enter key in search input
+    $('#vecthare_semantic_search').off('keydown').on('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            performSearch();
+        }
+    });
+}
+
+/**
+ * Performs semantic search across collections
+ */
+async function performSearch() {
+    const query = $('#vecthare_semantic_search').val().trim();
+    if (!query) {
+        toastr.warning('Please enter a search query', 'VectHare');
+        return;
+    }
+
+    const topK = parseInt($('#vecthare_search_topk').val()) || 5;
+    const threshold = parseFloat($('#vecthare_search_threshold').val()) || 0.3;
+    const enabledOnly = $('#vecthare_search_enabled_only').is(':checked');
+
+    // Get collection IDs to search
+    let collectionIds = browserState.collections.map(c => c.id);
+
+    if (enabledOnly) {
+        collectionIds = collectionIds.filter(id => {
+            const collection = browserState.collections.find(c => c.id === id);
+            return collection && collection.enabled;
+        });
+    }
+
+    if (collectionIds.length === 0) {
+        $('#vecthare_search_results').html(`
+            <div class="vecthare-search-empty">
+                ${icons.search(48)}
+                <p>No collections available to search</p>
+            </div>
+        `);
+        return;
+    }
+
+    // Show loading state
+    browserState.isSearching = true;
+    $('#vecthare_search_btn').prop('disabled', true).html(`${icons.search(16)} Searching...`);
+    $('#vecthare_search_results').html(`
+        <div class="vecthare-search-loading">
+            <i class="fa-solid fa-spinner fa-spin"></i> Searching ${collectionIds.length} collections...
+        </div>
+    `);
+
+    try {
+        const results = await queryMultipleCollections(
+            collectionIds,
+            query,
+            topK,
+            threshold,
+            browserState.settings
+        );
+
+        browserState.searchResults = results;
+        renderSearchResults(results, query);
+    } catch (error) {
+        console.error('VectHare: Search failed', error);
+        $('#vecthare_search_results').html(`
+            <div class="vecthare-search-error">
+                ${icons.x(24)} Search failed: ${error.message}
+            </div>
+        `);
+    } finally {
+        browserState.isSearching = false;
+        $('#vecthare_search_btn').prop('disabled', false).html(`${icons.search(16)} Search`);
+    }
+}
+
+/**
+ * Renders search results
+ * @param {object} results Results from queryMultipleCollections
+ * @param {string} query Original search query
+ */
+function renderSearchResults(results, query) {
+    const collectionIds = Object.keys(results);
+    const totalResults = collectionIds.reduce((sum, id) => sum + (results[id]?.hashes?.length || 0), 0);
+
+    if (totalResults === 0) {
+        $('#vecthare_search_results').html(`
+            <div class="vecthare-search-empty">
+                ${icons.search(48)}
+                <p>No results found for "${escapeHtml(query)}"</p>
+                <small>Try adjusting the score threshold or search in more collections</small>
+            </div>
+        `);
+        return;
+    }
+
+    let html = `<div class="vecthare-search-summary">Found ${totalResults} result(s) in ${collectionIds.length} collection(s)</div>`;
+
+    for (const collectionId of collectionIds) {
+        const collectionResults = results[collectionId];
+        if (!collectionResults?.hashes?.length) continue;
+
+        const collection = browserState.collections.find(c => c.id === collectionId);
+        const collectionName = collection?.name || collectionId;
+
+        html += `
+            <div class="vecthare-search-collection">
+                <div class="vecthare-search-collection-header">
+                    ${icons.folder(16)} ${escapeHtml(collectionName)}
+                    <span class="vecthare-search-count">${collectionResults.hashes.length} result(s)</span>
+                </div>
+                <div class="vecthare-search-collection-results">
+        `;
+
+        for (let i = 0; i < collectionResults.hashes.length; i++) {
+            const metadata = collectionResults.metadata?.[i] || {};
+            const score = metadata.score !== undefined ? (metadata.score * 100).toFixed(1) : '?';
+            const text = metadata.text || `[Hash: ${collectionResults.hashes[i]}]`;
+            const preview = text.length > 200 ? text.substring(0, 200) + '...' : text;
+
+            html += `
+                <div class="vecthare-search-result" data-collection="${collectionId}" data-hash="${collectionResults.hashes[i]}">
+                    <div class="vecthare-search-result-score">${score}%</div>
+                    <div class="vecthare-search-result-text">${escapeHtml(preview)}</div>
+                </div>
+            `;
+        }
+
+        html += `</div></div>`;
+    }
+
+    $('#vecthare_search_results').html(html);
+}
+
+// ============================================================================
+// BULK OPERATIONS TAB FUNCTIONS
+// ============================================================================
+
+let bulkEventsBound = false;
+
+/**
+ * Renders bulk operations list
+ */
+function renderBulkList() {
+    const filter = browserState.bulkFilter;
+    let collections = [...browserState.collections];
+
+    // Apply filter
+    if (filter === 'enabled') {
+        collections = collections.filter(c => c.enabled);
+    } else if (filter === 'disabled') {
+        collections = collections.filter(c => !c.enabled);
+    }
+
+    if (collections.length === 0) {
+        $('#vecthare_bulk_list').html(`
+            <div class="vecthare-bulk-empty">
+                ${icons.folder(48)}
+                <p>No collections match the current filter</p>
+            </div>
+        `);
+        return;
+    }
+
+    let html = '';
+    for (const collection of collections) {
+        const uniqueKey = collection.registryKey || collection.id;
+        const isSelected = browserState.bulkSelected.has(uniqueKey);
+
+        html += `
+            <div class="vecthare-bulk-item ${isSelected ? 'selected' : ''}" data-key="${uniqueKey}">
+                <label class="vecthare-bulk-checkbox">
+                    <input type="checkbox" ${isSelected ? 'checked' : ''} data-key="${uniqueKey}">
+                </label>
+                <div class="vecthare-bulk-item-info">
+                    <span class="vecthare-bulk-item-name">${escapeHtml(collection.name || collection.id)}</span>
+                    <span class="vecthare-bulk-item-meta">
+                        ${collection.chunkCount || 0} chunks •
+                        ${collection.enabled ? `${icons.toggleRight(12)} Enabled` : `${icons.toggleLeft(12)} Disabled`}
+                    </span>
+                </div>
+            </div>
+        `;
+    }
+
+    $('#vecthare_bulk_list').html(html);
+    updateBulkCount();
+}
+
+/**
+ * Binds bulk operations events
+ */
+function bindBulkEvents() {
+    if (bulkEventsBound) return;
+    bulkEventsBound = true;
+
+    // Filter change
+    $('#vecthare_bulk_filter').off('change').on('change', function() {
+        browserState.bulkFilter = $(this).val();
+        browserState.bulkSelected.clear();
+        renderBulkList();
+    });
+
+    // Select all checkbox
+    $('#vecthare_bulk_select_all').off('change').on('change', function() {
+        const isChecked = $(this).is(':checked');
+        const filter = browserState.bulkFilter;
+        let collections = [...browserState.collections];
+
+        if (filter === 'enabled') {
+            collections = collections.filter(c => c.enabled);
+        } else if (filter === 'disabled') {
+            collections = collections.filter(c => !c.enabled);
+        }
+
+        browserState.bulkSelected.clear();
+        if (isChecked) {
+            collections.forEach(c => browserState.bulkSelected.add(c.registryKey || c.id));
+        }
+
+        renderBulkList();
+    });
+
+    // Individual checkbox clicks (delegated)
+    $('#vecthare_bulk_list').off('change', 'input[type="checkbox"]').on('change', 'input[type="checkbox"]', function() {
+        const key = $(this).data('key');
+        if ($(this).is(':checked')) {
+            browserState.bulkSelected.add(key);
+        } else {
+            browserState.bulkSelected.delete(key);
+        }
+        updateBulkCount();
+        $(this).closest('.vecthare-bulk-item').toggleClass('selected', $(this).is(':checked'));
+    });
+
+    // Bulk enable
+    $('#vecthare_bulk_enable').off('click').on('click', async function() {
+        if (browserState.bulkSelected.size === 0) return;
+
+        for (const key of browserState.bulkSelected) {
+            setCollectionEnabled(key, true);
+            const collection = browserState.collections.find(c => (c.registryKey || c.id) === key);
+            if (collection) collection.enabled = true;
+        }
+
+        toastr.success(`Enabled ${browserState.bulkSelected.size} collection(s)`, 'VectHare');
+        renderBulkList();
+        renderCollections();
+    });
+
+    // Bulk disable
+    $('#vecthare_bulk_disable').off('click').on('click', async function() {
+        if (browserState.bulkSelected.size === 0) return;
+
+        for (const key of browserState.bulkSelected) {
+            setCollectionEnabled(key, false);
+            const collection = browserState.collections.find(c => (c.registryKey || c.id) === key);
+            if (collection) collection.enabled = false;
+        }
+
+        toastr.success(`Disabled ${browserState.bulkSelected.size} collection(s)`, 'VectHare');
+        renderBulkList();
+        renderCollections();
+    });
+
+    // Bulk export
+    $('#vecthare_bulk_export').off('click').on('click', async function() {
+        if (browserState.bulkSelected.size === 0) return;
+
+        const confirmed = confirm(`Export ${browserState.bulkSelected.size} collection(s)?\n\nEach collection will be downloaded as a separate file.`);
+        if (!confirmed) return;
+
+        toastr.info(`Exporting ${browserState.bulkSelected.size} collection(s)...`, 'VectHare');
+
+        let successCount = 0;
+        for (const key of browserState.bulkSelected) {
+            const collection = browserState.collections.find(c => (c.registryKey || c.id) === key);
+            if (!collection) continue;
+
+            try {
+                const exportData = await exportCollection(collection.id, browserState.settings, {
+                    backend: collection.backend,
+                    source: collection.source || 'transformers',
+                    model: collection.model || '',
+                });
+
+                downloadExport(exportData, collection.name || collection.id);
+                successCount++;
+            } catch (error) {
+                console.error(`VectHare: Failed to export ${collection.id}`, error);
+            }
+        }
+
+        toastr.success(`Exported ${successCount} collection(s)`, 'VectHare');
+    });
+
+    // Bulk delete
+    $('#vecthare_bulk_delete').off('click').on('click', async function() {
+        if (browserState.bulkSelected.size === 0) return;
+
+        const confirmed = confirm(
+            `⚠️ DELETE ${browserState.bulkSelected.size} COLLECTION(S)?\n\n` +
+            `This will permanently delete all vectors in these collections.\n` +
+            `This action CANNOT be undone!\n\n` +
+            `Type "DELETE" to confirm.`
+        );
+
+        if (!confirmed) return;
+
+        const confirmText = prompt('Type DELETE to confirm:');
+        if (confirmText !== 'DELETE') {
+            toastr.info('Deletion cancelled', 'VectHare');
+            return;
+        }
+
+        toastr.info(`Deleting ${browserState.bulkSelected.size} collection(s)...`, 'VectHare');
+
+        let successCount = 0;
+        for (const key of browserState.bulkSelected) {
+            const collection = browserState.collections.find(c => (c.registryKey || c.id) === key);
+            if (!collection) continue;
+
+            try {
+                await purgeVectorIndex(collection.id, browserState.settings);
+                deleteCollectionMeta(collection.id);
+                unregisterCollection(key);
+                successCount++;
+            } catch (error) {
+                console.error(`VectHare: Failed to delete ${collection.id}`, error);
+            }
+        }
+
+        browserState.bulkSelected.clear();
+        await refreshCollections();
+        renderBulkList();
+
+        toastr.success(`Deleted ${successCount} collection(s)`, 'VectHare');
+    });
+}
+
+/**
+ * Updates bulk selection count and button states
+ */
+function updateBulkCount() {
+    const count = browserState.bulkSelected.size;
+    $('#vecthare_bulk_count').text(`${count} selected`);
+
+    // Enable/disable buttons based on selection
+    const hasSelection = count > 0;
+    $('#vecthare_bulk_enable, #vecthare_bulk_disable, #vecthare_bulk_export, #vecthare_bulk_delete')
+        .prop('disabled', !hasSelection);
 }

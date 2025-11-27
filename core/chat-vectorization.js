@@ -1173,12 +1173,12 @@ async function applyGroupsAndLinksStage(chunks, activeCollections, settings, deb
             processedChunks = linkResult.chunks;
 
             // Handle hard-linked chunks that need to be fetched
+            // Note: Fetching missing hard-linked chunks would require additional backend calls
+            // and complex deduplication logic. Currently, hard links only boost already-matched chunks.
             if (linkResult.missingHardLinks && linkResult.missingHardLinks.length > 0) {
-                addTrace(debugData, 'groups', `Hard links require ${linkResult.missingHardLinks.length} additional chunks`, {
+                addTrace(debugData, 'groups', `Hard links require ${linkResult.missingHardLinks.length} additional chunks (not fetched)`, {
                     hashes: linkResult.missingHardLinks.map(h => String(h).substring(0, 8))
                 });
-                // TODO: Fetch missing hard-linked chunks from backend
-                // For now, just log - fetching requires additional backend calls
             }
 
             // Log soft link boosts

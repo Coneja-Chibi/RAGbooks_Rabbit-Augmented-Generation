@@ -41,9 +41,12 @@
     border-radius: 16px;
     max-width: 800px;
     width: 90%;
-    max-height: 85vh;
+    max-height: calc(100vh - 40px);
+    max-height: calc(100dvh - 40px); /* Dynamic viewport for mobile */
     display: flex;
     flex-direction: column;
+    overflow: hidden; /* Content scrolls, not the modal */
+    box-sizing: border-box;
     box-shadow:
         0 20px 60px rgba(0, 0, 0, 0.5),
         0 8px 24px color-mix(in srgb, var(--vecthare-primary) 20%, transparent);
@@ -71,6 +74,7 @@
     align-items: center;
     justify-content: space-between;
     border-radius: 14px 14px 0 0;
+    flex-shrink: 0;
 }
 
 .vecthare-modal-header h3 {
@@ -114,6 +118,50 @@
     padding: 24px 28px;
     overflow-y: auto;
     flex: 1;
+    min-height: 0; /* Critical for flex overflow */
+}
+
+.vecthare-modal-footer {
+    display: flex;
+    gap: 12px;
+    padding: 20px 28px;
+    border-top: 1px solid color-mix(in srgb, var(--vecthare-primary) 15%, transparent);
+    background: linear-gradient(180deg,
+        var(--SmartThemeBlurTintColor) 0%,
+        color-mix(in srgb, var(--SmartThemeBodyColor) 3%, var(--SmartThemeBlurTintColor)) 100%);
+    flex-shrink: 0;
+    justify-content: flex-end;
+    border-radius: 0 0 14px 14px;
+}
+
+.vecthare-modal-footer .vecthare-btn {
+    padding: 12px 24px;
+    font-size: 0.95em;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1.5px solid color-mix(in srgb, var(--SmartThemeBorderColor) 80%, transparent);
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, var(--SmartThemeBlurTintColor));
+    color: var(--SmartThemeBodyColor);
+}
+
+.vecthare-modal-footer .vecthare-btn:hover {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 10%, var(--SmartThemeBlurTintColor));
+    border-color: var(--SmartThemeBorderColor);
+}
+
+.vecthare-modal-footer .vecthare-btn-primary {
+    background: linear-gradient(135deg, var(--vecthare-primary) 0%, #4f46e5 100%);
+    border-color: var(--vecthare-primary);
+    color: white;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--vecthare-primary) 30%, transparent);
+}
+
+.vecthare-modal-footer .vecthare-btn-primary:hover {
+    background: linear-gradient(135deg, var(--vecthare-primary-bright) 0%, var(--vecthare-primary) 100%);
+    border-color: var(--vecthare-primary-bright);
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--vecthare-primary) 40%, transparent);
 }
 
 /* ============================================================================
@@ -699,14 +747,55 @@
  * ============================================================================ */
 
 .vecthare-activation-editor {
-    width: 95vw;
-    max-width: 650px !important;
-    max-height: 90vh;
-    overflow-y: auto;
+    /* Use clamp for responsive sizing that respects zoom */
+    width: clamp(320px, 95vw, 650px);
+    max-width: none !important; /* Override parent max-width */
+
+    /* Height respects viewport with safe area for zoom */
+    height: auto;
+    max-height: min(90vh, 100dvh - 20px);
+
+    /* Flex container for header/body/footer */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+
+    /* Ensure it stays within bounds */
+    margin: 10px;
+    box-sizing: border-box;
+}
+
+/* When viewport is very constrained (high zoom or small screen) */
+@supports (height: 100dvh) {
+    .vecthare-activation-editor {
+        max-height: calc(100dvh - 20px);
+    }
+}
+
+.vecthare-activation-editor .vecthare-modal-header {
+    flex-shrink: 0;
+    padding: clamp(12px, 3vw, 24px) clamp(16px, 4vw, 28px);
+}
+
+.vecthare-activation-editor .vecthare-modal-header h3 {
+    font-size: clamp(1em, 2.5vw, 1.4em);
 }
 
 .vecthare-activation-body {
-    padding: 20px;
+    padding: clamp(12px, 3vw, 20px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex: 1 1 auto;
+    min-height: 0; /* Critical for flex overflow */
+
+    /* Smooth scrolling */
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+}
+
+.vecthare-activation-editor .vecthare-modal-footer {
+    flex-shrink: 0;
+    padding: clamp(10px, 2vw, 20px) clamp(16px, 4vw, 28px);
 }
 
 .vecthare-activation-collection-name {
@@ -1278,84 +1367,113 @@
  * COLLECTION SETTINGS MODAL - RESPONSIVE
  * ============================================================================ */
 
-/* Mobile: < 600px */
-@media (max-width: 600px) {
+/* Base responsive rules - always apply */
+.vecthare-activation-editor .vecthare-option-row {
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.vecthare-activation-editor .vecthare-option-row label {
+    min-width: clamp(80px, 20vw, 100px);
+}
+
+.vecthare-activation-editor .vecthare-option-row select,
+.vecthare-activation-editor .vecthare-option-row input[type="number"],
+.vecthare-activation-editor .vecthare-option-row input[type="text"] {
+    min-width: 0;
+    flex: 1;
+}
+
+.vecthare-activation-editor .vecthare-condition-settings {
+    flex-wrap: wrap;
+}
+
+.vecthare-activation-editor .vecthare-condition-settings input,
+.vecthare-activation-editor .vecthare-condition-settings select,
+.vecthare-activation-editor .vecthare-condition-settings textarea {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+/* Small screens and high zoom - use container queries where supported */
+@media (max-width: 500px), (max-height: 600px) {
     .vecthare-activation-editor {
-        width: 100vw;
-        max-width: 100vw !important;
-        max-height: 100vh;
-        border-radius: 0;
-        margin: 0;
-    }
-
-    .vecthare-activation-body {
-        padding: 12px;
-    }
-
-    .vecthare-activation-collection-name {
-        padding: 10px 12px;
-        font-size: 0.9em;
-        margin-bottom: 16px;
-    }
-
-    .vecthare-activation-section {
-        padding: 12px;
-        margin-bottom: 16px;
+        width: calc(100vw - 20px);
+        max-height: calc(100vh - 20px);
+        max-height: calc(100dvh - 20px);
         border-radius: 8px;
     }
 
+    .vecthare-activation-editor .vecthare-modal-header {
+        padding: 12px 16px;
+    }
+
+    .vecthare-activation-editor .vecthare-modal-header h3 {
+        font-size: 1em;
+    }
+
+    .vecthare-activation-body {
+        padding: 10px;
+    }
+
+    .vecthare-activation-collection-name {
+        padding: 8px 12px;
+        font-size: 0.9em;
+        margin-bottom: 12px;
+    }
+
+    .vecthare-activation-section {
+        padding: 10px;
+        margin-bottom: 12px;
+        border-radius: 8px;
+    }
+
+    .vecthare-section-header {
+        margin-bottom: 10px;
+    }
+
     .vecthare-section-header h4 {
-        font-size: 0.95em;
+        font-size: 0.9em;
         flex-wrap: wrap;
         gap: 6px;
     }
 
     .vecthare-section-header small {
-        font-size: 0.8em;
+        font-size: 0.75em;
+        display: block;
+        margin-top: 4px;
     }
 
-    /* Triggers */
     .vecthare-triggers-input textarea {
-        padding: 10px;
+        padding: 8px;
         font-size: 0.85em;
-    }
-
-    .vecthare-triggers-options {
-        gap: 10px;
+        min-height: 60px;
     }
 
     .vecthare-option-row {
-        flex-wrap: wrap;
         gap: 6px;
     }
 
     .vecthare-option-row label {
-        min-width: auto;
         width: 100%;
-        font-size: 0.9em;
+        min-width: auto;
+        font-size: 0.85em;
     }
 
     .vecthare-option-row select,
-    .vecthare-option-row input[type="number"] {
-        padding: 8px 10px;
-        font-size: 0.9em;
-        flex: 1;
-        min-width: 0;
+    .vecthare-option-row input {
+        font-size: 0.85em;
+        padding: 8px;
     }
 
     .vecthare-option-row small {
         width: 100%;
-        font-size: 0.75em;
-        margin-top: 2px;
+        font-size: 0.7em;
     }
 
-    /* Conditions */
     .vecthare-conditions-logic {
-        flex-wrap: wrap;
-    }
-
-    .vecthare-conditions-logic label {
-        width: 100%;
+        flex-direction: column;
+        gap: 6px;
     }
 
     .vecthare-conditions-logic select {
@@ -1363,22 +1481,12 @@
     }
 
     .vecthare-condition-rule {
-        padding: 10px;
-    }
-
-    .vecthare-condition-header {
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-
-    .vecthare-condition-header select {
-        flex: 1;
-        min-width: 120px;
+        padding: 8px;
     }
 
     .vecthare-condition-settings {
         flex-direction: column;
-        gap: 8px;
+        gap: 6px;
     }
 
     .vecthare-condition-settings input,
@@ -1386,111 +1494,57 @@
         width: 100%;
     }
 
-    /* Decay */
     .vecthare-decay-settings {
-        padding: 10px;
+        padding: 8px;
     }
 
-    .vecthare-decay-override small {
-        margin-left: 0;
-        margin-top: 6px;
-    }
-
-    /* Activation Info */
     .vecthare-activation-info {
-        padding: 10px;
-        font-size: 0.85em;
+        padding: 8px;
+        font-size: 0.8em;
     }
 
     .vecthare-activation-info ol {
-        padding-left: 20px;
-        margin: 8px 0 0 0;
+        padding-left: 16px;
+        margin: 6px 0 0 0;
     }
 
-    .vecthare-activation-info li {
-        margin-bottom: 4px;
-    }
-
-    /* Modal footer */
     .vecthare-activation-editor .vecthare-modal-footer {
-        padding: 12px;
+        padding: 10px 12px;
         gap: 8px;
     }
 
-    .vecthare-activation-editor .vecthare-modal-footer button {
+    .vecthare-activation-editor .vecthare-modal-footer .vecthare-btn {
         flex: 1;
         padding: 10px 12px;
-    }
-}
-
-/* Tablet: 601px - 900px */
-@media (min-width: 601px) and (max-width: 900px) {
-    .vecthare-activation-editor {
-        width: 90vw;
-        max-width: 600px !important;
-    }
-
-    .vecthare-activation-body {
-        padding: 16px;
-    }
-
-    .vecthare-activation-section {
-        padding: 14px;
-    }
-
-    .vecthare-option-row label {
-        min-width: 90px;
-    }
-}
-
-/* High zoom / Large text support */
-@media (max-width: 900px) and (min-resolution: 120dpi),
-       (max-width: 900px) and (-webkit-min-device-pixel-ratio: 1.25) {
-    .vecthare-activation-editor {
-        font-size: 0.95em;
-    }
-
-    .vecthare-section-header h4 {
-        font-size: 1em;
+        font-size: 0.9em;
     }
 
     .vecthare-badge-primary,
     .vecthare-badge-secondary {
         font-size: 0.6em;
-        padding: 2px 6px;
+        padding: 2px 5px;
     }
 }
 
-/* Very small screens / extreme zoom */
-@media (max-width: 400px) {
+/* Very constrained viewports (extreme zoom or tiny screens) */
+@media (max-width: 380px), (max-height: 500px) {
     .vecthare-activation-editor {
-        font-size: 0.9em;
-    }
-
-    .vecthare-activation-body {
-        padding: 10px;
-    }
-
-    .vecthare-activation-section {
-        padding: 10px;
-        margin-bottom: 12px;
-    }
-
-    .vecthare-section-header h4 {
-        font-size: 0.9em;
-    }
-
-    .vecthare-triggers-input textarea {
-        rows: 3;
-        min-height: 60px;
-    }
-
-    .vecthare-condition-rule {
-        padding: 8px;
+        width: 100vw;
+        max-width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        max-height: 100vh;
+        max-height: 100dvh;
+        border-radius: 0;
+        margin: 0;
     }
 
     .vecthare-activation-info {
-        display: none; /* Hide info section on very small screens */
+        display: none; /* Hide info on very small screens to save space */
+    }
+
+    .vecthare-section-header small {
+        display: none; /* Hide descriptions to save space */
     }
 }
 

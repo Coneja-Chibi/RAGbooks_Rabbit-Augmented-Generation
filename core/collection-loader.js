@@ -631,9 +631,8 @@ export async function loadCollectionChunks(collectionId, settings) {
             }
         }
     } else {
-        // For other collection types or inactive chats, we need to query
-        // to get the text (vector backend stores it)
-        // We'll implement this in Phase 2 when we add chunk editing
+        // For other collection types or inactive chats, text is stored in the vector backend
+        // and retrieved via the chunks visualizer's query functionality
         console.warn(`VectHare: Cannot load chunk text for non-active collection: ${collectionId}`);
 
         // Return minimal data

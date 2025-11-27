@@ -186,16 +186,20 @@ export class LanceDBBackend extends VectorBackend {
 
                 if (response.ok) {
                     const data = await response.json();
+                    const resultArray = data.results || data.chunks || [];
 
                     results[collectionId] = {
-                        hashes: data.results.map(r => r.hash),
-                        metadata: data.results.map(r => ({
+                        hashes: resultArray.map(r => r.hash),
+                        metadata: resultArray.map(r => ({
                             hash: r.hash,
                             text: r.text,
                             score: r.score,
                             ...r.metadata,
                         })),
                     };
+                } else {
+                    console.error(`VectHare: Query failed for ${collectionId}: ${response.status} ${response.statusText}`);
+                    results[collectionId] = { hashes: [], metadata: [] };
                 }
             } catch (error) {
                 console.error(`Failed to query collection ${collectionId}:`, error);

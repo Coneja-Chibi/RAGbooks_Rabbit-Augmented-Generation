@@ -538,3 +538,132 @@ export async function checkHashCollisionRate(settings) {
         };
     }
 }
+
+/**
+ * Check: Chat Metadata Integrity
+ * Verifies the chat has a valid UUID for vector collection identification.
+ * Missing or malformed UUIDs can cause collection mismatches.
+ */
+export function checkChatMetadataIntegrity() {
+    const chatId = getCurrentChatId();
+
+    if (!chatId) {
+        return {
+            name: 'Chat Metadata Integrity',
+            status: 'skipped',
+            message: 'No chat selected',
+            category: 'configuration'
+        };
+    }
+
+    const uuid = getChatUUID();
+
+    if (!uuid) {
+        return {
+            name: 'Chat Metadata Integrity',
+            status: 'warning',
+            message: 'Chat is missing integrity UUID. This can cause collection ID mismatches. Re-opening the chat should fix this.',
+            category: 'configuration'
+        };
+    }
+
+    // Validate UUID format (should be standard UUID v4 format)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(uuid)) {
+        return {
+            name: 'Chat Metadata Integrity',
+            status: 'warning',
+            message: `Chat UUID has non-standard format: ${uuid.substring(0, 20)}...`,
+            category: 'configuration'
+        };
+    }
+
+    return {
+        name: 'Chat Metadata Integrity',
+        status: 'pass',
+        message: `UUID: ${uuid.substring(0, 8)}...`,
+        category: 'configuration'
+    };
+}
+
+/**
+ * Check: Condition Rule Validity
+ * Verifies all chunk conditions in the current chat collection use valid operators and values.
+ */
+export async function checkConditionRuleValidity(settings) {
+    try {
+        const collectionId = getChatCollectionId();
+        if (!collectionId) {
+            return {
+                name: 'Condition Rules',
+                status: 'skipped',
+                message: 'No chat collection',
+                category: 'configuration'
+            };
+        }
+
+        // Get chunks with conditions
+        const hashesResult = await getSavedHashes(collectionId, settings, true);
+        if (!hashesResult || !Array.isArray(hashesResult)) {
+            return {
+                name: 'Condition Rules',
+                status: 'pass',
+                message: 'No chunks with conditions',
+                category: 'configuration'
+            };
+        }
+
+        const chunksWithConditions = hashesResult.filter(item =>
+            item.metadata?.conditions && Object.keys(item.metadata.conditions).length > 0
+        );
+
+        if (chunksWithConditions.length === 0) {
+            return {
+                name: 'Condition Rules',
+                status: 'pass',
+                message: 'No conditional chunks configured',
+                category: 'configuration'
+            };
+        }
+
+        // Validate each condition
+        const invalidConditions = [];
+        for (const chunk of chunksWithConditions) {
+            const conditions = chunk.metadata.conditions;
+            for (const [ruleType, rule] of Object.entries(conditions)) {
+                const validation = validateConditionRule(ruleType, rule);
+                if (!validation.valid) {
+                    invalidConditions.push({
+                        hash: chunk.hash,
+                        rule: ruleType,
+                        error: validation.errors?.join(', ') || 'Invalid rule'
+                    });
+                }
+            }
+        }
+
+        if (invalidConditions.length > 0) {
+            return {
+                name: 'Condition Rules',
+                status: 'warning',
+                message: `${invalidConditions.length} invalid condition(s) found. Check chunk conditions in the visualizer.`,
+                category: 'configuration',
+                data: { invalidConditions }
+            };
+        }
+
+        return {
+            name: 'Condition Rules',
+            status: 'pass',
+            message: `${chunksWithConditions.length} conditional chunks, all valid`,
+            category: 'configuration'
+        };
+    } catch (error) {
+        return {
+            name: 'Condition Rules',
+            status: 'warning',
+            message: `Could not validate: ${error.message}`,
+            category: 'configuration'
+        };
+    }
+}

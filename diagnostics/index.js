@@ -34,7 +34,9 @@ import {
     checkTemporallyBlindChunks,
     checkConditionalActivationModule,
     checkCollectionIdFormat,
-    checkHashCollisionRate
+    checkHashCollisionRate,
+    checkChatMetadataIntegrity,
+    checkConditionRuleValidity
 } from './configuration.js';
 
 import {
@@ -120,6 +122,12 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
     // Hash collision rate (informational - collisions are intentional deduplication)
     categories.configuration.push(await checkHashCollisionRate(settings));
 
+    // Chat metadata integrity (UUID-based collection tracking)
+    categories.configuration.push(checkChatMetadataIntegrity());
+
+    // Condition rule validity (validates chunk condition rules)
+    categories.configuration.push(await checkConditionRuleValidity(settings));
+
     // ========== VISUALIZER CHECKS ==========
     // Fast checks always run, slow (API) checks only with production tests
     const visualizerResults = await runVisualizerTests(settings, includeProductionTests);
@@ -201,6 +209,12 @@ export function getFixSuggestion(check) {
 
         case '[PROD] Duplicate Hash Check':
             return 'Click "Fix Now" to remove duplicate entries. Then re-vectorize the chat to restore clean data. Duplicates usually happen from the native ST vectors extension.';
+
+        case 'Chat Metadata Integrity':
+            return 'Start a new chat or send a message to generate a valid chat UUID. If this persists, the chat file may be corrupted.';
+
+        case 'Condition Rule Validity':
+            return 'Open the Chunk Editor and review the condition rules on affected chunks. Remove invalid operators or fix malformed values.';
 
         default:
             return 'Check the console for more details.';

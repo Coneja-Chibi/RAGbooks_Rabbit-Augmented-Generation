@@ -940,6 +940,51 @@ export async function init(router) {
     });
 
     /**
+     * POST /api/plugins/similharity/rerank
+     * Rerank documents using BananaBread's reranking endpoint
+     * Body: { apiUrl, query, documents, top_k? }
+     */
+    router.post('/rerank', async (req, res) => {
+        try {
+            const {
+                apiUrl = 'http://localhost:8008',
+                query,
+                documents,
+                top_k = 10
+            } = req.body;
+
+            if (!query || !documents || !Array.isArray(documents)) {
+                return res.status(400).json({ error: 'query and documents array required' });
+            }
+
+            const url = new URL(apiUrl);
+            url.pathname = '/v1/rerank';
+
+            const response = await fetch(url.toString(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query,
+                    documents,
+                    top_k,
+                    return_documents: false
+                }),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`BananaBread rerank failed: ${response.statusText} ${errorText}`);
+            }
+
+            const data = await response.json();
+            res.json(data);
+        } catch (error) {
+            console.error(`[${pluginName}] rerank error:`, error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    /**
      * POST /api/plugins/similharity/chunks/stats
      * Get collection statistics
      * Body: { backend, collectionId, source?, model? }
@@ -1032,6 +1077,29 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
         case 'llamacpp': {
             const { getLlamaCppVector } = await import('../../src/vectors/llamacpp-vectors.js');
             return await getLlamaCppVector(text, req.body.apiUrl, directories);
+        }
+        case 'bananabread': {
+            // BananaBread llama.cpp-compatible endpoint (no model param needed - uses server config)
+            const apiUrl = req.body.apiUrl || 'http://localhost:8008';
+            const url = new URL(apiUrl);
+            url.pathname = '/embedding';
+
+            const response = await fetch(url.toString(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: text }),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`BananaBread: ${response.statusText} ${errorText}`);
+            }
+
+            const data = await response.json();
+            if (!Array.isArray(data?.embedding)) {
+                throw new Error('BananaBread: Invalid response format');
+            }
+            return data.embedding;
         }
         case 'vllm': {
             const { getVllmVector } = await import('../../src/vectors/vllm-vectors.js');

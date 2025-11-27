@@ -97,18 +97,30 @@ class MilvusBackend {
             const exists = collections.find(c => c.name === collectionName);
             
             if (exists) {
-                // Verify schema has 'vector' field
+                // Verify schema has 'vector' field and correct dimension
                 try {
                     const desc = await this.client.describeCollection({ collection_name: collectionName });
-                    const hasVector = desc.schema.fields.some(f => f.name === 'vector');
-                    if (!hasVector) {
+                    const vectorField = desc.schema.fields.find(f => f.name === 'vector');
+                    
+                    if (!vectorField) {
                         console.warn(`[Milvus] Existing collection ${collectionName} missing 'vector' field. Dropping...`);
                         await this.client.dropCollection({ collection_name: collectionName });
-                        // Proceed to create new below
                         exists = false; 
+                    } else {
+                        // Check dimension
+                        // Milvus returns dim as string or number depending on version, safely compare
+                        const existingDim = Number(vectorField.dim || vectorField.params?.find(p => p.key === 'dim')?.value);
+                        
+                        if (existingDim && existingDim !== vectorSize) {
+                             console.warn(`[Milvus] Dimension mismatch for ${collectionName}. Existing: ${existingDim}, Required: ${vectorSize}. Dropping collection to recreate...`);
+                             await this.client.dropCollection({ collection_name: collectionName });
+                             exists = false;
+                        }
                     }
                 } catch (e) {
-                    // Ignore describe error, proceed to check index
+                    console.error('[Milvus] Describe collection failed:', e.message);
+                    // If describe fails, might be safest to assume broken or let it fail later? 
+                    // But we proceed for now.
                 }
 
                 if (exists) {

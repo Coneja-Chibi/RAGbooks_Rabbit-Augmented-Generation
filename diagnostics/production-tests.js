@@ -64,7 +64,7 @@ function getProviderBody(settings) {
 export async function testEmbeddingGeneration(settings) {
     try {
         const testText = 'This is a test message for embedding generation.';
-        const backend = settings.db || 'standard';
+        const backend = settings.vector_backend || 'standard';
         const backendType = backend === 'standard' ? 'vectra' : backend;
 
         const response = await fetch('/api/plugins/similharity/chunks/query', {
@@ -115,7 +115,7 @@ export async function testVectorStorage(settings) {
         const testCollectionId = `vh:test:storage_${Date.now()}`;
         const testHash = Math.floor(Math.random() * 1000000);
         const testText = 'VectHare storage test message';
-        const backend = settings.db || 'standard';
+        const backend = settings.vector_backend || 'standard';
         const backendType = backend === 'standard' ? 'vectra' : backend;
 
         const insertResponse = await fetch('/api/plugins/similharity/chunks/insert', {
@@ -301,7 +301,7 @@ export async function testVectorDimensions(settings) {
         const testCollectionId = `vh:test:dim_${Date.now()}`;
         const testHash = Math.floor(Math.random() * 1000000);
         const testText = 'Dimension test';
-        const backend = settings.db || 'standard';
+        const backend = settings.vector_backend || 'standard';
         const backendType = backend === 'standard' ? 'vectra' : backend;
 
         const insertResponse = await fetch('/api/plugins/similharity/chunks/insert', {

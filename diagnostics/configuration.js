@@ -334,7 +334,7 @@ export function checkVisualizerApiReadiness(settings) {
     }
 
     // Check backend configuration
-    if (!settings.db) {
+    if (!settings.vector_backend) {
         return {
             name: 'Visualizer API',
             status: 'warning',
@@ -346,7 +346,7 @@ export function checkVisualizerApiReadiness(settings) {
     return {
         name: 'Visualizer API',
         status: 'pass',
-        message: `Ready for vector operations (source: ${settings.source}, db: ${settings.db || 'standard'})`,
+        message: `Ready for vector operations (source: ${settings.source}, backend: ${settings.vector_backend || 'standard'})`,
         category: 'configuration'
     };
 }

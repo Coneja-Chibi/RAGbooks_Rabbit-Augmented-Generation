@@ -77,7 +77,7 @@ export function checkVisualizerSettings(settings) {
         };
     }
 
-    const backend = settings.db || 'standard';
+    const backend = settings.vector_backend || 'standard';
     const source = settings.source;
 
     return {
@@ -260,7 +260,7 @@ export async function checkVectorInsert(settings) {
         return {
             name: 'Vector Insert',
             status: 'pass',
-            message: `Successfully inserted and verified (backend: ${settings.db || 'standard'})`,
+            message: `Successfully inserted and verified (backend: ${settings.vector_backend || 'standard'})`,
             category: 'visualizer'
         };
     } catch (error) {
@@ -334,7 +334,7 @@ export async function checkVectorDelete(settings) {
         return {
             name: 'Vector Delete',
             status: 'pass',
-            message: `Successfully deleted and verified (backend: ${settings.db || 'standard'})`,
+            message: `Successfully deleted and verified (backend: ${settings.vector_backend || 'standard'})`,
             category: 'visualizer'
         };
     } catch (error) {
@@ -670,7 +670,7 @@ export async function checkBackendResponsiveness(settings) {
         const deleteTime = performance.now() - startDelete;
 
         const totalTime = insertTime + queryTime + deleteTime;
-        const backend = settings.db || 'standard';
+        const backend = settings.vector_backend || 'standard';
 
         // Thresholds (in ms)
         const WARNING_THRESHOLD = 5000;  // 5 seconds

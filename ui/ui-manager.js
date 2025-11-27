@@ -20,6 +20,7 @@ import { openSearchDebugModal, getLastSearchDebug } from './search-debug.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
 import { getChatCollectionId } from '../core/chat-vectorization.js';
 import { getSavedHashes } from '../core/core-vector-api.js';
+import { getModelField } from '../core/providers.js';
 
 /**
  * Renders the VectHare settings UI
@@ -1429,12 +1430,44 @@ function copyDiagnosticsReport(results) {
         'fail': 'FAILURES ONLY'
     };
 
+    // Get current settings for the report
+    const settings = extension_settings.vecthare;
+    const backend = settings.vector_backend || 'standard';
+    const source = settings.source || 'none';
+    const modelField = getModelField(source);
+    const model = modelField ? (settings[modelField] || 'not set') : 'n/a (provider handles it)';
+    const qdrantMode = settings.qdrant_mode || 'local';
+    const qdrantUrl = backend === 'qdrant'
+        ? (qdrantMode === 'cloud' ? settings.qdrant_cloud_url : settings.qdrant_url)
+        : null;
+
+    // Build provider URL info
+    let providerUrl = 'n/a';
+    if (settings.use_alt_endpoint && settings.alt_endpoint_url) {
+        providerUrl = settings.alt_endpoint_url;
+    } else if (['bananabread', 'ollama', 'llamacpp', 'koboldcpp', 'vllm'].includes(source)) {
+        // Local server providers - show their configured URL
+        providerUrl = settings.alt_endpoint_url || 'http://localhost:8008';
+    }
+
     let report = `╔══════════════════════════════════════════════════════════════╗
 ║              VECTHARE DIAGNOSTICS REPORT                      ║
 ╚══════════════════════════════════════════════════════════════╝
 
 📅 Generated: ${timestamp}
 ${isFiltered ? `🔍 Filter: ${filterNames[filter]} (${filteredCount} of ${totalCount} checks)\n` : ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                      CURRENT SETTINGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Backend:           ${backend}${backend === 'qdrant' ? ` (${qdrantMode})` : ''}
+  Embedding Source:  ${source}
+  Model:             ${model}${providerUrl !== 'n/a' ? `\n  Provider URL:      ${providerUrl}` : ''}${qdrantUrl ? `\n  Qdrant URL:        ${qdrantUrl}` : ''}
+  Chunk Size:        ${settings.message_chunk_size || 400} chars
+  Score Threshold:   ${settings.score_threshold || 0.5}
+  Query Depth:       ${settings.query || 3}
+  Chat Auto-Sync:    ${settings.enabled_chats ? 'enabled' : 'disabled'}
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                          SUMMARY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

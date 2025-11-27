@@ -273,8 +273,22 @@ export async function init(router) {
                         return await lancedbBackend.getItem(collectionId, hash, source);
                     },
 
-                    insert: async (collectionId, items, source) => {
-                        await lancedbBackend.insertVectors(collectionId, items, source);
+                    insert: async (collectionId, items, source, model, directories, req) => {
+                        // Generate embeddings if not provided (CRITICAL: must match Vectra behavior)
+                        const itemsWithVectors = [];
+                        for (const item of items) {
+                            let vector = item.vector;
+                            if (!vector) {
+                                console.log(`[LanceDB] Generating embedding for item hash=${item.hash}`);
+                                vector = await getEmbeddingForSource(source, item.text, model, directories, req);
+                            }
+                            if (!vector || !Array.isArray(vector) || vector.length === 0) {
+                                console.error(`[LanceDB] Failed to generate valid vector for item hash=${item.hash}, source=${source}, model=${model}`);
+                                throw new Error(`Failed to generate embedding for item. Source: ${source}, Model: ${model}`);
+                            }
+                            itemsWithVectors.push({ ...item, vector });
+                        }
+                        await lancedbBackend.insertVectors(collectionId, itemsWithVectors, source);
                     },
 
                     updateText: async (collectionId, hash, newText, source, model, directories, req) => {
@@ -323,7 +337,26 @@ export async function init(router) {
                     },
 
                     insert: async (collectionId, items, source, model, directories, req, filters = {}) => {
-                        await qdrantBackend.insertVectors(collectionId, items, filters);
+                        // Generate embeddings if not provided (CRITICAL: must match Vectra behavior)
+                        const itemsWithVectors = [];
+                        for (const item of items) {
+                            let vector = item.vector;
+                            if (!vector) {
+                                console.log(`[Qdrant] Generating embedding for item hash=${item.hash}`);
+                                vector = await getEmbeddingForSource(source, item.text, model, directories, req);
+                            }
+                            if (!vector || !Array.isArray(vector) || vector.length === 0) {
+                                console.error(`[Qdrant] Failed to generate valid vector for item hash=${item.hash}, source=${source}, model=${model}`);
+                                throw new Error(`Failed to generate embedding for item. Source: ${source}, Model: ${model}`);
+                            }
+                            itemsWithVectors.push({ ...item, vector });
+                        }
+                        // Pass source and model for embedding tracking
+                        await qdrantBackend.insertVectors(collectionId, itemsWithVectors, {
+                            ...filters,
+                            embeddingSource: source,
+                            embeddingModel: model,
+                        });
                     },
 
                     updateText: async (collectionId, hash, newText, source, model, directories, req, filters = {}) => {
@@ -586,6 +619,97 @@ export async function init(router) {
 
         } catch (error) {
             console.error(`[${pluginName}] backend/init error:`, error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    /**
+     * GET /api/plugins/similharity/backend/qdrant/collection-info
+     * Get Qdrant collection info for diagnostics (dimension, embedding sources/models)
+     */
+    router.get('/backend/qdrant/collection-info', async (req, res) => {
+        try {
+            if (!qdrantBackend.baseUrl) {
+                return res.status(400).json({ error: 'Qdrant not initialized' });
+            }
+
+            const collectionName = 'vecthare_main';
+
+            // Check if collection exists
+            const collections = await qdrantBackend._request('GET', '/collections');
+            const exists = collections.result?.collections?.some(c => c.name === collectionName);
+
+            if (!exists) {
+                return res.json({
+                    exists: false,
+                    message: 'Collection does not exist yet'
+                });
+            }
+
+            // Get collection config (includes vector dimension)
+            const collectionInfo = await qdrantBackend._request('GET', `/collections/${collectionName}`);
+            const dimension = collectionInfo.result?.config?.params?.vectors?.size || 0;
+            const pointsCount = collectionInfo.result?.points_count || 0;
+
+            // Get a sample of items to see what embedding sources/models are used
+            let embeddingSources = [];
+            let embeddingModels = [];
+
+            if (pointsCount > 0) {
+                const sampleResponse = await qdrantBackend._request('POST', `/collections/${collectionName}/points/scroll`, {
+                    limit: 100,
+                    with_payload: { include: ['embeddingSource', 'embeddingModel'] },
+                    with_vector: false,
+                });
+
+                const points = sampleResponse.result?.points || [];
+                const sourceSet = new Set();
+                const modelSet = new Set();
+
+                for (const p of points) {
+                    if (p.payload?.embeddingSource) sourceSet.add(p.payload.embeddingSource);
+                    if (p.payload?.embeddingModel) modelSet.add(p.payload.embeddingModel);
+                }
+
+                embeddingSources = Array.from(sourceSet);
+                embeddingModels = Array.from(modelSet).filter(m => m); // Filter empty strings
+            }
+
+            res.json({
+                exists: true,
+                collectionName,
+                dimension,
+                pointsCount,
+                embeddingSources,
+                embeddingModels,
+            });
+
+        } catch (error) {
+            console.error(`[${pluginName}] qdrant/collection-info error:`, error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    /**
+     * POST /api/plugins/similharity/backend/qdrant/purge-collection
+     * Purge the entire Qdrant collection (for dimension mismatch fixes)
+     */
+    router.post('/backend/qdrant/purge-collection', async (req, res) => {
+        try {
+            if (!qdrantBackend.baseUrl) {
+                return res.status(400).json({ error: 'Qdrant not initialized' });
+            }
+
+            const { collectionName = 'vecthare_main' } = req.body;
+
+            // Delete the collection
+            await qdrantBackend._request('DELETE', `/collections/${collectionName}`);
+
+            console.log(`[${pluginName}] Purged Qdrant collection: ${collectionName}`);
+            res.json({ success: true, message: `Collection ${collectionName} purged` });
+
+        } catch (error) {
+            console.error(`[${pluginName}] qdrant/purge-collection error:`, error);
             res.status(500).json({ error: error.message });
         }
     });

@@ -217,6 +217,7 @@ class QdrantBackend {
             { field: 'sourceId', schema: { type: 'keyword', is_tenant: true } },
             // REGULAR KEYWORD FIELDS
             { field: 'embeddingSource', schema: 'keyword' },
+            { field: 'embeddingModel', schema: 'keyword' },
             { field: 'characterName', schema: 'keyword' },
             { field: 'chatId', schema: 'keyword' },
             { field: 'keywords', schema: 'keyword' },
@@ -336,6 +337,7 @@ class QdrantBackend {
                 type: tenantMetadata.type || 'chat',
                 sourceId: tenantMetadata.sourceId || 'unknown',
                 embeddingSource: tenantMetadata.embeddingSource || 'transformers',
+                embeddingModel: tenantMetadata.embeddingModel || '',
 
                 // ===== TIMESTAMPS (for temporal decay) =====
                 timestamp: item.metadata?.timestamp || Date.now(),

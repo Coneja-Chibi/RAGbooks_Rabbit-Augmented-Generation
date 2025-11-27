@@ -1147,7 +1147,10 @@ function openActivationEditor(collectionId, collectionName) {
             linearRate: decaySettings.linearRate,
             minRelevance: decaySettings.minRelevance,
             sceneAware: decaySettings.sceneAware
-        }
+        },
+        // Prompt context
+        context: meta.context || '',
+        xmlTag: meta.xmlTag || ''
     };
 
     // Create modal if needed
@@ -1326,6 +1329,32 @@ function createActivationEditorModal() {
                         </div>
                     </div>
 
+                    <!-- ========================================== -->
+                    <!-- PROMPT CONTEXT -->
+                    <!-- ========================================== -->
+                    <div class="vecthare-activation-section vecthare-context-section">
+                        <div class="vecthare-section-header">
+                            <h4>💬 Prompt Context</h4>
+                            <small>Add context prompts to help the AI understand chunks from this collection</small>
+                        </div>
+
+                        <div class="vecthare-context-settings">
+                            <div class="vecthare-option-row">
+                                <label>Context prompt:</label>
+                                <textarea id="vecthare_collection_context"
+                                          placeholder="e.g., Things {{char}} remembers about {{user}}:"
+                                          rows="2"></textarea>
+                                <small>Shown before this collection's chunks. Supports {{user}} and {{char}}.</small>
+                            </div>
+
+                            <div class="vecthare-option-row">
+                                <label>XML tag (optional):</label>
+                                <input type="text" id="vecthare_collection_xml_tag" placeholder="e.g., memories">
+                                <small>Wraps this collection's chunks in &lt;tag&gt;...&lt;/tag&gt;</small>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Activation Priority Info -->
                     <div class="vecthare-activation-info">
                         <strong>Activation Priority:</strong>
@@ -1422,6 +1451,10 @@ function renderActivationEditor() {
     $('.vecthare-decay-exponential').toggle(decay.mode === 'exponential');
     $('.vecthare-decay-linear').toggle(decay.mode === 'linear');
 
+    // Prompt Context
+    $('#vecthare_collection_context').val(state.context || '');
+    $('#vecthare_collection_xml_tag').val(state.xmlTag || '');
+
     // Disable sections if always active
     const isAlwaysActive = state.alwaysActive;
     $('.vecthare-triggers-section, .vecthare-conditions-section').toggleClass('vecthare-disabled', isAlwaysActive);
@@ -1452,6 +1485,11 @@ function saveActivation() {
         sceneAware: $('#vecthare_decay_scene_aware').prop('checked'),
     };
 
+    // Get prompt context values (sanitize xml tag)
+    const contextPrompt = $('#vecthare_collection_context').val() || '';
+    const xmlTagRaw = $('#vecthare_collection_xml_tag').val() || '';
+    const xmlTag = xmlTagRaw.replace(/[^a-zA-Z0-9_-]/g, '');
+
     // Update metadata (all in one call)
     setCollectionMeta(state.collectionId, {
         alwaysActive: $('#vecthare_always_active').prop('checked'),
@@ -1460,6 +1498,8 @@ function saveActivation() {
         triggerScanDepth: parseInt($('#vecthare_trigger_scan_depth').val()) || 5,
         triggerCaseSensitive: $('#vecthare_trigger_case_sensitive').prop('checked'),
         temporalDecay: temporalDecay,
+        context: contextPrompt,
+        xmlTag: xmlTag,
     });
 
     // Save conditions

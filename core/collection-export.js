@@ -208,6 +208,13 @@ export async function exportCollection(collectionId, settings, collectionInfo = 
                     minRelevance: 0.3,
                     sceneAware: false,
                 },
+
+                // Chunk groups
+                groups: collectionMeta.groups || [],
+
+                // Prompt context
+                context: collectionMeta.context || '',
+                xmlTag: collectionMeta.xmlTag || '',
             },
 
             // Chunks (text + metadata + vectors)
@@ -316,6 +323,9 @@ export async function exportMultipleCollections(collectionIds, settings) {
                         minRelevance: 0.3,
                         sceneAware: false,
                     },
+                    groups: collectionMeta.groups || [],
+                    context: collectionMeta.context || '',
+                    xmlTag: collectionMeta.xmlTag || '',
                 },
                 chunks: chunks,
                 stats: {
@@ -606,6 +616,9 @@ export async function importCollection(exportData, settings, options = {}) {
                 triggerScanDepth: exportData.settings.triggerScanDepth,
                 conditions: exportData.settings.conditions,
                 temporalDecay: exportData.settings.temporalDecay,
+                groups: exportData.settings.groups || [],
+                context: exportData.settings.context || '',
+                xmlTag: exportData.settings.xmlTag || '',
             });
         }
 
@@ -771,6 +784,9 @@ async function importCollectionSilent(exportData, settings, options = {}) {
             triggerScanDepth: exportData.settings.triggerScanDepth,
             conditions: exportData.settings.conditions,
             temporalDecay: exportData.settings.temporalDecay,
+            groups: exportData.settings.groups || [],
+            context: exportData.settings.context || '',
+            xmlTag: exportData.settings.xmlTag || '',
         });
     }
 

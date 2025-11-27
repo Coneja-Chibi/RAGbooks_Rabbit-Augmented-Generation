@@ -371,6 +371,39 @@ export function renderSettings(containerId, settings, callbacks) {
                         </div>
                     </div>
 
+                    <!-- RAG Context Card -->
+                    <div class="vecthare-card">
+                        <div class="vecthare-card-header">
+                            <h3 class="vecthare-card-title">
+                                <span class="vecthare-icon">
+                                    <i class="fa-solid fa-quote-left"></i>
+                                </span>
+                                RAG Context
+                            </h3>
+                            <p class="vecthare-card-subtitle">Add context prompts to help the AI understand retrieved content</p>
+                        </div>
+                        <div class="vecthare-card-body">
+
+                            <label for="vecthare_rag_context">
+                                <small>Global Context Prompt</small>
+                            </label>
+                            <textarea id="vecthare_rag_context" class="vecthare-textarea" rows="3" placeholder="e.g., The following information may be relevant to your conversation with {{user}}:"></textarea>
+                            <small class="vecthare_hint">Shown before all RAG content. Supports {{user}} and {{char}} variables.</small>
+
+                            <label for="vecthare_rag_xml_tag" style="margin-top: 12px;">
+                                <small>Global XML Tag (optional)</small>
+                            </label>
+                            <input type="text" id="vecthare_rag_xml_tag" class="vecthare-input" placeholder="e.g., retrieved_context" />
+                            <small class="vecthare_hint">Wraps all RAG content in &lt;tag&gt;...&lt;/tag&gt;. Leave empty for no wrapping.</small>
+
+                            <div class="vecthare_info" style="margin-top: 16px; padding: 8px 12px; border-radius: 4px; background: var(--SmartThemeBlurTintColor); font-size: 0.85em;">
+                                <i class="fa-solid fa-info-circle"></i>
+                                <span>Collection and chunk-level context can be set in the Database Browser and Chunk Visualizer respectively.</span>
+                            </div>
+
+                        </div>
+                    </div>
+
                     <!-- Chat Auto-Sync Card -->
                     <div class="vecthare-card">
                         <div class="vecthare-card-header">
@@ -1125,6 +1158,26 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
     $('#vecthare_query_depth_value').text(settings.query || 2);
+
+    // RAG Context settings
+    $('#vecthare_rag_context')
+        .val(settings.rag_context || '')
+        .on('input', function() {
+            settings.rag_context = $(this).val();
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#vecthare_rag_xml_tag')
+        .val(settings.rag_xml_tag || '')
+        .on('input', function() {
+            // Sanitize: only allow alphanumeric, underscore, hyphen
+            const sanitized = $(this).val().replace(/[^a-zA-Z0-9_-]/g, '');
+            $(this).val(sanitized);
+            settings.rag_xml_tag = sanitized;
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
 
     // Provider-specific settings
 

@@ -17,6 +17,8 @@ import {
     getChunkMetadata,
     saveChunkMetadata,
     deleteChunkMetadata,
+    getCollectionMeta,
+    setCollectionMeta,
 } from '../core/collection-metadata.js';
 import {
     deleteVectorItems,
@@ -32,6 +34,11 @@ import {
     updateSceneChunkMetadata,
     getPendingScene,
 } from '../core/scenes.js';
+import {
+    createGroup,
+    validateGroup,
+    getGroupStats,
+} from '../core/chunk-groups.js';
 import { getContext } from '../../../../extensions.js';
 import { eventSource } from '../../../../../script.js';
 
@@ -352,16 +359,19 @@ function createModal() {
                 </div>
 
                 <!-- Tab Bar (only for chat collections) -->
-                ${isChat ? `
                 <div class="vecthare-visualizer-tabs">
                     <button class="vecthare-visualizer-tab active" data-tab="chunks">
                         <i class="fa-solid fa-puzzle-piece"></i> Chunks
                     </button>
+                    ${isChat ? `
                     <button class="vecthare-visualizer-tab" data-tab="scenes">
                         <i class="fa-solid fa-bookmark"></i> Scenes
                     </button>
+                    ` : ''}
+                    <button class="vecthare-visualizer-tab" data-tab="groups">
+                        <i class="fa-solid fa-layer-group"></i> Groups
+                    </button>
                 </div>
-                ` : ''}
 
                 <!-- Body: Split Panel (Chunks Tab) -->
                 <div class="vecthare-visualizer-body vecthare-vis-tab-content active" data-tab="chunks">
@@ -413,6 +423,23 @@ function createModal() {
                     <div class="vecthare-scenes-container" id="vecthare_scenes_container"></div>
                 </div>
                 ` : ''}
+
+                <!-- Groups Tab Content -->
+                <div class="vecthare-visualizer-body vecthare-vis-tab-content vecthare-groups-tab" data-tab="groups">
+                    <div class="vecthare-groups-toolbar">
+                        <button class="vecthare-btn-primary" id="vecthare_create_group">
+                            <i class="fa-solid fa-plus"></i> New Group
+                        </button>
+                        <div class="vecthare-groups-stats" id="vecthare_groups_stats"></div>
+                    </div>
+                    <div class="vecthare-groups-container" id="vecthare_groups_container">
+                        <div class="vecthare-groups-empty">
+                            <i class="fa-solid fa-layer-group"></i>
+                            <p>No groups defined</p>
+                            <span>Groups let you bundle chunks together for collective activation or mutual exclusion</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     `;
@@ -730,6 +757,435 @@ function bindSceneDetailEvents() {
 }
 
 // ============================================================================
+// GROUPS TAB STATE & RENDERING
+// ============================================================================
+
+let selectedGroupId = null;
+
+/**
+ * Gets groups from collection metadata
+ * @returns {object[]} Array of group definitions
+ */
+function getGroups() {
+    if (!currentCollectionId) return [];
+    const meta = getCollectionMeta(currentCollectionId);
+    return meta.groups || [];
+}
+
+/**
+ * Saves groups to collection metadata
+ * @param {object[]} groups - Array of group definitions
+ */
+function saveGroups(groups) {
+    if (!currentCollectionId) return;
+    setCollectionMeta(currentCollectionId, { groups });
+}
+
+/**
+ * Renders the groups tab content
+ */
+function renderGroupsTab() {
+    const container = $('#vecthare_groups_container');
+    if (!container.length) return;
+
+    const groups = getGroups();
+    const stats = getGroupStats(groups);
+
+    // Update stats display
+    $('#vecthare_groups_stats').html(
+        groups.length > 0
+            ? `<span>${stats.totalGroups} group${stats.totalGroups !== 1 ? 's' : ''}</span>
+               <span class="vecthare-stat-divider">|</span>
+               <span>${stats.inclusiveGroups} inclusive</span>
+               <span class="vecthare-stat-divider">|</span>
+               <span>${stats.exclusiveGroups} exclusive</span>`
+            : ''
+    );
+
+    if (groups.length === 0) {
+        container.html(`
+            <div class="vecthare-groups-empty">
+                <i class="fa-solid fa-layer-group"></i>
+                <p>No groups defined</p>
+                <span>Groups let you bundle chunks together for collective activation or mutual exclusion</span>
+            </div>
+        `);
+        return;
+    }
+
+    // Split-panel layout
+    container.html(`
+        <div class="vecthare-group-list-panel">
+            <div class="vecthare-group-list" id="vecthare_group_list"></div>
+        </div>
+        <div class="vecthare-group-detail-panel" id="vecthare_group_detail">
+            <div class="vecthare-detail-empty">Select a group to view details</div>
+        </div>
+    `);
+
+    renderGroupList();
+    bindGroupsTabEvents();
+}
+
+/**
+ * Renders the group list (left panel)
+ */
+function renderGroupList() {
+    const container = $('#vecthare_group_list');
+    const groups = getGroups();
+
+    const html = groups.map(group => {
+        const memberCount = group.members?.length || 0;
+        const isSelected = group.id === selectedGroupId;
+        const modeIcon = group.mode === 'inclusive' ? 'fa-link' : 'fa-code-branch';
+        const modeLabel = group.mode === 'inclusive'
+            ? (group.linkType === 'hard' ? 'Hard Link' : 'Soft Link')
+            : (group.mandatory ? 'Exclusive (Mandatory)' : 'Exclusive');
+
+        return `
+            <div class="vecthare-group-item ${isSelected ? 'selected' : ''}" data-group-id="${group.id}">
+                <div class="vecthare-group-item-header">
+                    <i class="fa-solid ${modeIcon}"></i>
+                    <span class="vecthare-group-name">${escapeHtml(group.name)}</span>
+                </div>
+                <div class="vecthare-group-item-meta">
+                    <span class="vecthare-group-mode">${modeLabel}</span>
+                    <span class="vecthare-group-count">${memberCount} chunk${memberCount !== 1 ? 's' : ''}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.html(html);
+}
+
+/**
+ * Renders the group detail panel (right panel)
+ */
+function renderGroupDetailPanel() {
+    const container = $('#vecthare_group_detail');
+    const groups = getGroups();
+    const group = groups.find(g => g.id === selectedGroupId);
+
+    if (!group) {
+        container.html('<div class="vecthare-detail-empty">Select a group to view details</div>');
+        return;
+    }
+
+    const memberChunks = (group.members || []).map(hash => {
+        const chunk = allChunks.find(c => String(c.hash) === String(hash));
+        return chunk ? { hash, chunk } : { hash, chunk: null };
+    });
+
+    const modeOptions = `
+        <option value="inclusive" ${group.mode === 'inclusive' ? 'selected' : ''}>Inclusive</option>
+        <option value="exclusive" ${group.mode === 'exclusive' ? 'selected' : ''}>Exclusive</option>
+    `;
+
+    const linkTypeOptions = `
+        <option value="soft" ${group.linkType === 'soft' ? 'selected' : ''}>Soft Link (Score Boost)</option>
+        <option value="hard" ${group.linkType === 'hard' ? 'selected' : ''}>Hard Link (Force Include)</option>
+    `;
+
+    container.html(`
+        <div class="vecthare-group-detail-content">
+            <div class="vecthare-group-detail-header">
+                <input type="text" class="vecthare-group-name-input" id="vecthare_group_name"
+                       value="${escapeHtml(group.name)}" placeholder="Group name">
+                <button class="vecthare-btn-danger" id="vecthare_delete_group" title="Delete group">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </div>
+
+            <div class="vecthare-group-settings">
+                <div class="vecthare-group-setting-row">
+                    <label>Mode</label>
+                    <select id="vecthare_group_mode" class="vecthare-group-select">
+                        ${modeOptions}
+                    </select>
+                </div>
+
+                <div class="vecthare-group-setting-row vecthare-inclusive-settings" style="${group.mode !== 'inclusive' ? 'display:none' : ''}">
+                    <label>Link Type</label>
+                    <select id="vecthare_group_link_type" class="vecthare-group-select">
+                        ${linkTypeOptions}
+                    </select>
+                </div>
+
+                <div class="vecthare-group-setting-row vecthare-inclusive-settings vecthare-soft-settings"
+                     style="${group.mode !== 'inclusive' || group.linkType !== 'soft' ? 'display:none' : ''}">
+                    <label>Score Boost</label>
+                    <input type="number" id="vecthare_group_boost" class="vecthare-group-input"
+                           value="${group.boost || 0.15}" min="0" max="1" step="0.05">
+                </div>
+
+                <div class="vecthare-group-setting-row vecthare-exclusive-settings" style="${group.mode !== 'exclusive' ? 'display:none' : ''}">
+                    <label>
+                        <input type="checkbox" id="vecthare_group_mandatory" ${group.mandatory ? 'checked' : ''}>
+                        Mandatory (at least one must be included)
+                    </label>
+                </div>
+            </div>
+
+            <div class="vecthare-group-members-section">
+                <div class="vecthare-group-members-header">
+                    <h4><i class="fa-solid fa-puzzle-piece"></i> Members (${memberChunks.length})</h4>
+                    <button class="vecthare-btn-small" id="vecthare_add_group_member">
+                        <i class="fa-solid fa-plus"></i> Add
+                    </button>
+                </div>
+                <div class="vecthare-group-members-list" id="vecthare_group_members">
+                    ${memberChunks.length === 0 ? '<div class="vecthare-empty-hint">No members yet. Click "Add" to add chunks.</div>' : ''}
+                    ${memberChunks.map(({ hash, chunk }) => `
+                        <div class="vecthare-group-member" data-hash="${hash}">
+                            <div class="vecthare-group-member-info">
+                                ${chunk
+                                    ? `<span class="vecthare-member-preview">${escapeHtml((chunk.data?.text || '').substring(0, 60))}...</span>
+                                       <span class="vecthare-member-hash">#${String(hash).substring(0, 8)}</span>`
+                                    : `<span class="vecthare-member-missing">Chunk not found</span>
+                                       <span class="vecthare-member-hash">#${String(hash).substring(0, 8)}</span>`
+                                }
+                            </div>
+                            <button class="vecthare-member-remove" data-hash="${hash}" title="Remove from group">
+                                <i class="fa-solid fa-times"></i>
+                            </button>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    `);
+
+    bindGroupDetailEvents();
+}
+
+/**
+ * Opens the add member dialog
+ */
+function openAddMemberDialog() {
+    const groups = getGroups();
+    const group = groups.find(g => g.id === selectedGroupId);
+    if (!group) return;
+
+    const existingMembers = new Set(group.members || []);
+    const availableChunks = allChunks.filter(c => !existingMembers.has(String(c.hash)));
+
+    if (availableChunks.length === 0) {
+        toastr.info('All chunks are already in this group');
+        return;
+    }
+
+    const overlay = $(`
+        <div class="vecthare-editor-overlay">
+            <div class="vecthare-editor-dialog vecthare-add-member-dialog">
+                <div class="vecthare-editor-header">
+                    <h3><i class="fa-solid fa-plus"></i> Add Chunk to Group</h3>
+                    <button class="vecthare-editor-close" id="vecthare_member_close">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                <div class="vecthare-editor-body">
+                    <div class="vecthare-member-search">
+                        <input type="text" id="vecthare_member_search" placeholder="Search chunks...">
+                    </div>
+                    <div class="vecthare-member-list" id="vecthare_available_members">
+                        ${availableChunks.slice(0, 50).map(c => `
+                            <div class="vecthare-member-option" data-hash="${c.hash}">
+                                <span class="vecthare-member-preview">${escapeHtml((c.data?.text || '').substring(0, 80))}...</span>
+                                <span class="vecthare-member-hash">#${String(c.hash).substring(0, 8)}</span>
+                            </div>
+                        `).join('')}
+                        ${availableChunks.length > 50 ? `<div class="vecthare-member-more">${availableChunks.length - 50} more chunks (use search)</div>` : ''}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `);
+
+    $('.vecthare-visualizer-container').append(overlay);
+
+    // Stop propagation to prevent extension panel close
+    overlay.on('click', function(e) {
+        e.stopPropagation();
+        if (e.target === this) overlay.remove();
+    });
+
+    $('#vecthare_member_close').on('click', () => overlay.remove());
+
+    // Search filtering
+    $('#vecthare_member_search').on('input', function() {
+        const query = $(this).val().toLowerCase();
+        const filtered = availableChunks.filter(c =>
+            (c.data?.text || '').toLowerCase().includes(query) ||
+            String(c.hash).includes(query)
+        );
+
+        $('#vecthare_available_members').html(
+            filtered.slice(0, 50).map(c => `
+                <div class="vecthare-member-option" data-hash="${c.hash}">
+                    <span class="vecthare-member-preview">${escapeHtml((c.data?.text || '').substring(0, 80))}...</span>
+                    <span class="vecthare-member-hash">#${String(c.hash).substring(0, 8)}</span>
+                </div>
+            `).join('') +
+            (filtered.length > 50 ? `<div class="vecthare-member-more">${filtered.length - 50} more results</div>` : '') +
+            (filtered.length === 0 ? '<div class="vecthare-empty-hint">No matching chunks</div>' : '')
+        );
+    });
+
+    // Click to add
+    $(document).on('click.addmember', '.vecthare-member-option', function() {
+        const hash = $(this).data('hash');
+        addMemberToGroup(String(hash));
+        overlay.remove();
+        $(document).off('click.addmember');
+    });
+}
+
+/**
+ * Adds a chunk to the current group
+ */
+function addMemberToGroup(hash) {
+    const groups = getGroups();
+    const groupIdx = groups.findIndex(g => g.id === selectedGroupId);
+    if (groupIdx === -1) return;
+
+    if (!groups[groupIdx].members) groups[groupIdx].members = [];
+    if (!groups[groupIdx].members.includes(hash)) {
+        groups[groupIdx].members.push(hash);
+        saveGroups(groups);
+        renderGroupDetailPanel();
+        toastr.success('Chunk added to group');
+    }
+}
+
+/**
+ * Removes a chunk from the current group
+ */
+function removeMemberFromGroup(hash) {
+    const groups = getGroups();
+    const groupIdx = groups.findIndex(g => g.id === selectedGroupId);
+    if (groupIdx === -1) return;
+
+    groups[groupIdx].members = (groups[groupIdx].members || []).filter(h => String(h) !== String(hash));
+    saveGroups(groups);
+    renderGroupDetailPanel();
+    toastr.info('Chunk removed from group');
+}
+
+/**
+ * Creates a new group
+ */
+function createNewGroup() {
+    const groups = getGroups();
+    const newGroup = createGroup(`Group ${groups.length + 1}`, 'inclusive');
+    groups.push(newGroup);
+    saveGroups(groups);
+    selectedGroupId = newGroup.id;
+    renderGroupsTab();
+    toastr.success('Group created');
+}
+
+/**
+ * Deletes the current group
+ */
+function deleteCurrentGroup() {
+    if (!confirm('Delete this group? Chunks will not be affected.')) return;
+
+    const groups = getGroups().filter(g => g.id !== selectedGroupId);
+    saveGroups(groups);
+    selectedGroupId = null;
+    renderGroupsTab();
+    toastr.info('Group deleted');
+}
+
+/**
+ * Updates current group settings
+ */
+function updateGroupSetting(key, value) {
+    const groups = getGroups();
+    const groupIdx = groups.findIndex(g => g.id === selectedGroupId);
+    if (groupIdx === -1) return;
+
+    groups[groupIdx][key] = value;
+
+    // Clear mode-specific settings when switching modes
+    if (key === 'mode') {
+        if (value === 'inclusive') {
+            groups[groupIdx].linkType = groups[groupIdx].linkType || 'soft';
+            groups[groupIdx].boost = groups[groupIdx].boost ?? 0.15;
+            delete groups[groupIdx].mandatory;
+        } else {
+            groups[groupIdx].mandatory = groups[groupIdx].mandatory ?? false;
+            delete groups[groupIdx].linkType;
+            delete groups[groupIdx].boost;
+        }
+    }
+
+    saveGroups(groups);
+}
+
+/**
+ * Binds events for the groups tab (list panel)
+ */
+function bindGroupsTabEvents() {
+    // Create new group
+    $('#vecthare_create_group').off('click').on('click', createNewGroup);
+
+    // Select group
+    $(document).off('click', '.vecthare-group-item').on('click', '.vecthare-group-item', function() {
+        selectedGroupId = $(this).data('group-id');
+        renderGroupList();
+        renderGroupDetailPanel();
+    });
+}
+
+/**
+ * Binds events for the group detail panel
+ */
+function bindGroupDetailEvents() {
+    // Name change
+    $('#vecthare_group_name').off('input').on('input', function() {
+        updateGroupSetting('name', $(this).val());
+        renderGroupList(); // Update name in list
+    });
+
+    // Delete group
+    $('#vecthare_delete_group').off('click').on('click', deleteCurrentGroup);
+
+    // Mode change
+    $('#vecthare_group_mode').off('change').on('change', function() {
+        updateGroupSetting('mode', $(this).val());
+        renderGroupDetailPanel();
+    });
+
+    // Link type change
+    $('#vecthare_group_link_type').off('change').on('change', function() {
+        updateGroupSetting('linkType', $(this).val());
+        renderGroupDetailPanel();
+    });
+
+    // Boost change
+    $('#vecthare_group_boost').off('input').on('input', function() {
+        updateGroupSetting('boost', parseFloat($(this).val()) || 0.15);
+    });
+
+    // Mandatory toggle
+    $('#vecthare_group_mandatory').off('change').on('change', function() {
+        updateGroupSetting('mandatory', $(this).prop('checked'));
+    });
+
+    // Add member
+    $('#vecthare_add_group_member').off('click').on('click', openAddMemberDialog);
+
+    // Remove member
+    $('.vecthare-member-remove').off('click').on('click', function(e) {
+        e.stopPropagation();
+        const hash = $(this).data('hash');
+        removeMemberFromGroup(String(hash));
+    });
+}
+
+// ============================================================================
 // CHUNK LIST RENDERING
 // ============================================================================
 
@@ -915,6 +1371,25 @@ function renderDetailPanel() {
                 </div>
             </div>
 
+            <!-- Prompt Context Section -->
+            <div class="vecthare-detail-section">
+                <div class="vecthare-detail-section-title">
+                    <i class="fa-solid fa-quote-left"></i> Prompt Context
+                    <span class="vecthare-section-hint">(help AI understand this chunk)</span>
+                </div>
+                <div class="vecthare-detail-context">
+                    <textarea class="vecthare-chunk-context-input" id="vecthare_chunk_context"
+                              placeholder="e.g., A secret {{char}} keeps hidden from {{user}}"
+                              rows="2">${escapeHtml(data.context || '')}</textarea>
+                    <div class="vecthare-context-xmltag-row">
+                        <label>XML tag:</label>
+                        <input type="text" class="vecthare-chunk-xmltag-input" id="vecthare_chunk_xmltag"
+                               placeholder="e.g., secret" value="${escapeHtml(data.xmlTag || '')}">
+                    </div>
+                    <div class="vecthare-context-hint">Supports {{user}} and {{char}}. XML tag wraps just this chunk.</div>
+                </div>
+            </div>
+
             <!-- Keywords Section -->
             <div class="vecthare-detail-section">
                 <div class="vecthare-detail-section-header">
@@ -1065,9 +1540,11 @@ function bindEvents() {
         $('.vecthare-vis-tab-content').removeClass('active');
         $(`.vecthare-vis-tab-content[data-tab="${tab}"]`).addClass('active');
 
-        // Render scenes tab when switching to it
+        // Render tab content when switching
         if (tab === 'scenes') {
             renderScenesTab();
+        } else if (tab === 'groups') {
+            renderGroupsTab();
         }
     });
 
@@ -1213,6 +1690,21 @@ function bindDetailEvents() {
         chunk.data.temporallyBlind = blind;
         renderChunkList();
     });
+
+    // Prompt context input
+    $('#vecthare_chunk_context').on('input', debounce(function() {
+        const context = $(this).val();
+        chunk.data.context = context || '';
+        updateChunkData(chunk.hash, { context: chunk.data.context });
+    }, 300));
+
+    // XML tag input (sanitize to alphanumeric + underscore/hyphen)
+    $('#vecthare_chunk_xmltag').on('input', debounce(function() {
+        const sanitized = $(this).val().replace(/[^a-zA-Z0-9_-]/g, '');
+        $(this).val(sanitized);
+        chunk.data.xmlTag = sanitized || '';
+        updateChunkData(chunk.hash, { xmlTag: chunk.data.xmlTag });
+    }, 300));
 
     // Delete chunk
     $('#vecthare_delete_chunk').on('click', () => deleteChunk(chunk));

@@ -1197,6 +1197,7 @@ export async function init(router) {
         try {
             const {
                 apiUrl = 'http://localhost:8008',
+                apiKey = '',
                 query,
                 documents,
                 top_k = 10,
@@ -1213,9 +1214,14 @@ export async function init(router) {
             // Default task description if not provided
             const finalTaskDescription = task_description || "Given the following document from a role play, which of the following documents are most relevant to it?";
 
+            const headers = { 'Content-Type': 'application/json' };
+            if (apiKey) {
+                headers['Authorization'] = `Bearer ${apiKey}`;
+            }
+
             const response = await fetch(url.toString(), {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: headers,
                 body: JSON.stringify({
                     query,
                     documents,
@@ -1337,6 +1343,7 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
         case 'bananabread': {
             // BananaBread llama.cpp-compatible endpoint (no model param needed - uses server config)
             let apiUrl = req.body.apiUrl || 'http://localhost:8008';
+            let apiKey = req.body.apiKey || '';
 
             // Validate URL before attempting to use it
             if (!apiUrl || typeof apiUrl !== 'string' || apiUrl.trim() === '') {
@@ -1352,9 +1359,14 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
                 throw new Error(`BananaBread: Invalid URL format "${apiUrl}" - ${e.message}`);
             }
 
+            const headers = { 'Content-Type': 'application/json' };
+            if (apiKey) {
+                headers['Authorization'] = `Bearer ${apiKey}`;
+            }
+
             const response = await fetch(url.toString(), {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: headers,
                 body: JSON.stringify({ content: text }),
             });
 

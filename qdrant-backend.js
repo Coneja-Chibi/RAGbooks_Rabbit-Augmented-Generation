@@ -113,7 +113,7 @@ class QdrantBackend {
      * Insert vector items into collection (MULTITENANCY)
      * @param {string} collectionName - Collection name (always "vecthare_main")
      * @param {Array} items - Items with {hash, text, vector, metadata}
-     * @param {object} tenantMetadata - Tenant info {type, sourceId}
+     * @param {object} tenantMetadata - Tenant info {type, sourceId, embeddingSource}
      * @returns {Promise<void>}
      */
     async insertVectors(collectionName, items, tenantMetadata = {}) {
@@ -139,6 +139,7 @@ class QdrantBackend {
                 // ===== MULTITENANCY FIELDS =====
                 type: tenantMetadata.type || 'chat',  // chat, lorebook, character, document, wiki
                 sourceId: tenantMetadata.sourceId || 'unknown',  // Unique ID per source
+                embeddingSource: tenantMetadata.embeddingSource || 'transformers',  // Embedding provider (transformers, openai, palm, etc.)
 
                 // ===== TIMESTAMPS (for temporal decay) =====
                 timestamp: item.metadata?.timestamp || Date.now(),
@@ -275,6 +276,14 @@ class QdrantBackend {
                 must.push({
                     key: 'chunkGroup.name',
                     match: { value: filters.chunkGroup }
+                });
+            }
+
+            // Embedding source filter (transformers, openai, palm, etc.)
+            if (filters.embeddingSource) {
+                must.push({
+                    key: 'embeddingSource',
+                    match: { value: filters.embeddingSource }
                 });
             }
 

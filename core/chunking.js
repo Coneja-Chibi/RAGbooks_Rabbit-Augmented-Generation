@@ -29,8 +29,15 @@ export async function chunkText(text, options = {}) {
         chunkOverlap = 50,
     } = options;
 
-    // Allow arrays for unit-based strategies (per_entry, per_field, by_message)
-    if (!text || (typeof text !== 'string' && !Array.isArray(text))) {
+    // Allow arrays for unit-based strategies (per_entry, by_message)
+    // Allow objects for per_field strategy (character fields)
+    if (!text) {
+        return [];
+    }
+
+    // Objects are allowed for per_field strategy
+    const isObject = typeof text === 'object' && !Array.isArray(text);
+    if (typeof text !== 'string' && !Array.isArray(text) && !isObject) {
         return [];
     }
 

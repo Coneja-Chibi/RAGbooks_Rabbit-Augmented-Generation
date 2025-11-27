@@ -1227,7 +1227,9 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
         }
         case 'openai':
         case 'togetherai':
-        case 'mistral': {
+        case 'mistral':
+        case 'electronhub':
+        case 'openrouter': {
             const { getOpenAIVector } = await import('../../src/vectors/openai-vectors.js');
             return await getOpenAIVector(text, source, directories, model);
         }

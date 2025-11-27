@@ -84,7 +84,8 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to get saved hashes: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`Failed to get saved hashes for ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();
@@ -125,7 +126,8 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to insert vectors: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`Failed to insert vectors into ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         console.log(`VectHare Standard: Inserted ${items.length} vectors into ${collectionId}`);
@@ -145,7 +147,8 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to delete vectors: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`Failed to delete vectors from ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
     }
 
@@ -165,7 +168,8 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to query collection: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`Failed to query collection ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();
@@ -237,7 +241,8 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to purge collection: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`Failed to purge collection ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
     }
 

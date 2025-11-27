@@ -394,7 +394,8 @@ async function discoverViaFallback(settings) {
                 console.log(`VectHare: Discovered existing collection: ${chatCollectionId} (${hashes.length} chunks)`);
             }
         } catch (error) {
-            // Collection doesn't exist, skip
+            // Collection doesn't exist or query failed - this is normal during discovery
+            console.debug(`VectHare: Collection discovery skipped ${chatCollectionId}:`, error.message);
         }
     }
 
@@ -410,7 +411,8 @@ async function discoverViaFallback(settings) {
                     console.log(`VectHare: Discovered existing collection: ${carrotCollectionId} (${hashes.length} chunks)`);
                 }
             } catch (error) {
-                // Collection doesn't exist, skip
+                // Collection doesn't exist or query failed - this is normal during discovery
+                console.debug(`VectHare: Collection discovery skipped ${carrotCollectionId}:`, error.message);
             }
         }
     }

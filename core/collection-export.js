@@ -542,7 +542,8 @@ export async function importCollection(exportData, settings, options = {}) {
                 await purgeVectorIndex(collectionId, settings);
                 console.log(`VectHare Import: Purged existing collection ${collectionId}`);
             } catch (e) {
-                // Collection might not exist, that's fine
+                // Collection might not exist, that's fine - log at debug level
+                console.debug(`VectHare Import: Could not purge ${collectionId} (may not exist):`, e.message);
             }
         }
 
@@ -726,7 +727,8 @@ async function importCollectionSilent(exportData, settings, options = {}) {
         try {
             await purgeVectorIndex(collectionId, settings);
         } catch (e) {
-            // Collection might not exist
+            // Collection might not exist - log at debug level
+            console.debug(`VectHare Import: Could not purge ${collectionId} (may not exist):`, e.message);
         }
     }
 

@@ -48,7 +48,8 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to initialize Qdrant: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[Qdrant] Failed to initialize Qdrant: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         console.log('VectHare: Using Qdrant backend (production-grade vector search)');
@@ -128,7 +129,8 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to get saved hashes: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[Qdrant] Failed to get saved hashes for ${collectionId} (type: ${type}, sourceId: ${sourceId}): ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();
@@ -172,7 +174,8 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to insert vectors: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[Qdrant] Failed to insert ${items.length} vectors into ${collectionId} (type: ${type}, sourceId: ${sourceId}): ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         console.log(`VectHare Qdrant: Inserted ${items.length} vectors (type: ${type}, sourceId: ${sourceId})`);
@@ -195,7 +198,8 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to delete vectors: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[Qdrant] Failed to delete vectors from ${collectionId} (type: ${type}, sourceId: ${sourceId}): ${response.status} ${response.statusText} - ${errorBody}`);
         }
     }
 
@@ -218,7 +222,8 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to query collection: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[Qdrant] Failed to query collection ${collectionId} (type: ${type}, sourceId: ${sourceId}): ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();
@@ -295,7 +300,8 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to purge collection: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[Qdrant] Failed to purge collection ${collectionId} (type: ${type}, sourceId: ${sourceId}): ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         console.log(`VectHare Qdrant: Purged (type: ${type}, sourceId: ${sourceId})`);
@@ -320,7 +326,8 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to purge all collections: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[Qdrant] Failed to purge all collections: ${response.status} ${response.statusText} - ${errorBody}`);
         }
     }
 
@@ -345,7 +352,8 @@ export class QdrantBackend extends VectorBackend {
 
         if (!response.ok) {
             if (response.status === 404) return null;
-            throw new Error(`Failed to get chunk: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[Qdrant] Failed to get chunk ${hash} from ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();
@@ -374,7 +382,8 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to list chunks: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[Qdrant] Failed to list chunks in ${collectionId} (type: ${type}, sourceId: ${sourceId}): ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         return await response.json();
@@ -400,7 +409,8 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to update chunk text: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[Qdrant] Failed to update chunk text in ${collectionId} (hash: ${hash}): ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         return await response.json();
@@ -426,7 +436,8 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to update chunk metadata: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[Qdrant] Failed to update chunk metadata in ${collectionId} (hash: ${hash}): ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         return await response.json();
@@ -451,7 +462,8 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to get stats: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[Qdrant] Failed to get stats for ${collectionId} (type: ${type}, sourceId: ${sourceId}): ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();

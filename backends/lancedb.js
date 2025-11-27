@@ -36,7 +36,8 @@ export class LanceDBBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to initialize LanceDB: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`Failed to initialize LanceDB: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         console.log('VectHare: Using LanceDB backend (disk-based, scalable)');
@@ -72,7 +73,8 @@ export class LanceDBBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to get saved hashes: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[LanceDB] Failed to get saved hashes for ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();
@@ -101,7 +103,8 @@ export class LanceDBBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to insert vectors: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[LanceDB] Failed to insert ${items.length} vectors into ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         console.log(`VectHare LanceDB: Inserted ${items.length} vectors into ${collectionId}`);
@@ -121,7 +124,8 @@ export class LanceDBBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to delete vectors: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[LanceDB] Failed to delete vectors from ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
     }
 
@@ -141,7 +145,8 @@ export class LanceDBBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to query collection: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[LanceDB] Failed to query collection ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();
@@ -213,7 +218,8 @@ export class LanceDBBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to purge collection: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[LanceDB] Failed to purge collection ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
     }
 
@@ -228,7 +234,8 @@ export class LanceDBBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to get collections: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[LanceDB] Failed to get collections: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();
@@ -265,7 +272,8 @@ export class LanceDBBackend extends VectorBackend {
 
         if (!response.ok) {
             if (response.status === 404) return null;
-            throw new Error(`Failed to get chunk: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[LanceDB] Failed to get chunk ${hash} from ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();
@@ -291,7 +299,8 @@ export class LanceDBBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to list chunks: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[LanceDB] Failed to list chunks in ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         return await response.json();
@@ -314,7 +323,8 @@ export class LanceDBBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to update chunk text: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[LanceDB] Failed to update chunk text in ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         return await response.json();
@@ -337,7 +347,8 @@ export class LanceDBBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to update chunk metadata: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[LanceDB] Failed to update chunk metadata in ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         return await response.json();
@@ -359,7 +370,8 @@ export class LanceDBBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to get stats: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`[LanceDB] Failed to get stats for ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();

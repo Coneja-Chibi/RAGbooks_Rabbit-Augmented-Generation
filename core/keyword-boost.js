@@ -52,7 +52,29 @@ export function extractLorebookKeywords(entry) {
 }
 
 /**
- * Extract keywords from plain text (names, places, etc.)
+ * Common words that shouldn't be auto-extracted as keywords
+ * (Section headers, formatting terms, etc.)
+ */
+const KEYWORD_STOP_WORDS = new Set([
+    // Section headers that are too generic
+    'biology', 'psychology', 'moves', 'worship', 'limitations',
+    'manifestation', 'sustenance', 'perception', 'understanding',
+    'responsibility', 'tolerance', 'authority',
+    // Common descriptive words
+    'mythic', 'signature', 'foil', 'example', 'examples', 'type', 'types',
+    // Formatting/markup
+    'note', 'notes', 'warning', 'important', 'section', 'chapter',
+    // Very common words
+    'the', 'how', 'does', 'your', 'what', 'when', 'where', 'why', 'who',
+    'fix', 'new', 'old', 'year', 'years', 'day', 'days',
+]);
+
+/**
+ * Extract keywords from plain text
+ *
+ * Strategy: Focus on the TITLE/HEADER area (first ~200 chars) which describes
+ * what the content is ABOUT. Ignore example citations in parentheses/italics.
+ *
  * @param {string} text - Text to extract from
  * @returns {string[]} Array of keywords
  */
@@ -61,14 +83,48 @@ export function extractTextKeywords(text) {
 
     const keywords = [];
 
-    // Find capitalized words (likely names/places) - at least 3 chars
-    const capitalizedWords = text.match(/\b[A-Z][a-z]{2,}\b/g);
-    if (capitalizedWords) {
-        capitalizedWords.forEach(w => keywords.push(w.toLowerCase()));
+    // Step 1: Remove example citations (text in parentheses like "(Doctor Who)" or "(Pokemon)")
+    // These are usually franchise/source citations, not the topic
+    let cleanedText = text.replace(/\([^)]+\)/g, ' ');
+
+    // Step 2: Remove italicized example names (text between asterisks like "*The Doctor*")
+    // These are usually example character names
+    cleanedText = cleanedText.replace(/\*[^*]+\*/g, ' ');
+
+    // Step 3: Focus heavily on the title/header area (first 300 chars)
+    // This is where the actual TOPIC is described
+    const headerArea = cleanedText.substring(0, 300);
+
+    // Step 4: Extract lowercase words from header (the actual topic words)
+    // Words like "time", "divine", "god", "temporal" - not proper nouns
+    const topicWords = headerArea.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+
+    // Count topic word frequency in header
+    const topicCounts = new Map();
+    for (const word of topicWords) {
+        if (KEYWORD_STOP_WORDS.has(word)) continue;
+        topicCounts.set(word, (topicCounts.get(word) || 0) + 1);
+    }
+
+    // Add words that appear 2+ times in header (likely the main topic)
+    for (const [word, count] of topicCounts) {
+        if (count >= 2) {
+            keywords.push(word);
+        }
+    }
+
+    // Step 5: Also check for domain-specific compound terms in header
+    // Like "time_god", "divine/time", etc.
+    const compoundMatches = headerArea.match(/\b\w+[/_]\w+\b/gi) || [];
+    for (const compound of compoundMatches) {
+        const normalized = compound.toLowerCase().replace(/[/_]/g, '_');
+        if (normalized.length >= 4) {
+            keywords.push(normalized);
+        }
     }
 
     // Dedupe and limit
-    return [...new Set(keywords)].slice(0, 15);
+    return [...new Set(keywords)].slice(0, 8);
 }
 
 /**

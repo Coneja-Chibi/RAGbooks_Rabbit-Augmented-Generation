@@ -9,7 +9,7 @@
  * ============================================================================
  */
 
-import { getCurrentChatId, is_send_press, setExtensionPrompt, substituteParams, chat_metadata } from '../../../../../script.js';
+import { getCurrentChatId, is_send_press, setExtensionPrompt, substituteParams, chat_metadata, extension_prompts } from '../../../../../script.js';
 import { getContext } from '../../../../extensions.js';
 import { getStringHash as calculateHash, waitUntilCondition, onlyUnique, splitRecursive } from '../../../../utils.js';
 import {
@@ -1081,6 +1081,18 @@ export async function rearrangeChat(chat, settings, type) {
         const insertedText = settings.template.replace('{{text}}', injectionText);
         setExtensionPrompt(EXTENSION_PROMPT_TAG, insertedText, settings.position, settings.depth, false);
 
+        // VERIFICATION: Check that extension_prompts actually has our content
+        const verifiedPrompt = extension_prompts[EXTENSION_PROMPT_TAG];
+        const injectionVerified = verifiedPrompt && verifiedPrompt.value === insertedText;
+
+        if (!injectionVerified) {
+            console.warn('VectHare: ⚠️ Injection verification failed!', {
+                expected: insertedText.substring(0, 100) + '...',
+                actual: verifiedPrompt?.value?.substring(0, 100) + '...',
+                promptExists: !!verifiedPrompt
+            });
+        }
+
         // Store injected chunks for debug/visualizer
         chunksToInject.forEach(chunk => {
             recordChunkFate(debugData, chunk.hash, 'final', 'injected', null, {
@@ -1093,6 +1105,16 @@ export async function rearrangeChat(chat, settings, type) {
         debugData.stats.actuallyInjected = chunksToInject.length;
         debugData.stats.skippedDuplicates = skippedDuplicates.length;
 
+        // Store actual injected text and verification status for debug UI
+        debugData.injection = {
+            verified: injectionVerified,
+            text: insertedText,
+            position: settings.position,
+            depth: settings.depth,
+            promptTag: EXTENSION_PROMPT_TAG,
+            charCount: insertedText.length
+        };
+
         // TRACE: Pipeline complete with successful injection
         addTrace(debugData, 'final', 'PIPELINE COMPLETE - SUCCESS', {
             injectedCount: chunksToInject.length,
@@ -1100,7 +1122,8 @@ export async function rearrangeChat(chat, settings, type) {
             injectedHashes: chunksToInject.map(c => c.hash),
             totalTokens: insertedText.length, // Rough estimate
             position: settings.position,
-            depth: settings.depth
+            depth: settings.depth,
+            verified: injectionVerified
         });
 
         // Save debug data for the Search Debug modal

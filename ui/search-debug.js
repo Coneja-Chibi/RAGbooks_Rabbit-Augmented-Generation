@@ -355,6 +355,9 @@ function createModalHtml(data, historyIndex = 0) {
                     <!-- Critical Failure Alert (0 injected) -->
                     ${renderCriticalFailure(data)}
 
+                    <!-- Injection Verification (proof it actually happened) -->
+                    ${renderInjectionVerification(data)}
+
                     <!-- Excluded Chunks Analysis -->
                     ${renderExcludedAnalysis(data)}
 
@@ -667,6 +670,64 @@ function buildScoreBreakdown(chunk) {
  * Renders critical failure alert when 0 chunks were injected
  * Diagnoses the pipeline and provides actionable fixes
  */
+/**
+ * Renders injection verification card - proof that injection actually happened
+ */
+function renderInjectionVerification(data) {
+    // Only show if there were injected chunks
+    if (!data.injection || data.stages.injected.length === 0) {
+        return '';
+    }
+
+    const { verified, text, position, depth, charCount } = data.injection;
+    const statusClass = verified ? 'vecthare-verification-success' : 'vecthare-verification-failed';
+    const statusIcon = verified ? 'fa-circle-check' : 'fa-circle-xmark';
+    const statusText = verified ? 'VERIFIED' : 'VERIFICATION FAILED';
+
+    // Position label
+    const positionLabels = {
+        0: 'After Main Prompt',
+        1: 'In-chat @ Depth',
+        2: 'Before Main Prompt',
+        3: 'After Character Defs',
+        4: 'Before Character Defs',
+        5: 'At End of Chat',
+        6: 'Before AN/Author\'s Note'
+    };
+    const positionLabel = positionLabels[position] || `Position ${position}`;
+
+    return `
+        <div class="vecthare-debug-card vecthare-debug-verification ${statusClass}">
+            <div class="vecthare-debug-card-header vecthare-debug-clickable" id="vecthare_verification_header">
+                <i class="fa-solid ${statusIcon}"></i>
+                <span>Injection Verification</span>
+                <span class="vecthare-verification-badge ${statusClass}">${statusText}</span>
+                <i class="fa-solid fa-chevron-down vecthare-debug-expand-icon"></i>
+            </div>
+            <div class="vecthare-debug-card-body">
+                <div class="vecthare-verification-summary">
+                    <div class="vecthare-verification-stat">
+                        <span class="stat-label">Position</span>
+                        <span class="stat-value">${positionLabel}</span>
+                    </div>
+                    <div class="vecthare-verification-stat">
+                        <span class="stat-label">Depth</span>
+                        <span class="stat-value">${depth}</span>
+                    </div>
+                    <div class="vecthare-verification-stat">
+                        <span class="stat-label">Characters</span>
+                        <span class="stat-value">${charCount.toLocaleString()}</span>
+                    </div>
+                </div>
+                <div class="vecthare-verification-text-wrapper" style="display: none;">
+                    <div class="vecthare-verification-text-label">Actual Injected Text:</div>
+                    <pre class="vecthare-verification-text">${escapeHtml(text)}</pre>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 function renderCriticalFailure(data) {
     // Only show if we got 0 injected chunks
     if (data.stages.injected.length > 0) {
@@ -1423,6 +1484,16 @@ function bindEvents() {
 
         $preview.slideToggle(200);
         $full.slideToggle(200);
+        $icon.toggleClass('fa-chevron-down fa-chevron-up');
+    });
+
+    // Verification card expand/collapse (shows actual injected text)
+    $('#vecthare_verification_header').on('click', function() {
+        const $card = $(this).closest('.vecthare-debug-verification');
+        const $textWrapper = $card.find('.vecthare-verification-text-wrapper');
+        const $icon = $(this).find('.vecthare-debug-expand-icon');
+
+        $textWrapper.slideToggle(200);
         $icon.toggleClass('fa-chevron-down fa-chevron-up');
     });
 

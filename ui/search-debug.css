@@ -1181,6 +1181,113 @@
 }
 
 /* ============================================================================
+ * INJECTION VERIFICATION
+ * ============================================================================ */
+
+.vecthare-debug-verification.vecthare-verification-success {
+    border-color: var(--vecthare-success);
+}
+
+.vecthare-debug-verification.vecthare-verification-success .vecthare-debug-card-header {
+    background: color-mix(in srgb, var(--vecthare-success) 15%, transparent);
+    border-color: color-mix(in srgb, var(--vecthare-success) 25%, transparent);
+}
+
+.vecthare-debug-verification.vecthare-verification-success .vecthare-debug-card-header i:first-child {
+    color: var(--vecthare-success);
+}
+
+.vecthare-debug-verification.vecthare-verification-failed {
+    border-color: var(--vecthare-danger);
+}
+
+.vecthare-debug-verification.vecthare-verification-failed .vecthare-debug-card-header {
+    background: color-mix(in srgb, var(--vecthare-danger) 15%, transparent);
+    border-color: color-mix(in srgb, var(--vecthare-danger) 25%, transparent);
+}
+
+.vecthare-debug-verification.vecthare-verification-failed .vecthare-debug-card-header i:first-child {
+    color: var(--vecthare-danger);
+}
+
+.vecthare-verification-badge {
+    margin-left: auto;
+    margin-right: 8px;
+    font-size: 0.75em;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+}
+
+.vecthare-verification-badge.vecthare-verification-success {
+    background: var(--vecthare-success);
+    color: white;
+}
+
+.vecthare-verification-badge.vecthare-verification-failed {
+    background: var(--vecthare-danger);
+    color: white;
+}
+
+.vecthare-verification-summary {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.vecthare-verification-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
+    border-radius: 6px;
+}
+
+.vecthare-verification-stat .stat-label {
+    font-size: 0.7em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.6;
+}
+
+.vecthare-verification-stat .stat-value {
+    font-weight: 600;
+    font-size: 0.95em;
+}
+
+.vecthare-verification-text-wrapper {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 15%, transparent);
+}
+
+.vecthare-verification-text-label {
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.6;
+    margin-bottom: 8px;
+}
+
+.vecthare-verification-text {
+    margin: 0;
+    padding: 12px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 12%, transparent);
+    border-radius: 6px;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    font-size: 0.8em;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* ============================================================================
  * MOBILE RESPONSIVE
  * ============================================================================ */
 

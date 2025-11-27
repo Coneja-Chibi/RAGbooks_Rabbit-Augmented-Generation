@@ -93,13 +93,20 @@ export async function init(router) {
                         const store = await getIndex(directories, collectionId, source, model);
 
                         // Generate embeddings if not provided
-                        const itemsWithVectors = [];
-                        for (const item of items) {
-                            let vector = item.vector;
-                            if (!vector) {
-                                vector = await getEmbeddingForSource(source, item.text, model, directories, req);
-                            }
-                            itemsWithVectors.push({ ...item, vector });
+                        let itemsWithVectors = [...items];
+                        const itemsNeedingVectors = itemsWithVectors.filter(i => !i.vector);
+
+                        if (itemsNeedingVectors.length > 0) {
+                            const texts = itemsNeedingVectors.map(i => i.text);
+                            const vectors = await getVectorsForSource(source, texts, model, directories, req);
+                            
+                            let vIndex = 0;
+                            itemsWithVectors = itemsWithVectors.map(item => {
+                                if (!item.vector) {
+                                    return { ...item, vector: vectors[vIndex++] };
+                                }
+                                return item;
+                            });
                         }
 
                         await store.beginUpdate();
@@ -285,20 +292,29 @@ export async function init(router) {
                     },
 
                     insert: async (collectionId, items, source, model, directories, req) => {
-                        // Generate embeddings if not provided (CRITICAL: must match Vectra behavior)
-                        const itemsWithVectors = [];
-                        for (const item of items) {
-                            let vector = item.vector;
-                            if (!vector) {
-                                console.log(`[LanceDB] Generating embedding for item hash=${item.hash}`);
-                                vector = await getEmbeddingForSource(source, item.text, model, directories, req);
-                            }
-                            if (!vector || !Array.isArray(vector) || vector.length === 0) {
-                                console.error(`[LanceDB] Failed to generate valid vector for item hash=${item.hash}, source=${source}, model=${model}`);
-                                throw new Error(`Failed to generate embedding for item. Source: ${source}, Model: ${model}`);
-                            }
-                            itemsWithVectors.push({ ...item, vector });
+                        // Generate embeddings if not provided
+                        let itemsWithVectors = [...items];
+                        const itemsNeedingVectors = itemsWithVectors.filter(i => !i.vector);
+
+                        if (itemsNeedingVectors.length > 0) {
+                            console.log(`[LanceDB] Generating embeddings for ${itemsNeedingVectors.length} items`);
+                            const texts = itemsNeedingVectors.map(i => i.text);
+                            const vectors = await getVectorsForSource(source, texts, model, directories, req);
+                            
+                            let vIndex = 0;
+                            itemsWithVectors = itemsWithVectors.map(item => {
+                                if (!item.vector) {
+                                    const vector = vectors[vIndex++];
+                                    if (!vector || !Array.isArray(vector) || vector.length === 0) {
+                                        console.error(`[LanceDB] Failed to generate valid vector for item hash=${item.hash}, source=${source}, model=${model}`);
+                                        throw new Error(`Failed to generate embedding for item. Source: ${source}, Model: ${model}`);
+                                    }
+                                    return { ...item, vector };
+                                }
+                                return item;
+                            });
                         }
+
                         await lancedbBackend.insertVectors(collectionId, itemsWithVectors, source);
                     },
 
@@ -358,20 +374,29 @@ export async function init(router) {
                     },
 
                     insert: async (collectionId, items, source, model, directories, req, filters = {}) => {
-                        // Generate embeddings if not provided (CRITICAL: must match Vectra behavior)
-                        const itemsWithVectors = [];
-                        for (const item of items) {
-                            let vector = item.vector;
-                            if (!vector) {
-                                console.log(`[Qdrant] Generating embedding for item hash=${item.hash}`);
-                                vector = await getEmbeddingForSource(source, item.text, model, directories, req);
-                            }
-                            if (!vector || !Array.isArray(vector) || vector.length === 0) {
-                                console.error(`[Qdrant] Failed to generate valid vector for item hash=${item.hash}, source=${source}, model=${model}`);
-                                throw new Error(`Failed to generate embedding for item. Source: ${source}, Model: ${model}`);
-                            }
-                            itemsWithVectors.push({ ...item, vector });
+                        // Generate embeddings if not provided
+                        let itemsWithVectors = [...items];
+                        const itemsNeedingVectors = itemsWithVectors.filter(i => !i.vector);
+
+                        if (itemsNeedingVectors.length > 0) {
+                            console.log(`[Qdrant] Generating embeddings for ${itemsNeedingVectors.length} items`);
+                            const texts = itemsNeedingVectors.map(i => i.text);
+                            const vectors = await getVectorsForSource(source, texts, model, directories, req);
+                            
+                            let vIndex = 0;
+                            itemsWithVectors = itemsWithVectors.map(item => {
+                                if (!item.vector) {
+                                    const vector = vectors[vIndex++];
+                                    if (!vector || !Array.isArray(vector) || vector.length === 0) {
+                                        console.error(`[Qdrant] Failed to generate valid vector for item hash=${item.hash}, source=${source}, model=${model}`);
+                                        throw new Error(`Failed to generate embedding for item. Source: ${source}, Model: ${model}`);
+                                    }
+                                    return { ...item, vector };
+                                }
+                                return item;
+                            });
                         }
+
                         // Pass source and model for embedding tracking
                         await qdrantBackend.insertVectors(collectionId, itemsWithVectors, {
                             ...filters,
@@ -433,15 +458,24 @@ export async function init(router) {
                     },
 
                     insert: async (collectionId, items, source, model, directories, req, filters = {}) => {
-                        const itemsWithVectors = [];
-                        for (const item of items) {
-                            let vector = item.vector;
-                            if (!vector) {
-                                console.log(`[Milvus] Generating embedding for item hash=${item.hash}`);
-                                vector = await getEmbeddingForSource(source, item.text, model, directories, req);
-                            }
-                            itemsWithVectors.push({ ...item, vector });
+                        // Generate embeddings if not provided
+                        let itemsWithVectors = [...items];
+                        const itemsNeedingVectors = itemsWithVectors.filter(i => !i.vector);
+
+                        if (itemsNeedingVectors.length > 0) {
+                            console.log(`[Milvus] Generating embeddings for ${itemsNeedingVectors.length} items`);
+                            const texts = itemsNeedingVectors.map(i => i.text);
+                            const vectors = await getVectorsForSource(source, texts, model, directories, req);
+                            
+                            let vIndex = 0;
+                            itemsWithVectors = itemsWithVectors.map(item => {
+                                if (!item.vector) {
+                                    return { ...item, vector: vectors[vIndex++] };
+                                }
+                                return item;
+                            });
                         }
+
                         await milvusBackend.insertVectors(collectionId, itemsWithVectors, {
                             ...filters,
                             embeddingSource: source,
@@ -620,12 +654,7 @@ export async function init(router) {
                 return res.status(400).json({ error: 'texts array and source are required' });
             }
 
-            const embeddings = [];
-            for (const text of texts) {
-                const embedding = await getEmbeddingForSource(source, text, model, req.user.directories, req);
-                embeddings.push(embedding);
-            }
-
+            const embeddings = await getVectorsForSource(source, texts, model, req.user.directories, req);
             res.json({ success: true, embeddings });
 
         } catch (error) {
@@ -725,96 +754,149 @@ export async function init(router) {
         }
     });
 
-    /**
-     * GET /api/plugins/similharity/backend/qdrant/collection-info
-     * Get Qdrant collection info for diagnostics (dimension, embedding sources/models)
-     */
-    router.get('/backend/qdrant/collection-info', async (req, res) => {
+/**
+ * Get multiple embeddings for texts from specified source
+ */
+async function getVectorsForSource(source, texts, model, directories, req) {
+    // Specialized batch handling
+    if (source === 'bananabread') {
+        // BananaBread llama.cpp-compatible endpoint
+        let apiUrl = req.body.apiUrl || 'http://localhost:8008';
+
+        if (!apiUrl || typeof apiUrl !== 'string' || apiUrl.trim() === '') {
+            throw new Error('BananaBread: apiUrl is missing or invalid. Configure the embedding URL in VectHare settings.');
+        }
+        apiUrl = apiUrl.trim();
+
+        let url;
         try {
-            if (!qdrantBackend.baseUrl) {
-                return res.status(400).json({ error: 'Qdrant not initialized' });
-            }
+            url = new URL(apiUrl);
+            url.pathname = '/embedding';
+        } catch (e) {
+            throw new Error(`BananaBread: Invalid URL format "${apiUrl}" - ${e.message}`);
+        }
 
-            const collectionName = 'vecthare_main';
-
-            // Check if collection exists
-            const collections = await qdrantBackend._request('GET', '/collections');
-            const exists = collections.result?.collections?.some(c => c.name === collectionName);
-
-            if (!exists) {
-                return res.json({
-                    exists: false,
-                    message: 'Collection does not exist yet'
-                });
-            }
-
-            // Get collection config (includes vector dimension)
-            const collectionInfo = await qdrantBackend._request('GET', `/collections/${collectionName}`);
-            const dimension = collectionInfo.result?.config?.params?.vectors?.size || 0;
-            const pointsCount = collectionInfo.result?.points_count || 0;
-
-            // Get a sample of items to see what embedding sources/models are used
-            let embeddingSources = [];
-            let embeddingModels = [];
-
-            if (pointsCount > 0) {
-                const sampleResponse = await qdrantBackend._request('POST', `/collections/${collectionName}/points/scroll`, {
-                    limit: 100,
-                    with_payload: { include: ['embeddingSource', 'embeddingModel'] },
-                    with_vector: false,
+        const allEmbeddings = [];
+        // Chunk requests to avoid overwhelming the server (max 10)
+        const chunkSize = 10;
+        
+        for (let i = 0; i < texts.length; i += chunkSize) {
+            const chunk = texts.slice(i, i + chunkSize);
+            
+            try {
+                const response = await fetch(url.toString(), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: chunk }),
                 });
 
-                const points = sampleResponse.result?.points || [];
-                const sourceSet = new Set();
-                const modelSet = new Set();
-
-                for (const p of points) {
-                    if (p.payload?.embeddingSource) sourceSet.add(p.payload.embeddingSource);
-                    if (p.payload?.embeddingModel) modelSet.add(p.payload.embeddingModel);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`BananaBread: ${response.statusText} ${errorText}`);
                 }
 
-                embeddingSources = Array.from(sourceSet);
-                embeddingModels = Array.from(modelSet).filter(m => m); // Filter empty strings
+                const data = await response.json();
+                const embeddings = data.embedding; // Could be [[...], [...]] or flattened if not standard?
+
+                if (!embeddings) {
+                    throw new Error('BananaBread: Invalid response format (missing embedding)');
+                }
+
+                // Handle possible response formats
+                // Standard: array of arrays (one vector per text)
+                if (Array.isArray(embeddings) && Array.isArray(embeddings[0])) {
+                    allEmbeddings.push(...embeddings);
+                } 
+                // Single item fallback (some servers might flatten single result)
+                else if (chunk.length === 1 && Array.isArray(embeddings)) {
+                    allEmbeddings.push(embeddings);
+                }
+                else {
+                    throw new Error('BananaBread: Unexpected embedding format');
+                }
+            } catch (e) {
+                console.error(`[BananaBread] Batch embedding error (chunk ${i}-${i+chunkSize}):`, e);
+                throw e;
             }
-
-            res.json({
-                exists: true,
-                collectionName,
-                dimension,
-                pointsCount,
-                embeddingSources,
-                embeddingModels,
-            });
-
-        } catch (error) {
-            console.error(`[${pluginName}] qdrant/collection-info error:`, error);
-            res.status(500).json({ error: error.message });
         }
-    });
+        
+        return allEmbeddings;
+    }
 
-    /**
-     * POST /api/plugins/similharity/backend/qdrant/purge-collection
-     * Purge the entire Qdrant collection (for dimension mismatch fixes)
-     */
-    router.post('/backend/qdrant/purge-collection', async (req, res) => {
-        try {
-            if (!qdrantBackend.baseUrl) {
-                return res.status(400).json({ error: 'Qdrant not initialized' });
+    // Default fallback: sequential processing for other sources
+    const results = [];
+    for (const text of texts) {
+        results.push(await _getLegacySingleEmbedding(source, text, model, directories, req));
+    }
+    return results;
+}
+
+/**
+ * Wrapper for single embedding (backwards compatibility)
+ */
+async function getEmbeddingForSource(source, text, model, directories, req) {
+    const vectors = await getVectorsForSource(source, [text], model, directories, req);
+    return vectors[0];
+}
+
+/**
+ * Legacy single embedding function (renamed)
+ */
+async function _getLegacySingleEmbedding(source, text, model, directories, req) {
+    switch (source) {
+        case 'transformers': {
+            const { getTransformersVector } = await import('../../src/vectors/embedding.js');
+            return await getTransformersVector(text);
+        }
+        case 'openai':
+        case 'togetherai':
+        case 'mistral':
+        case 'electronhub':
+        case 'openrouter': {
+            const { getOpenAIVector } = await import('../../src/vectors/openai-vectors.js');
+            return await getOpenAIVector(text, source, directories, model);
+        }
+        case 'nomicai': {
+            const { getNomicAIVector } = await import('../../src/vectors/nomicai-vectors.js');
+            return await getNomicAIVector(text, source, directories);
+        }
+        case 'cohere': {
+            const { getCohereVector } = await import('../../src/vectors/cohere-vectors.js');
+            return await getCohereVector(text, true, directories, model);
+        }
+        case 'ollama': {
+            const { getOllamaVector } = await import('../../src/vectors/ollama-vectors.js');
+            return await getOllamaVector(text, req.body.apiUrl, model, req.body.keep, directories);
+        }
+        case 'llamacpp': {
+            const { getLlamaCppVector } = await import('../../src/vectors/llamacpp-vectors.js');
+            return await getLlamaCppVector(text, req.body.apiUrl, directories);
+        }
+        case 'bananabread': {
+            // Legacy single-item fallback (should normally be handled by batch handler)
+            return (await getVectorsForSource(source, [text], model, directories, req))[0];
+        }
+        case 'vllm': {
+            const { getVllmVector } = await import('../../src/vectors/vllm-vectors.js');
+            return await getVllmVector(text, req.body.apiUrl, model, directories);
+        }
+        case 'palm':
+        case 'vertexai': {
+            const googleVectors = await import('../../src/vectors/google-vectors.js');
+            if (source === 'palm') {
+                return await googleVectors.getMakerSuiteVector(text, model, req);
+            } else {
+                return await googleVectors.getVertexVector(text, model, req);
             }
-
-            const { collectionName = 'vecthare_main' } = req.body;
-
-            // Delete the collection
-            await qdrantBackend._request('DELETE', `/collections/${collectionName}`);
-
-            console.log(`[${pluginName}] Purged Qdrant collection: ${collectionName}`);
-            res.json({ success: true, message: `Collection ${collectionName} purged` });
-
-        } catch (error) {
-            console.error(`[${pluginName}] qdrant/purge-collection error:`, error);
-            res.status(500).json({ error: error.message });
         }
-    });
+        case 'extras': {
+            const { getExtrasVector } = await import('../../src/vectors/extras-vectors.js');
+            return await getExtrasVector(text, req.body.extrasUrl, req.body.extrasKey);
+        }
+        default:
+            throw new Error(`Unknown vector source: ${source}`);
+    }
+}
 
     // ========================================================================
     // UNIFIED CHUNK ENDPOINTS

@@ -33,7 +33,7 @@ class QdrantBackend {
         this.baseUrl = null;
         this.apiKey = null;
         this.config = {
-            host: 'localhost',
+            host: '127.0.0.1',
             port: 6333,
             url: null,
             apiKey: null,
@@ -62,9 +62,15 @@ class QdrantBackend {
      */
     async _request(method, endpoint, body = null, maxRetries = 3) {
         const url = `${this.baseUrl}${endpoint}`;
+        
+        // Add explicit timeout of 60s to prevent indefinite hangs during heavy operations (like wait=true)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+        
         const options = {
             method,
             headers: this._getHeaders(),
+            signal: controller.signal,
         };
         if (body) {
             options.body = JSON.stringify(body);
@@ -74,6 +80,7 @@ class QdrantBackend {
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
                 const response = await fetch(url, options);
+                clearTimeout(timeoutId);
 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -106,18 +113,22 @@ class QdrantBackend {
 
                 // Network errors (ECONNREFUSED, timeout, etc.) are retryable
                 const isNetworkError = error.name === 'TypeError' ||
+                    error.name === 'AbortError' ||
                     error.message?.includes('fetch failed') ||
                     error.message?.includes('ECONNREFUSED') ||
                     error.message?.includes('ETIMEDOUT');
 
                 if (isNetworkError && attempt < maxRetries) {
                     const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
-                    console.warn(`[Qdrant] Network error, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries}):`, error.message);
+                    console.warn(`[Qdrant] Network error, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries}): ${error.message}${error.cause ? ` (Cause: ${error.cause})` : ''}`);
                     await new Promise(resolve => setTimeout(resolve, delay));
                     continue;
                 }
 
                 throw error;
+            } finally {
+                // Ensure timeout is cleared on success or error thrown
+                clearTimeout(timeoutId);
             }
         }
 

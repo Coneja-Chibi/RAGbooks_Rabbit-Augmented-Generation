@@ -17,6 +17,7 @@ import { openVisualizer } from './chunk-visualizer.js';
 import { openDatabaseBrowser } from './database-browser.js';
 import { openContentVectorizer } from './content-vectorizer.js';
 import { openSearchDebugModal, getLastSearchDebug } from './search-debug.js';
+import { resetBackendHealth } from '../backends/backend-manager.js';
 
 /**
  * Renders the VectHare settings UI
@@ -854,6 +855,8 @@ function bindSettingsEvents(settings, callbacks) {
             }
 
             console.log(`VectHare: Vector backend changed to ${settings.vector_backend}`);
+            // Reset health cache so new backend gets properly initialized
+            resetBackendHealth();
         });
 
     // Qdrant cloud toggle
@@ -887,7 +890,8 @@ function bindSettingsEvents(settings, callbacks) {
     $('#vecthare_qdrant_port')
         .val(settings.qdrant_port || 6333)
         .on('input', function() {
-            settings.qdrant_port = parseInt($(this).val());
+            const value = parseInt($(this).val());
+            settings.qdrant_port = isNaN(value) ? 6333 : value;
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
         });
@@ -922,6 +926,8 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
             toggleProviderSettings(settings.source);
             console.log(`VectHare: Embedding provider changed to ${settings.source}`);
+            // Reset health cache since provider change may affect backend connectivity
+            resetBackendHealth();
         });
 
     // Message chunk size
@@ -929,8 +935,9 @@ function bindSettingsEvents(settings, callbacks) {
         .val(settings.message_chunk_size)
         .on('input', function() {
             const value = parseInt($(this).val());
-            $('#vecthare_chunk_size_value').text(value);
-            settings.message_chunk_size = value;
+            const safeValue = isNaN(value) ? 400 : value;
+            $('#vecthare_chunk_size_value').text(safeValue);
+            settings.message_chunk_size = safeValue;
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
         });
@@ -941,8 +948,9 @@ function bindSettingsEvents(settings, callbacks) {
         .val(settings.score_threshold)
         .on('input', function() {
             const value = parseFloat($(this).val());
-            $('#vecthare_threshold_value').text(value.toFixed(2));
-            settings.score_threshold = value;
+            const safeValue = isNaN(value) ? 0.3 : value;
+            $('#vecthare_threshold_value').text(safeValue.toFixed(2));
+            settings.score_threshold = safeValue;
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
         });

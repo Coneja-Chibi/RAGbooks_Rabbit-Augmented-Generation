@@ -61,6 +61,7 @@ const defaultSettings = {
     vllm_model: '',
     webllm_model: '',
     google_model: 'text-embedding-005',
+    bananabread_rerank: false,
 
     // Chat vectorization
     enabled_chats: false,

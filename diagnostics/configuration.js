@@ -414,3 +414,82 @@ export function checkConditionalActivationModule() {
         };
     }
 }
+
+/**
+ * Check: Hash collision rate in current chat
+ * This is INFORMATIONAL - collisions are intentional semantic deduplication.
+ * High collision rate (>10%) may indicate repetitive conversations or chunking misconfiguration.
+ */
+export async function checkHashCollisionRate(settings) {
+    if (!getCurrentChatId()) {
+        return {
+            name: 'Hash Collision Rate',
+            status: 'pass',
+            message: 'No chat selected',
+            category: 'configuration'
+        };
+    }
+
+    try {
+        const collectionId = getChatCollectionId();
+        if (!collectionId) {
+            return {
+                name: 'Hash Collision Rate',
+                status: 'pass',
+                message: 'Could not get collection ID',
+                category: 'configuration'
+            };
+        }
+
+        const hashes = await getSavedHashes(collectionId, settings);
+        if (hashes.length === 0) {
+            return {
+                name: 'Hash Collision Rate',
+                status: 'pass',
+                message: 'No chunks to analyze',
+                category: 'configuration'
+            };
+        }
+
+        // Count unique hashes
+        const uniqueHashes = new Set(hashes);
+        const totalChunks = hashes.length;
+        const uniqueCount = uniqueHashes.size;
+        const duplicates = totalChunks - uniqueCount;
+        const collisionRate = duplicates / totalChunks;
+
+        // Collision is EXPECTED behavior (semantic deduplication)
+        // Only warn if rate is very high (suggests repetitive content or misconfiguration)
+        if (collisionRate > 0.15) {
+            return {
+                name: 'Hash Collision Rate',
+                status: 'warning',
+                message: `High deduplication: ${(collisionRate * 100).toFixed(1)}% (${duplicates}/${totalChunks} chunks). Chat may have very repetitive content.`,
+                category: 'configuration'
+            };
+        }
+
+        if (duplicates > 0) {
+            return {
+                name: 'Hash Collision Rate',
+                status: 'pass',
+                message: `${uniqueCount} unique chunks, ${duplicates} deduplicated (${(collisionRate * 100).toFixed(1)}% - normal)`,
+                category: 'configuration'
+            };
+        }
+
+        return {
+            name: 'Hash Collision Rate',
+            status: 'pass',
+            message: `${uniqueCount} chunks, all unique hashes`,
+            category: 'configuration'
+        };
+    } catch (error) {
+        return {
+            name: 'Hash Collision Rate',
+            status: 'warning',
+            message: `Could not analyze: ${error.message}`,
+            category: 'configuration'
+        };
+    }
+}

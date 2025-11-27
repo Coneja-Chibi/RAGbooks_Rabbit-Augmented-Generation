@@ -32,13 +32,15 @@ import {
     checkTemporalDecaySettings,
     checkTemporallyBlindChunks,
     checkConditionalActivationModule,
-    checkCollectionIdFormat
+    checkCollectionIdFormat,
+    checkHashCollisionRate
 } from './configuration.js';
 
 import {
     testEmbeddingGeneration,
     testVectorStorage,
     testVectorRetrieval,
+    testVectorDimensions,
     testTemporalDecay,
     testTemporallyBlindChunks,
     testChunkServerSync,
@@ -112,6 +114,9 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
     // Collection ID format check (UUID-based multitenancy)
     categories.configuration.push(checkCollectionIdFormat());
 
+    // Hash collision rate (informational - collisions are intentional deduplication)
+    categories.configuration.push(await checkHashCollisionRate(settings));
+
     // ========== VISUALIZER CHECKS ==========
     // Fast checks always run, slow (API) checks only with production tests
     const visualizerResults = await runVisualizerTests(settings, includeProductionTests);
@@ -122,6 +127,7 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
         categories.production.push(await testEmbeddingGeneration(settings));
         categories.production.push(await testVectorStorage(settings));
         categories.production.push(await testVectorRetrieval(settings));
+        categories.production.push(await testVectorDimensions(settings));
         categories.production.push(await testTemporalDecay(settings));
         categories.production.push(await testTemporallyBlindChunks(settings));
         categories.production.push(await testChunkServerSync(settings));
@@ -183,7 +189,7 @@ export function getFixSuggestion(check) {
             return 'Install the VectHare plugin and run: cd plugins/vecthare && npm install. Or switch to "Standard" backend in settings.';
 
         case 'Qdrant Backend':
-            return 'Configure Qdrant settings in VectHare panel. For local: set host/port. For cloud: set URL and API key. Install: cd plugins/vecthare && npm install @qdrant/js-client-rest';
+            return 'Configure Qdrant settings in VectHare panel. For local: set host/port (default localhost:6333). Start Qdrant: docker run -p 6333:6333 qdrant/qdrant. Note: Qdrant Cloud may have connectivity issues - local instance recommended.';
 
         case '[PROD] Chunk-Server Sync':
             return 'Click "Fix Now" to clean orphaned local metadata entries that no longer have corresponding vectors on the server.';

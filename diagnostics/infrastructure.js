@@ -330,6 +330,7 @@ export async function checkLanceDBBackend(settings) {
 /**
  * Check: Qdrant Backend (production-grade vector search)
  * Supports local Docker or Qdrant Cloud
+ * Note: Qdrant Cloud may have CORS issues - use local instance for best results
  */
 export async function checkQdrantBackend(settings) {
     const isCloud = settings.qdrant_use_cloud;
@@ -379,6 +380,44 @@ export async function checkQdrantBackend(settings) {
         }
     }
 
+    // First, try to initialize Qdrant with current settings
+    try {
+        const initConfig = {
+            host: settings.qdrant_host || 'localhost',
+            port: settings.qdrant_port || 6333,
+            url: isCloud ? settings.qdrant_url : null,
+            apiKey: settings.qdrant_api_key || null,
+        };
+
+        const initResponse = await fetch('/api/plugins/similharity/backend/init/qdrant', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify(initConfig)
+        });
+
+        if (!initResponse.ok) {
+            const errorText = await initResponse.text();
+            return {
+                name: backendName,
+                status: 'fail',
+                message: `Qdrant init failed: ${errorText}`,
+                fixable: true,
+                fixAction: 'configure_qdrant',
+                category: 'infrastructure'
+            };
+        }
+    } catch (error) {
+        return {
+            name: backendName,
+            status: 'fail',
+            message: `Qdrant init error: ${error.message}`,
+            fixable: true,
+            fixAction: 'configure_qdrant',
+            category: 'infrastructure'
+        };
+    }
+
+    // Then check health
     try {
         const healthResponse = await fetch('/api/plugins/similharity/backend/health/qdrant', {
             method: 'GET',
@@ -389,10 +428,10 @@ export async function checkQdrantBackend(settings) {
             return {
                 name: backendName,
                 status: 'fail',
-                message: 'Qdrant plugin not installed. Run: cd plugins/similharity && npm install @qdrant/js-client-rest',
+                message: 'Qdrant plugin health check failed',
                 category: 'infrastructure',
                 fixable: true,
-                fixAction: 'install_qdrant'
+                fixAction: 'configure_qdrant'
             };
         }
 
@@ -408,10 +447,21 @@ export async function checkQdrantBackend(settings) {
             };
         } else {
             const error = healthData.message || 'Connection failed';
+            // Provide more helpful error messages
+            let suggestion = '';
+            if (error.includes('ECONNREFUSED')) {
+                suggestion = isCloud
+                    ? ' - Check URL and API key'
+                    : ' - Is Qdrant running? Try: docker run -p 6333:6333 qdrant/qdrant';
+            } else if (error.includes('401') || error.includes('403')) {
+                suggestion = ' - Invalid API key';
+            } else if (error.includes('CORS')) {
+                suggestion = ' - CORS blocked (use local Qdrant instead of Cloud)';
+            }
             return {
                 name: backendName,
                 status: 'fail',
-                message: `Qdrant error: ${error}`,
+                message: `Qdrant error: ${error}${suggestion}`,
                 fixable: true,
                 fixAction: 'configure_qdrant',
                 category: 'infrastructure'

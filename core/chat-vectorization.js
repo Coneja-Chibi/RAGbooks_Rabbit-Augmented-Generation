@@ -204,6 +204,14 @@ function splitByChunks(items, chunkSize) {
 
 /**
  * Groups messages according to chunking strategy
+ *
+ * HASH DESIGN NOTE: Hashes are calculated from combined text ONLY (not message indices).
+ * This is INTENTIONAL semantic deduplication - identical text produces identical embeddings,
+ * so storing duplicates would waste storage and query budget. Individual message IDs are
+ * preserved in metadata.messageIds and metadata.messageHashes for injection lookup.
+ * DO NOT add message indices to hash calculation - it would break incremental sync and
+ * disable deduplication with no functional benefit.
+ *
  * @param {object[]} messages Messages to group
  * @param {string} strategy Chunking strategy: 'per_message', 'conversation_turns', 'message_batch'
  * @param {number} batchSize Number of messages per batch (for message_batch strategy)
@@ -508,30 +516,43 @@ export async function synchronizeChat(settings, batchSize = 5) {
         // Step 3: Process batch
         let itemsProcessed = 0;
         let chunksCreated = 0;
+        let itemsFailed = 0;
 
         while (!queue.isEmpty() && itemsProcessed < batchSize) {
             const item = queue.dequeue();
 
-            // Chunk this item (which may be 1 message, a turn pair, or a batch)
-            const chunks = splitByChunks([item], settings.message_chunk_size);
+            try {
+                // Chunk this item (which may be 1 message, a turn pair, or a batch)
+                const chunks = splitByChunks([item], settings.message_chunk_size);
 
-            // Insert chunks (insertVectorItems handles duplicates at DB level)
-            if (chunks.length > 0) {
-                await insertVectorItems(collectionId, chunks, settings);
-                chunksCreated += chunks.length;
+                // Insert chunks (insertVectorItems handles duplicates at DB level)
+                if (chunks.length > 0) {
+                    await insertVectorItems(collectionId, chunks, settings);
+                    chunksCreated += chunks.length;
+                }
+            } catch (itemError) {
+                // Log error but continue processing other items
+                console.warn(`VectHare: Failed to process item (hash: ${item.hash}, index: ${item.index}):`, itemError.message);
+                itemsFailed++;
+                // Don't rethrow - continue with next item
             }
 
             itemsProcessed++;
             const label = strategy === 'per_message' ? 'Message' : 'Group';
-            progressTracker.updateCurrentItem(`${label} ${itemsProcessed}/${batchSize}`);
+            progressTracker.updateCurrentItem(`${label} ${itemsProcessed}/${batchSize}${itemsFailed > 0 ? ` (${itemsFailed} failed)` : ''}`);
         }
 
         progressTracker.updateCurrentItem(null);
 
+        if (itemsFailed > 0) {
+            console.warn(`VectHare: Sync completed with ${itemsFailed} failed items out of ${itemsProcessed}`);
+        }
+
         return {
             remaining: queue.size,
             messagesProcessed: itemsProcessed,
-            chunksCreated
+            chunksCreated,
+            itemsFailed
         };
     } catch (error) {
         console.error('VectHare: Sync failed', error);

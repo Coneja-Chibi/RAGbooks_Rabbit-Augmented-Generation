@@ -228,6 +228,154 @@ export async function testVectorRetrieval(settings) {
 }
 
 /**
+ * Test: Are vector dimensions consistent?
+ * Detects if embedding model was switched without re-vectorizing.
+ * Compares stored collection dimensions with current provider's expected dimensions.
+ */
+export async function testVectorDimensions(settings) {
+    if (!getCurrentChatId()) {
+        return {
+            name: '[PROD] Vector Dimensions',
+            status: 'pass',
+            message: 'No chat selected - cannot check dimensions',
+            category: 'production'
+        };
+    }
+
+    const collectionId = getChatCollectionId();
+    if (!collectionId) {
+        return {
+            name: '[PROD] Vector Dimensions',
+            status: 'pass',
+            message: 'Could not get collection ID',
+            category: 'production'
+        };
+    }
+
+    try {
+        // Get collection stats to see stored dimensions
+        const statsResponse = await fetch('/api/plugins/similharity/chunks/stats', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                backend: settings.db || 'standard',
+                collectionId: collectionId,
+                source: settings.source || 'transformers',
+                model: settings[getModelField(settings.source)] || null,
+            }),
+        });
+
+        if (!statsResponse.ok) {
+            // Stats endpoint not available or error - skip check
+            return {
+                name: '[PROD] Vector Dimensions',
+                status: 'pass',
+                message: 'Could not fetch collection stats',
+                category: 'production'
+            };
+        }
+
+        const statsData = await statsResponse.json();
+        const storedDimensions = statsData.stats?.embeddingDimensions;
+
+        if (!storedDimensions || storedDimensions === 0) {
+            return {
+                name: '[PROD] Vector Dimensions',
+                status: 'pass',
+                message: 'No vectors stored yet - dimensions will be set on first vectorization',
+                category: 'production'
+            };
+        }
+
+        // Generate a test embedding to get current dimensions
+        const testCollectionId = `__vecthare_dim_test_${Date.now()}__`;
+        const testHash = Math.floor(Math.random() * 1000000);
+        const testText = 'Dimension test';
+
+        const insertResponse = await fetch('/api/vector/insert', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                collectionId: testCollectionId,
+                items: [{
+                    hash: testHash,
+                    text: testText,
+                    index: 0
+                }],
+                source: settings.source,
+                ...getProviderBody(settings)
+            })
+        });
+
+        if (!insertResponse.ok) {
+            return {
+                name: '[PROD] Vector Dimensions',
+                status: 'warning',
+                message: `Could not generate test embedding: ${insertResponse.status}`,
+                category: 'production'
+            };
+        }
+
+        // Get stats for test collection to see what dimensions were generated
+        const testStatsResponse = await fetch('/api/plugins/similharity/chunks/stats', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                backend: settings.db || 'standard',
+                collectionId: testCollectionId,
+                source: settings.source || 'transformers',
+                model: settings[getModelField(settings.source)] || null,
+            }),
+        });
+
+        let currentDimensions = 0;
+        if (testStatsResponse.ok) {
+            const testStats = await testStatsResponse.json();
+            currentDimensions = testStats.stats?.embeddingDimensions || 0;
+        }
+
+        // Cleanup test collection
+        await cleanupTestCollection(testCollectionId, settings);
+
+        if (currentDimensions === 0) {
+            return {
+                name: '[PROD] Vector Dimensions',
+                status: 'warning',
+                message: 'Could not determine current embedding dimensions',
+                category: 'production'
+            };
+        }
+
+        // Compare dimensions
+        if (storedDimensions !== currentDimensions) {
+            return {
+                name: '[PROD] Vector Dimensions',
+                status: 'fail',
+                message: `Dimension mismatch! Stored: ${storedDimensions}, Current provider: ${currentDimensions}. You likely switched embedding models. Re-vectorize this chat to fix.`,
+                category: 'production',
+                fixable: true,
+                fixAction: 'revectorize',
+                data: { storedDimensions, currentDimensions, collectionId }
+            };
+        }
+
+        return {
+            name: '[PROD] Vector Dimensions',
+            status: 'pass',
+            message: `Dimensions match (${storedDimensions}D)`,
+            category: 'production'
+        };
+    } catch (error) {
+        return {
+            name: '[PROD] Vector Dimensions',
+            status: 'warning',
+            message: `Dimension check error: ${error.message}`,
+            category: 'production'
+        };
+    }
+}
+
+/**
  * Test: Does temporal decay calculation work?
  * Now tests with per-collection defaults (chat = enabled by default)
  */

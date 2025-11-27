@@ -1199,7 +1199,8 @@ export async function init(router) {
                 apiUrl = 'http://localhost:8008',
                 query,
                 documents,
-                top_k = 10
+                top_k = 10,
+                task_description
             } = req.body;
 
             if (!query || !documents || !Array.isArray(documents)) {
@@ -1209,6 +1210,9 @@ export async function init(router) {
             const url = new URL(apiUrl);
             url.pathname = '/v1/rerank';
 
+            // Default task description if not provided
+            const finalTaskDescription = task_description || "Given the following document from a role play, which of the following documents are most relevant to it?";
+
             const response = await fetch(url.toString(), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1216,7 +1220,8 @@ export async function init(router) {
                     query,
                     documents,
                     top_k,
-                    return_documents: false
+                    return_documents: false,
+                    task_description: finalTaskDescription
                 }),
             });
 

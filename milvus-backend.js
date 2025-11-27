@@ -267,11 +267,19 @@ class MilvusBackend {
                 collection_name: mainCollection,
                 data: data
             });
+
+            if (res.status.error_code !== 'Success') {
+                console.error(`[Milvus] Insert returned error: ${res.status.error_code} - ${res.status.reason}`);
+                // Use a simpler stringify for logging to avoid huge vector dumps
+                const sample = { ...data[0], vector: '[vector data]' };
+                console.error('[Milvus] Sample data causing error:', JSON.stringify(sample));
+                throw new Error(res.status.reason || res.status.error_code);
+            }
             
             // Explicitly flush to ensure data is visible immediately (crucial for Attu/Search visibility)
             await this.client.flush({ collection_names: [mainCollection] });
             
-            console.log(`[Milvus] Inserted ${items.length} items into ${mainCollection} (status: ${res.status.error_code})`);
+            console.log(`[Milvus] Inserted ${items.length} items into ${mainCollection}`);
         } catch (error) {
             console.error('[Milvus] Insert failed:', error.message);
             throw error;

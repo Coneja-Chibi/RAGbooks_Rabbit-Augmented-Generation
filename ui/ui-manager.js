@@ -135,11 +135,8 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <label for="vecthare_electronhub_model">
                                     <small>ElectronHub Model:</small>
                                 </label>
-                                <select id="vecthare_electronhub_model" class="vecthare-select">
-                                    <option value="text-embedding-3-small">text-embedding-3-small</option>
-                                    <option value="text-embedding-3-large">text-embedding-3-large</option>
-                                    <option value="text-embedding-ada-002">text-embedding-ada-002</option>
-                                </select>
+                                <input type="text" id="vecthare_electronhub_model" class="vecthare-input" placeholder="text-embedding-3-small" />
+                                <small class="vecthare_hint">Enter ElectronHub-compatible model ID (e.g., text-embedding-3-small, text-embedding-3-large)</small>
                             </div>
 
                             <!-- Alternative Endpoint (for local providers) -->

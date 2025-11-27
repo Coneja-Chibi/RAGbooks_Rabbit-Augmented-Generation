@@ -1,0 +1,641 @@
+/**
+ * ============================================================================
+ * VECTHARE DIAGNOSTICS - PRODUCTION TESTS
+ * ============================================================================
+ * Integration tests for embedding, storage, and retrieval
+ *
+ * @author Coneja Chibi
+ * @version 2.0.0-alpha
+ * ============================================================================
+ */
+
+import { getCurrentChatId, getRequestHeaders } from '../../../../../script.js';
+import { getSavedHashes, purgeVectorIndex } from '../core/core-vector-api.js';
+import { getChatCollectionId } from '../core/chat-vectorization.js';
+import { getModelField, getProviderConfig } from '../core/providers.js';
+import { unregisterCollection } from '../core/collection-loader.js';
+
+/**
+ * Full cleanup for test collections - purges vectors AND unregisters from registry
+ * @param {string} collectionId - The test collection to clean up
+ * @param {object} settings - VectHare settings
+ */
+async function cleanupTestCollection(collectionId, settings) {
+    try {
+        // Purge all vectors from the backend
+        await purgeVectorIndex(collectionId, settings);
+    } catch (e) {
+        // Ignore purge errors - collection might already be empty
+    }
+    // Always unregister from registry to prevent ghost entries
+    const registryKey = `${settings.source}:${collectionId}`;
+    unregisterCollection(registryKey);
+    unregisterCollection(collectionId); // Also try without source prefix
+}
+
+/**
+ * Helper: Get provider-specific body parameters for native ST vector API
+ */
+function getProviderBody(settings) {
+    const body = {};
+    const source = settings.source;
+    const modelField = getModelField(source);
+
+    if (modelField && settings[modelField]) {
+        body.model = settings[modelField];
+    }
+
+    // Google APIs need special handling
+    if (source === 'palm') {
+        body.api = 'makersuite';
+        body.model = settings.google_model;
+    } else if (source === 'vertexai') {
+        body.api = 'vertexai';
+        body.model = settings.google_model;
+    }
+
+    return body;
+}
+
+/**
+ * Test: Can we generate an embedding?
+ */
+export async function testEmbeddingGeneration(settings) {
+    try {
+        const testText = 'This is a test message for embedding generation.';
+
+        const response = await fetch('/api/vector/query', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                collectionId: '__vecthare_test__',
+                searchText: testText,
+                topK: 1,
+                source: settings.source,
+                ...getProviderBody(settings)
+            })
+        });
+
+        if (!response.ok) {
+            return {
+                name: '[PROD] Embedding Generation',
+                status: 'fail',
+                message: `Failed to generate embedding: ${response.status} ${response.statusText}`,
+                category: 'production'
+            };
+        }
+
+        return {
+            name: '[PROD] Embedding Generation',
+            status: 'pass',
+            message: 'Successfully generated test embedding',
+            category: 'production'
+        };
+    } catch (error) {
+        return {
+            name: '[PROD] Embedding Generation',
+            status: 'fail',
+            message: `Embedding generation error: ${error.message}`,
+            category: 'production'
+        };
+    }
+}
+
+/**
+ * Test: Can we store and retrieve a vector?
+ */
+export async function testVectorStorage(settings) {
+    try {
+        const testCollectionId = `__vecthare_test_${Date.now()}__`;
+        const testHash = Math.floor(Math.random() * 1000000);
+        const testText = 'VectHare storage test message';
+
+        const insertResponse = await fetch('/api/vector/insert', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                collectionId: testCollectionId,
+                items: [{
+                    hash: testHash,
+                    text: testText,
+                    index: 0
+                }],
+                source: settings.source,
+                ...getProviderBody(settings)
+            })
+        });
+
+        if (!insertResponse.ok) {
+            return {
+                name: '[PROD] Vector Storage',
+                status: 'fail',
+                message: `Failed to store vector: ${insertResponse.status}`,
+                category: 'production'
+            };
+        }
+
+        // Cleanup - full collection cleanup (purge + unregister from registry)
+        await cleanupTestCollection(testCollectionId, settings);
+
+        return {
+            name: '[PROD] Vector Storage',
+            status: 'pass',
+            message: 'Successfully stored and cleaned up test vector',
+            category: 'production'
+        };
+    } catch (error) {
+        return {
+            name: '[PROD] Vector Storage',
+            status: 'fail',
+            message: `Storage test error: ${error.message}`,
+            category: 'production'
+        };
+    }
+}
+
+/**
+ * Test: Can we query and retrieve similar vectors?
+ */
+export async function testVectorRetrieval(settings) {
+    if (!getCurrentChatId()) {
+        return {
+            name: '[PROD] Vector Retrieval',
+            status: 'warning',
+            message: 'No chat selected - cannot test retrieval',
+            category: 'production'
+        };
+    }
+
+    const collectionId = getChatCollectionId();
+    if (!collectionId) {
+        return {
+            name: '[PROD] Vector Retrieval',
+            status: 'warning',
+            message: 'Could not get collection ID',
+            category: 'production'
+        };
+    }
+
+    try {
+        const hashes = await getSavedHashes(collectionId, settings);
+
+        if (hashes.length === 0) {
+            return {
+                name: '[PROD] Vector Retrieval',
+                status: 'warning',
+                message: 'No vectors in current chat to test retrieval',
+                category: 'production'
+            };
+        }
+
+        const response = await fetch('/api/vector/query', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                collectionId: collectionId,
+                searchText: 'test query',
+                topK: 3,
+                source: settings.source,
+                ...getProviderBody(settings)
+            })
+        });
+
+        if (!response.ok) {
+            return {
+                name: '[PROD] Vector Retrieval',
+                status: 'fail',
+                message: `Query failed: ${response.status}`,
+                category: 'production'
+            };
+        }
+
+        const data = await response.json();
+
+        return {
+            name: '[PROD] Vector Retrieval',
+            status: 'pass',
+            message: `Successfully retrieved ${data.hashes?.length || 0} results`,
+            category: 'production'
+        };
+    } catch (error) {
+        return {
+            name: '[PROD] Vector Retrieval',
+            status: 'fail',
+            message: `Retrieval test error: ${error.message}`,
+            category: 'production'
+        };
+    }
+}
+
+/**
+ * Test: Does temporal decay calculation work?
+ * Now tests with per-collection defaults (chat = enabled by default)
+ */
+export async function testTemporalDecay(settings) {
+    try {
+        const { applyTemporalDecay, getDefaultDecaySettings } = await import('../core/temporal-decay.js');
+        const { getDefaultDecayForType } = await import('../core/collection-metadata.js');
+
+        // Test with chat defaults (enabled by default)
+        const chatDecaySettings = getDefaultDecayForType('chat');
+
+        const testScore = 0.85;
+        const testAge = 50;
+        const decayedScore = applyTemporalDecay(testScore, testAge, chatDecaySettings);
+
+        if (decayedScore >= testScore) {
+            return {
+                name: '[PROD] Temporal Decay',
+                status: 'fail',
+                message: 'Decay not reducing scores (check formula)',
+                category: 'production'
+            };
+        }
+
+        if (decayedScore < 0 || decayedScore > 1) {
+            return {
+                name: '[PROD] Temporal Decay',
+                status: 'fail',
+                message: `Invalid decayed score: ${decayedScore}`,
+                category: 'production'
+            };
+        }
+
+        // Also test that disabled decay doesn't reduce scores
+        const disabledSettings = { enabled: false };
+        const noDecayScore = applyTemporalDecay(testScore, testAge, disabledSettings);
+        if (noDecayScore !== testScore) {
+            return {
+                name: '[PROD] Temporal Decay',
+                status: 'fail',
+                message: 'Disabled decay should not change scores',
+                category: 'production'
+            };
+        }
+
+        return {
+            name: '[PROD] Temporal Decay',
+            status: 'pass',
+            message: `Decay working (0.85 -> ${decayedScore.toFixed(3)} at age 50 for chat)`,
+            category: 'production'
+        };
+    } catch (error) {
+        return {
+            name: '[PROD] Temporal Decay',
+            status: 'fail',
+            message: `Decay test error: ${error.message}`,
+            category: 'production'
+        };
+    }
+}
+
+/**
+ * Test: Are local chunks in sync with server vectors?
+ * Compares chunk hashes we have locally vs what's stored on the server
+ */
+export async function testChunkServerSync(settings, collectionId) {
+    if (!collectionId) {
+        if (!getCurrentChatId()) {
+            return {
+                name: '[PROD] Chunk-Server Sync',
+                status: 'warning',
+                message: 'No collection selected - cannot test sync',
+                category: 'production'
+            };
+        }
+        collectionId = getChatCollectionId();
+        if (!collectionId) {
+            return {
+                name: '[PROD] Chunk-Server Sync',
+                status: 'warning',
+                message: 'Could not get collection ID',
+                category: 'production'
+            };
+        }
+    }
+
+    try {
+        const { getAllChunkMetadata } = await import('../core/collection-metadata.js');
+
+        // Get server-side hashes
+        const serverHashes = await getSavedHashes(collectionId, settings);
+        const serverHashSet = new Set(serverHashes.map(h => String(h)));
+
+        // Get local metadata hashes (chunks we have customizations for)
+        const localMetadata = getAllChunkMetadata();
+        const localHashes = Object.keys(localMetadata);
+
+        // Find mismatches
+        const onlyOnServer = serverHashes.filter(h => !localHashes.includes(String(h)));
+        const onlyLocal = localHashes.filter(h => !serverHashSet.has(h));
+
+        const totalServer = serverHashes.length;
+        const totalLocal = localHashes.length;
+
+        if (onlyOnServer.length === 0 && onlyLocal.length === 0) {
+            return {
+                name: '[PROD] Chunk-Server Sync',
+                status: 'pass',
+                message: `In sync: ${totalServer} server vectors, ${totalLocal} local metadata entries`,
+                category: 'production',
+                data: { serverHashes, localHashes, collectionId }
+            };
+        }
+
+        // There are differences (not necessarily bad - local metadata is optional)
+        if (onlyLocal.length > 0) {
+            // Orphaned local metadata (vectors deleted from server but metadata remains)
+            return {
+                name: '[PROD] Chunk-Server Sync',
+                status: 'warning',
+                message: `${onlyLocal.length} orphaned local entries (vectors deleted from server)`,
+                category: 'production',
+                fixable: true,
+                fixAction: 'cleanOrphanedMetadata',
+                data: { orphanedHashes: onlyLocal, collectionId }
+            };
+        }
+
+        return {
+            name: '[PROD] Chunk-Server Sync',
+            status: 'pass',
+            message: `Server has ${onlyOnServer.length} vectors without local metadata (normal for new chunks)`,
+            category: 'production',
+            data: { serverHashes, localHashes, collectionId }
+        };
+    } catch (error) {
+        return {
+            name: '[PROD] Chunk-Server Sync',
+            status: 'fail',
+            message: `Sync check error: ${error.message}`,
+            category: 'production'
+        };
+    }
+}
+
+/**
+ * Fix: Clean orphaned local metadata entries
+ */
+export async function fixOrphanedMetadata(orphanedHashes) {
+    try {
+        const { deleteChunkMetadata } = await import('../core/collection-metadata.js');
+
+        let cleaned = 0;
+        for (const hash of orphanedHashes) {
+            deleteChunkMetadata(hash);
+            cleaned++;
+        }
+
+        return {
+            success: true,
+            message: `Cleaned ${cleaned} orphaned metadata entries`
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: `Failed to clean: ${error.message}`
+        };
+    }
+}
+
+/**
+ * Test: Are there duplicate hashes in the vector store?
+ * Duplicates can occur from:
+ * - Native ST vectors extension double-inserting
+ * - Session cache being cleared while chunks still exist
+ * - Plugin bugs or interrupted operations
+ */
+export async function testDuplicateHashes(settings, collectionId) {
+    if (!collectionId) {
+        if (!getCurrentChatId()) {
+            return {
+                name: '[PROD] Duplicate Hash Check',
+                status: 'warning',
+                message: 'No collection selected - cannot check for duplicates',
+                category: 'production'
+            };
+        }
+        collectionId = getChatCollectionId();
+        if (!collectionId) {
+            return {
+                name: '[PROD] Duplicate Hash Check',
+                status: 'warning',
+                message: 'Could not get collection ID',
+                category: 'production'
+            };
+        }
+    }
+
+    try {
+        // Get all hashes from the server
+        const serverHashes = await getSavedHashes(collectionId, settings);
+
+        if (serverHashes.length === 0) {
+            return {
+                name: '[PROD] Duplicate Hash Check',
+                status: 'pass',
+                message: 'No vectors in collection',
+                category: 'production'
+            };
+        }
+
+        // Count occurrences
+        const hashCounts = {};
+        for (const hash of serverHashes) {
+            const key = String(hash);
+            hashCounts[key] = (hashCounts[key] || 0) + 1;
+        }
+
+        // Find duplicates
+        const duplicates = Object.entries(hashCounts)
+            .filter(([, count]) => count > 1)
+            .map(([hash, count]) => ({ hash, count }));
+
+        if (duplicates.length === 0) {
+            return {
+                name: '[PROD] Duplicate Hash Check',
+                status: 'pass',
+                message: `${serverHashes.length} unique vectors, no duplicates`,
+                category: 'production'
+            };
+        }
+
+        const totalDupes = duplicates.reduce((sum, d) => sum + d.count - 1, 0);
+
+        return {
+            name: '[PROD] Duplicate Hash Check',
+            status: 'warning',
+            message: `Found ${duplicates.length} duplicate hashes (${totalDupes} extra entries)`,
+            category: 'production',
+            fixable: true,
+            fixAction: 'removeDuplicateHashes',
+            data: { duplicates, collectionId, totalDuplicates: totalDupes }
+        };
+    } catch (error) {
+        return {
+            name: '[PROD] Duplicate Hash Check',
+            status: 'fail',
+            message: `Check failed: ${error.message}`,
+            category: 'production'
+        };
+    }
+}
+
+/**
+ * Fix: Remove duplicate hash entries from vector store
+ * Strategy: Query to get chunk text, delete all instances, re-insert one copy
+ */
+export async function fixDuplicateHashes(duplicates, collectionId, settings) {
+    try {
+        const { deleteVectorItems, insertVectorItems, queryCollection } = await import('../core/core-vector-api.js');
+
+        let fixed = 0;
+        const chunksToReinsert = [];
+
+        // First, query to get the chunk data for each duplicate hash
+        // We query with minimal text to find chunks by hash
+        for (const { hash } of duplicates) {
+            try {
+                // Query with a broad search to find chunks - we'll filter by hash
+                const result = await queryCollection(collectionId, '', 1000, settings);
+
+                if (result?.metadata) {
+                    // Find chunk with this hash
+                    const chunk = result.metadata.find(m => String(m.hash) === String(hash));
+                    if (chunk) {
+                        chunksToReinsert.push({
+                            hash: chunk.hash,
+                            text: chunk.text,
+                            index: chunk.index || 0,
+                            metadata: {
+                                source: chunk.source,
+                                messageId: chunk.messageId,
+                                chunkIndex: chunk.chunkIndex,
+                                totalChunks: chunk.totalChunks,
+                                originalMessageHash: chunk.originalMessageHash
+                            }
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn(`VectHare: Failed to get data for hash ${hash}:`, e);
+            }
+        }
+
+        // Delete ALL instances of duplicate hashes
+        const hashesToDelete = duplicates.map(d => d.hash);
+        try {
+            await deleteVectorItems(collectionId, hashesToDelete, settings);
+            console.log(`VectHare: Deleted ${hashesToDelete.length} duplicate hashes`);
+        } catch (e) {
+            console.warn('VectHare: Delete failed:', e);
+            return {
+                success: false,
+                message: `Failed to delete duplicates: ${e.message}`
+            };
+        }
+
+        // Re-insert ONE copy of each
+        if (chunksToReinsert.length > 0) {
+            try {
+                await insertVectorItems(collectionId, chunksToReinsert, settings);
+                fixed = chunksToReinsert.length;
+                console.log(`VectHare: Re-inserted ${fixed} chunks (deduplicated)`);
+            } catch (e) {
+                console.warn('VectHare: Re-insert failed:', e);
+                return {
+                    success: false,
+                    message: `Deleted duplicates but failed to re-insert: ${e.message}. Re-vectorize chat to restore.`
+                };
+            }
+        }
+
+        return {
+            success: true,
+            message: `Fixed ${fixed} duplicate hashes (deleted extras, kept one copy each)`
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: `Failed to fix duplicates: ${error.message}`
+        };
+    }
+}
+
+/**
+ * Test: Does temporally blind chunk immunity work?
+ */
+export async function testTemporallyBlindChunks(settings) {
+    try {
+        const { applyDecayToResults } = await import('../core/temporal-decay.js');
+        const { setChunkTemporallyBlind, isChunkTemporallyBlind } = await import('../core/collection-metadata.js');
+        const { getDefaultDecayForType } = await import('../core/collection-metadata.js');
+
+        const testHash = `__test_blind_${Date.now()}__`;
+        const chatDecaySettings = getDefaultDecayForType('chat');
+
+        // Create test chunks
+        const testChunks = [
+            { hash: testHash, score: 0.9, metadata: { source: 'chat', messageId: 0 } },
+            { hash: 'normal_chunk', score: 0.9, metadata: { source: 'chat', messageId: 0 } }
+        ];
+
+        // Mark one chunk as blind
+        setChunkTemporallyBlind(testHash, true);
+
+        // Verify it's marked
+        if (!isChunkTemporallyBlind(testHash)) {
+            return {
+                name: '[PROD] Temporally Blind Chunks',
+                status: 'fail',
+                message: 'Failed to mark chunk as temporally blind',
+                category: 'production'
+            };
+        }
+
+        // Apply decay at a high message age
+        const currentMessageId = 100;
+        const decayedChunks = applyDecayToResults(testChunks, currentMessageId, chatDecaySettings);
+
+        // Find results
+        const blindChunk = decayedChunks.find(c => c.hash === testHash);
+        const normalChunk = decayedChunks.find(c => c.hash === 'normal_chunk');
+
+        // Cleanup
+        setChunkTemporallyBlind(testHash, false);
+
+        // Blind chunk should keep original score
+        if (blindChunk.score !== 0.9 || !blindChunk.temporallyBlind) {
+            return {
+                name: '[PROD] Temporally Blind Chunks',
+                status: 'fail',
+                message: 'Blind chunk score was modified',
+                category: 'production'
+            };
+        }
+
+        // Normal chunk should have decayed
+        if (normalChunk.score >= 0.9 || !normalChunk.decayApplied) {
+            return {
+                name: '[PROD] Temporally Blind Chunks',
+                status: 'fail',
+                message: 'Normal chunk should have decayed',
+                category: 'production'
+            };
+        }
+
+        return {
+            name: '[PROD] Temporally Blind Chunks',
+            status: 'pass',
+            message: `Blind: ${blindChunk.score.toFixed(2)} (immune), Normal: ${normalChunk.score.toFixed(2)} (decayed)`,
+            category: 'production'
+        };
+    } catch (error) {
+        return {
+            name: '[PROD] Temporally Blind Chunks',
+            status: 'fail',
+            message: `Test error: ${error.message}`,
+            category: 'production'
+        };
+    }
+}

@@ -1,0 +1,124 @@
+/* ============================================================================
+ * VECTHARE CARD SYSTEM
+ * ============================================================================
+ * Professional card components for settings panels
+ *
+ * @author Coneja Chibi
+ * @version 2.0.0-alpha
+ * ============================================================================ */
+
+.vecthare-card {
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px solid color-mix(in srgb, var(--vecthare-primary) 15%, var(--SmartThemeBorderColor));
+    border-radius: 16px;
+    margin-bottom: 24px;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow:
+        0 2px 8px color-mix(in srgb, black 10%, transparent),
+        0 1px 2px color-mix(in srgb, black 15%, transparent);
+    position: relative;
+}
+
+.vecthare-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg,
+        transparent 0%,
+        color-mix(in srgb, var(--vecthare-primary) 40%, transparent) 50%,
+        transparent 100%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.vecthare-card:hover {
+    border-color: var(--vecthare-primary);
+    box-shadow:
+        0 8px 24px color-mix(in srgb, var(--vecthare-primary) 20%, transparent),
+        0 4px 8px color-mix(in srgb, black 15%, transparent);
+    transform: translateY(-4px);
+}
+
+.vecthare-card:hover::before {
+    opacity: 1;
+}
+
+.vecthare-card-header {
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-primary) 12%, transparent) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 6%, transparent) 100%);
+    padding: 20px 24px;
+    border-bottom: 1px solid color-mix(in srgb, var(--vecthare-primary) 15%, transparent);
+    position: relative;
+    overflow: hidden;
+}
+
+.vecthare-card-header::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle,
+        color-mix(in srgb, var(--vecthare-primary) 8%, transparent) 0%,
+        transparent 70%);
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.vecthare-card-title {
+    margin: 0;
+    color: var(--SmartThemeBodyColor);
+    font-size: 1.3em;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    position: relative;
+    z-index: 1;
+}
+
+.vecthare-card-title .vecthare-icon {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-primary) 20%, transparent) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 10%, transparent) 100%);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--vecthare-primary-bright);
+    font-size: 1.1em;
+    border: 1px solid color-mix(in srgb, var(--vecthare-primary) 25%, transparent);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--vecthare-primary) 15%, transparent);
+}
+
+.vecthare-card:hover .vecthare-icon {
+    transform: scale(1.1) rotate(5deg);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--vecthare-primary) 25%, transparent);
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-primary) 30%, transparent) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 15%, transparent) 100%);
+}
+
+.vecthare-card-subtitle {
+    margin: 8px 0 0 0;
+    color: color-mix(in srgb, var(--SmartThemeBodyColor) 75%, transparent);
+    font-size: 0.9em;
+    font-style: italic;
+    position: relative;
+    z-index: 1;
+}
+
+.vecthare-card-body {
+    padding: 24px;
+    background: var(--SmartThemeBlurTintColor);
+}

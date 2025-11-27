@@ -11,7 +11,7 @@
 
 import { extension_settings } from '../../../../extensions.js';
 import { getContext } from '../../../../extensions.js';
-import { characters, substituteParams, getRequestHeaders } from '../../../../../script.js';
+import { characters, substituteParams, getRequestHeaders, saveSettingsDebounced } from '../../../../../script.js';
 import { getSavedHashes, queryCollection } from './core-vector-api.js';
 import { getStringHash } from '../../../../utils.js';
 import {
@@ -21,6 +21,7 @@ import {
     saveChunkMetadata,
     deleteChunkMetadata,
     ensureCollectionMeta,
+    getCollectionMeta,
 } from './collection-metadata.js';
 
 // Plugin detection state
@@ -50,12 +51,13 @@ export function registerCollection(collectionId) {
     if (!registry.includes(collectionId)) {
         registry.push(collectionId);
         console.log(`VectHare: Registered collection: ${collectionId}`);
+        saveSettingsDebounced(); // Persist to disk!
     }
 }
 
 /**
  * Unregisters a collection from the registry
- * @param {string} collectionId Collection identifier
+ * @param {string} collectionId Collection identifier (can be plain id or source:id format)
  */
 export function unregisterCollection(collectionId) {
     const registry = getCollectionRegistry();
@@ -63,7 +65,68 @@ export function unregisterCollection(collectionId) {
     if (index !== -1) {
         registry.splice(index, 1);
         console.log(`VectHare: Unregistered collection: ${collectionId}`);
+        saveSettingsDebounced(); // Persist to disk!
+    } else {
+        console.log(`VectHare: Collection not found in registry: ${collectionId}`);
     }
+}
+
+/**
+ * Clears the entire registry (useful for debugging/reset)
+ */
+export function clearCollectionRegistry() {
+    extension_settings.vecthare.vecthare_collection_registry = [];
+    console.log('VectHare: Cleared collection registry');
+    saveSettingsDebounced(); // Persist to disk!
+}
+
+/**
+ * Cleans up registry by removing null entries and duplicates
+ */
+export function cleanupCollectionRegistry() {
+    const registry = getCollectionRegistry();
+    const cleaned = [...new Set(registry.filter(id => id != null && id !== ''))];
+    extension_settings.vecthare.vecthare_collection_registry = cleaned;
+    const removed = registry.length - cleaned.length;
+    if (removed > 0) {
+        console.log(`VectHare: Cleaned registry - removed ${removed} invalid/duplicate entries`);
+        saveSettingsDebounced(); // Persist to disk!
+    }
+    return removed;
+}
+
+/**
+ * Cleans up test collections from registry (visualizer/production tests)
+ * Call this to remove ghost test entries that weren't properly cleaned up
+ * @returns {number} Number of test entries removed
+ */
+export function cleanupTestCollections() {
+    const registry = getCollectionRegistry();
+    const testPatterns = [
+        'vecthare_visualizer_test_',
+        '__vecthare_test_',
+        'vecthare_test_',
+    ];
+
+    const cleaned = registry.filter(id => {
+        if (!id) return false;
+        // Check if this is a test collection
+        for (const pattern of testPatterns) {
+            if (id.includes(pattern)) {
+                console.log(`VectHare: Removing test collection from registry: ${id}`);
+                return false;
+            }
+        }
+        return true;
+    });
+
+    const removed = registry.length - cleaned.length;
+    if (removed > 0) {
+        extension_settings.vecthare.vecthare_collection_registry = cleaned;
+        console.log(`VectHare: Cleaned ${removed} test collection entries from registry`);
+        saveSettingsDebounced(); // Persist to disk!
+    }
+    return removed;
 }
 
 /**
@@ -110,6 +173,15 @@ function parseCollectionId(collectionId) {
         };
     }
 
+    // VectHare lorebook format: vecthare_lorebook__<name>_<timestamp>
+    if (collectionId.startsWith('vecthare_lorebook_')) {
+        return {
+            type: 'lorebook',
+            rawId: collectionId.replace('vecthare_lorebook_', ''),
+            scope: 'global'
+        };
+    }
+
     if (collectionId.startsWith('ragbooks_lorebook_')) {
         return {
             type: 'lorebook',
@@ -150,6 +222,13 @@ function parseCollectionId(collectionId) {
  * @returns {string} Human-readable name
  */
 function getCollectionDisplayName(collectionId, metadata) {
+    // Check for custom display name first
+    const collectionMeta = getCollectionMeta(collectionId);
+    if (collectionMeta.displayName) {
+        return collectionMeta.displayName;
+    }
+
+    // Generate name based on type
     const context = getContext();
 
     switch (metadata.type) {
@@ -159,24 +238,24 @@ function getCollectionDisplayName(collectionId, metadata) {
 
             // Check if it's the current chat
             if (context.chatId === chatId && context.name2) {
-                return `Chat: ${context.name2}`;
+                return `💬 Chat: ${context.name2}`;
             }
 
             // Try to find in characters list
             const character = characters.find(c => c.chat === chatId);
             if (character) {
-                return `Chat: ${character.name}`;
+                return `💬 Chat: ${character.name}`;
             }
 
             // Fallback to ID
-            return `Chat #${chatId.substring(0, 8)}`;
+            return `💬 Chat #${chatId.substring(0, 8)}`;
         }
 
         case 'file':
-            return `File: ${metadata.rawId}`;
+            return `📄 File: ${metadata.rawId}`;
 
         case 'lorebook':
-            return `Lorebook: ${metadata.rawId}`;
+            return `📚 Lorebook: ${metadata.rawId}`;
 
         default:
             return collectionId;
@@ -239,33 +318,53 @@ async function discoverViaPlugin(settings) {
             console.log(`VectHare: Plugin found ${data.collections.length} collections across all sources`);
 
             // Cache the plugin data (includes chunk counts, sources, AND backends)
+            // Key format: "source:collectionId" to handle same collection ID across different sources
             pluginCollectionData = {};
+            const uniqueKeys = [];
+
             for (const collection of data.collections) {
                 const collectionData = {
                     chunkCount: collection.chunkCount,
                     source: collection.source,
-                    backend: collection.backend || 'standard'
+                    backend: collection.backend || 'standard',
+                    model: collection.model || '',  // Primary model path
+                    models: collection.models || []  // All available models
                 };
 
-                // Cache by the returned ID (may be sanitized for LanceDB)
-                pluginCollectionData[collection.id] = collectionData;
+                // Cache by "source:id" to avoid collisions when same ID exists in multiple sources
+                const cacheKey = `${collection.source}:${collection.id}`;
+                pluginCollectionData[cacheKey] = collectionData;
+                uniqueKeys.push(cacheKey);
 
                 // Also cache by sanitized version (for LanceDB lookups)
                 const sanitized = collection.id.replace(/[^a-zA-Z0-9_.-]/g, '_');
                 if (sanitized !== collection.id) {
-                    pluginCollectionData[sanitized] = collectionData;
+                    pluginCollectionData[`${collection.source}:${sanitized}`] = collectionData;
                 }
 
                 console.log(`VectHare:   - ${collection.id} (${collection.backend}, ${collection.source}, ${collection.chunkCount} chunks)`);
             }
 
-            // Register all discovered collections (filter out null/undefined IDs)
-            const collectionIds = data.collections.map(c => c.id).filter(id => id != null);
-            for (const collectionId of collectionIds) {
-                registerCollection(collectionId);
+            // IMPORTANT: Replace registry with what plugin found (removes stale entries)
+            // This ensures the registry matches actual disk state
+            const currentRegistry = getCollectionRegistry();
+            const pluginKeySet = new Set(uniqueKeys);
+
+            // Remove entries that no longer exist on disk
+            const staleEntries = currentRegistry.filter(key => !pluginKeySet.has(key));
+            if (staleEntries.length > 0) {
+                console.log(`VectHare: Removing ${staleEntries.length} stale registry entries not found on disk`);
+                for (const staleKey of staleEntries) {
+                    unregisterCollection(staleKey);
+                }
             }
 
-            return collectionIds;
+            // Register all discovered collections with source:id format
+            for (const key of uniqueKeys) {
+                registerCollection(key);
+            }
+
+            return uniqueKeys;
         }
     } catch (error) {
         console.error('VectHare: Plugin discovery failed:', error);
@@ -343,37 +442,105 @@ export async function discoverExistingCollections(settings) {
  * @returns {Promise<object[]>} Array of collection objects
  */
 export async function loadAllCollections(settings, autoDiscover = true) {
+    // Clean up registry first (remove nulls and duplicates)
+    cleanupCollectionRegistry();
+
     // Auto-discover existing collections on first load
     if (autoDiscover) {
         await discoverExistingCollections(settings);
     }
 
-    const registry = getCollectionRegistry().filter(id => id != null);
+    const registry = getCollectionRegistry();
     const collections = [];
     const hasPlugin = pluginAvailable === true;
 
-    for (const collectionId of registry) {
+    for (const registryKey of registry) {
         try {
-            console.log(`VectHare: Loading collection: ${collectionId}`);
-            const metadata = parseCollectionId(collectionId);
-            console.log(`VectHare:   Type: ${metadata.type}, Scope: ${metadata.scope}`);
+            // Registry key format is now "source:collectionId" when from plugin
+            // Parse it to get both parts
+            let collectionId = registryKey;
+            let registrySource = null;
+
+            if (registryKey.includes(':')) {
+                const colonIndex = registryKey.indexOf(':');
+                registrySource = registryKey.substring(0, colonIndex);
+                collectionId = registryKey.substring(colonIndex + 1);
+            }
+
+            console.log(`VectHare: Loading collection: ${collectionId} (source: ${registrySource || 'unknown'})`);
+
+            // First check stored metadata for user-defined contentType (authoritative source)
+            const storedMeta = getCollectionMeta(registryKey) || getCollectionMeta(collectionId);
+            const parsedMeta = parseCollectionId(collectionId);
+
+            // Use stored contentType if available, otherwise fall back to parsed
+            const metadata = {
+                type: storedMeta.contentType || parsedMeta.type,
+                scope: storedMeta.scope || parsedMeta.scope,
+                rawId: parsedMeta.rawId,
+            };
+            console.log(`VectHare:   Type: ${metadata.type}, Scope: ${metadata.scope}${storedMeta.contentType ? ' (from stored meta)' : ' (parsed from ID)'}`);
 
             let chunkCount = 0;
             let hashes = [];
+            let source = registrySource || 'unknown';
+            let backend = 'standard';
+            let model = '';
+            let models = [];
 
             // If plugin is available, use chunk count, source, and backend from plugin cache
-            // Otherwise, verify with backend
-            if (hasPlugin && pluginCollectionData && pluginCollectionData[collectionId]) {
+            // Cache key is "source:collectionId"
+            const cacheKey = registryKey;
+            if (hasPlugin && pluginCollectionData && pluginCollectionData[cacheKey]) {
                 console.log(`VectHare:   Using plugin mode - getting data from cache`);
-                chunkCount = pluginCollectionData[collectionId].chunkCount || 0;
-                const collectionSource = pluginCollectionData[collectionId].source;
-                const collectionBackend = pluginCollectionData[collectionId].backend;
-                console.log(`VectHare:   Plugin reported ${chunkCount} chunks (backend: ${collectionBackend}, source: ${collectionSource})`);
+                const cacheData = pluginCollectionData[cacheKey];
+                source = cacheData.source;
+                backend = cacheData.backend;
+                models = cacheData.models || [];
+
+                // Check if user has a preferred model saved
+                const collectionMeta = getCollectionMeta(registryKey);
+                const preferredModel = collectionMeta?.preferredModel;
+
+                if (preferredModel !== undefined && models.some(m => m.path === preferredModel)) {
+                    // User has a valid preferred model
+                    model = preferredModel;
+                    const modelInfo = models.find(m => m.path === preferredModel);
+                    chunkCount = modelInfo?.chunkCount || 0;
+                    console.log(`VectHare:   Using user's preferred model: ${model}`);
+                } else {
+                    // Use plugin's default (most chunks)
+                    model = cacheData.model || '';
+                    chunkCount = cacheData.chunkCount || 0;
+                }
+
+                console.log(`VectHare:   Plugin reported ${chunkCount} chunks (backend: ${backend}, source: ${source}, models: ${models.length})`);
             } else {
-                console.log(`VectHare:   Using fallback mode - verifying with backend`);
-                hashes = await getSavedHashes(collectionId, settings);
-                chunkCount = hashes?.length || 0;
-                console.log(`VectHare:   Hashes retrieved: ${chunkCount}`);
+                // Fallback mode: we don't know which backend the collection was created with
+                // Try 'standard' first (most common), only try configured backend if standard fails
+                console.log(`VectHare:   Using fallback mode - trying standard backend first`);
+                const standardSettings = { ...settings, vector_backend: 'standard' };
+                try {
+                    hashes = await getSavedHashes(collectionId, standardSettings);
+                    chunkCount = hashes?.length || 0;
+                    console.log(`VectHare:   Found ${chunkCount} hashes via standard backend`);
+                } catch (standardError) {
+                    // Standard failed, try the configured backend if different
+                    if (settings.vector_backend && settings.vector_backend !== 'standard') {
+                        console.log(`VectHare:   Standard backend failed, trying ${settings.vector_backend}`);
+                        try {
+                            hashes = await getSavedHashes(collectionId, settings);
+                            chunkCount = hashes?.length || 0;
+                            console.log(`VectHare:   Found ${chunkCount} hashes via ${settings.vector_backend}`);
+                        } catch (altError) {
+                            console.warn(`VectHare:   Both backends failed for ${collectionId}`);
+                            chunkCount = 0;
+                        }
+                    } else {
+                        console.warn(`VectHare:   Standard backend failed for ${collectionId}`);
+                        chunkCount = 0;
+                    }
+                }
             }
 
             // Skip empty collections (no point showing them)
@@ -385,27 +552,13 @@ export async function loadAllCollections(settings, autoDiscover = true) {
             const displayName = getCollectionDisplayName(collectionId, metadata);
             console.log(`VectHare:   Display name: ${displayName}`);
 
-            // Check if enabled using new metadata system
-            const enabled = isCollectionEnabled(collectionId);
-
-            // Ensure collection has metadata entry
-            ensureCollectionMeta(collectionId, { scope: metadata.scope });
-
-            // Get source and backend from plugin cache (if available)
-            // Try both the original ID and the sanitized version (for LanceDB)
-            const sanitizedId = collectionId.replace(/[^a-zA-Z0-9_.-]/g, '_');
-            const cacheData = pluginCollectionData?.[collectionId] || pluginCollectionData?.[sanitizedId];
-
-            const source = (hasPlugin && cacheData)
-                ? cacheData.source
-                : 'unknown';
-
-            const backend = (hasPlugin && cacheData)
-                ? cacheData.backend
-                : (settings.vector_backend || 'standard'); // Fallback to current setting
+            // Use registryKey (source:id) for internal tracking to keep collections unique
+            const enabled = isCollectionEnabled(registryKey);
+            ensureCollectionMeta(registryKey, { scope: metadata.scope });
 
             collections.push({
-                id: collectionId,
+                id: collectionId,           // Original collection ID (for API calls)
+                registryKey: registryKey,   // Full key with source (for internal tracking)
                 name: displayName,
                 type: metadata.type,
                 scope: metadata.scope,
@@ -414,11 +567,13 @@ export async function loadAllCollections(settings, autoDiscover = true) {
                 hashes: hashes,
                 rawId: metadata.rawId,
                 source: source,
-                backend: backend
+                backend: backend,
+                model: model,               // Primary model path for vectra lookups
+                models: models              // All available models [{name, path, chunkCount}]
             });
             console.log(`VectHare:   ✓ Added to collections list`);
         } catch (error) {
-            console.error(`VectHare: Failed to load collection ${collectionId}`, error);
+            console.error(`VectHare: Failed to load collection ${registryKey}`, error);
             console.error(`VectHare:   Error details:`, error.message);
             console.error(`VectHare:   Stack:`, error.stack);
             // Continue loading other collections

@@ -1,0 +1,805 @@
+/* ============================================================================
+ * VECTHARE SCENE STYLES
+ * ============================================================================
+ * Scene markers on messages, scene tab in visualizer
+ *
+ * @author Coneja Chibi
+ * @version 2.0.0-alpha
+ * ============================================================================ */
+
+/* ============================================================================
+ * SCENE MARKER BUTTONS (on message toolbar)
+ * Scoped to .mes_buttons to avoid bleeding into other extensions
+ * ============================================================================ */
+
+/* Start marker - green bookmark */
+.mes_buttons .vecthare-scene-marker-start {
+    opacity: 0.5;
+    transition: opacity 0.2s, filter 0.2s;
+}
+
+.mes_buttons .vecthare-scene-marker-start svg path {
+    fill: var(--vecthare-success, #10b981);
+}
+
+.mes_buttons .vecthare-scene-marker-start:hover {
+    opacity: 1;
+    filter: brightness(1.2);
+}
+
+.mes_buttons .vecthare-scene-marker-start.vecthare-active {
+    opacity: 1;
+    filter: brightness(1.3) drop-shadow(0 0 4px var(--vecthare-success, #10b981));
+}
+
+/* Pending scene start - pulsing animation */
+.mes_buttons .vecthare-scene-marker-start.vecthare-pending {
+    opacity: 1;
+    animation: vecthare-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes vecthare-pulse {
+    0%, 100% {
+        filter: brightness(1) drop-shadow(0 0 2px var(--vecthare-warning, #f59e0b));
+    }
+    50% {
+        filter: brightness(1.3) drop-shadow(0 0 8px var(--vecthare-warning, #f59e0b));
+    }
+}
+
+/* End marker - red bookmark */
+.mes_buttons .vecthare-scene-marker-end {
+    opacity: 0.5;
+    transition: opacity 0.2s, filter 0.2s;
+}
+
+.mes_buttons .vecthare-scene-marker-end svg path {
+    fill: var(--vecthare-danger, #ef4444);
+}
+
+.mes_buttons .vecthare-scene-marker-end:hover {
+    opacity: 1;
+    filter: brightness(1.2);
+}
+
+.mes_buttons .vecthare-scene-marker-end.vecthare-active {
+    opacity: 1;
+    filter: brightness(1.3) drop-shadow(0 0 4px var(--vecthare-danger, #ef4444));
+}
+
+/* ============================================================================
+ * MESSAGE SCENE INDICATORS
+ * ============================================================================ */
+
+/* Message inside a scene */
+.mes.vecthare-in-scene {
+    border-left: 3px solid color-mix(in srgb, var(--vecthare-success, #10b981) 50%, transparent);
+    background: linear-gradient(90deg,
+        color-mix(in srgb, var(--vecthare-success, #10b981) 8%, transparent) 0%,
+        transparent 25%
+    );
+}
+
+/* Scene start boundary */
+.mes.vecthare-scene-start {
+    border-left: 4px solid var(--vecthare-success, #10b981);
+    background: linear-gradient(90deg,
+        color-mix(in srgb, var(--vecthare-success, #10b981) 15%, transparent) 0%,
+        transparent 35%
+    );
+}
+
+/* Scene end boundary */
+.mes.vecthare-scene-end {
+    border-right: 4px solid var(--vecthare-danger, #ef4444);
+    background: linear-gradient(270deg,
+        color-mix(in srgb, var(--vecthare-danger, #ef4444) 12%, transparent) 0%,
+        transparent 30%
+    );
+}
+
+/* When message is both start and end (single-message scene) */
+.mes.vecthare-scene-start.vecthare-scene-end {
+    border-left: 4px solid var(--vecthare-success, #10b981);
+    border-right: 4px solid var(--vecthare-danger, #ef4444);
+    background: linear-gradient(90deg,
+        color-mix(in srgb, var(--vecthare-success, #10b981) 15%, transparent) 0%,
+        transparent 25%,
+        transparent 75%,
+        color-mix(in srgb, var(--vecthare-danger, #ef4444) 12%, transparent) 100%
+    );
+}
+
+/* Pending scene range - subtle yellow/orange highlight */
+.mes.vecthare-pending-scene {
+    border-left: 3px solid color-mix(in srgb, var(--vecthare-warning, #f59e0b) 60%, transparent);
+    background: linear-gradient(90deg,
+        color-mix(in srgb, var(--vecthare-warning, #f59e0b) 8%, transparent) 0%,
+        transparent 25%
+    );
+}
+
+/* ============================================================================
+ * SCENES TAB (in chunk visualizer)
+ * ============================================================================ */
+
+.vecthare-scenes-container {
+    padding: 16px;
+}
+
+.vecthare-scenes-empty {
+    text-align: center;
+    padding: 40px 20px;
+    opacity: 0.6;
+}
+
+.vecthare-scenes-empty i {
+    font-size: 3em;
+    margin-bottom: 16px;
+    opacity: 0.4;
+}
+
+.vecthare-scenes-empty p {
+    margin: 8px 0;
+}
+
+/* Scene card in tab */
+.vecthare-scene-card {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, transparent);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 12px;
+    margin-bottom: 12px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+}
+
+.vecthare-scene-card:hover {
+    border-color: color-mix(in srgb, var(--vecthare-primary) 40%, var(--SmartThemeBorderColor));
+}
+
+/* Scene card header */
+.vecthare-scene-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    cursor: pointer;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
+    transition: background 0.2s;
+}
+
+.vecthare-scene-card-header:hover {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 12%, transparent);
+}
+
+.vecthare-scene-card-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 500;
+}
+
+.vecthare-scene-card-title .collapse-icon {
+    transition: transform 0.2s;
+    font-size: 0.85em;
+    opacity: 0.6;
+}
+
+.vecthare-scene-card.expanded .collapse-icon {
+    transform: rotate(90deg);
+}
+
+.vecthare-scene-card-range {
+    font-size: 0.85em;
+    opacity: 0.7;
+    font-family: var(--monoFontFamily);
+}
+
+.vecthare-scene-card-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Status badges */
+.vecthare-scene-badge {
+    font-size: 0.7em;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.vecthare-scene-badge-open {
+    background: color-mix(in srgb, var(--vecthare-warning) 20%, transparent);
+    color: var(--vecthare-warning);
+}
+
+.vecthare-scene-badge-closed {
+    background: color-mix(in srgb, var(--vecthare-success) 20%, transparent);
+    color: var(--vecthare-success);
+}
+
+.vecthare-scene-badge-vectorized {
+    background: color-mix(in srgb, var(--vecthare-success) 20%, transparent);
+    color: var(--vecthare-success);
+}
+
+.vecthare-scene-badge-not-vectorized {
+    background: color-mix(in srgb, var(--vecthare-warning) 20%, transparent);
+    color: var(--vecthare-warning);
+}
+
+/* Scene card actions */
+.vecthare-scene-card-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.vecthare-scene-card-btn {
+    background: transparent;
+    border: none;
+    padding: 6px 8px;
+    cursor: pointer;
+    opacity: 0.6;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.vecthare-scene-card-btn:hover {
+    opacity: 1;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 15%, transparent);
+}
+
+.vecthare-scene-card-btn.danger:hover {
+    color: var(--vecthare-danger);
+}
+
+/* Scene card body (collapsible) */
+.vecthare-scene-card-body {
+    padding: 16px;
+    border-top: 1px solid var(--SmartThemeBorderColor);
+    display: none;
+}
+
+.vecthare-scene-card.expanded .vecthare-scene-card-body {
+    display: block;
+}
+
+/* Scene field inputs */
+.vecthare-scene-field {
+    margin-bottom: 14px;
+}
+
+.vecthare-scene-field:last-child {
+    margin-bottom: 0;
+}
+
+.vecthare-scene-field label {
+    display: block;
+    font-size: 0.85em;
+    font-weight: 500;
+    margin-bottom: 6px;
+    opacity: 0.8;
+}
+
+.vecthare-scene-field input,
+.vecthare-scene-field textarea {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    font-size: 0.95em;
+    transition: border-color 0.2s;
+}
+
+.vecthare-scene-field input:focus,
+.vecthare-scene-field textarea:focus {
+    outline: none;
+    border-color: var(--vecthare-primary);
+}
+
+.vecthare-scene-field textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.vecthare-scene-help {
+    font-size: 0.8em;
+    opacity: 0.6;
+    margin-top: 4px;
+}
+
+/* Scene preview */
+.vecthare-scene-preview {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, transparent);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 0.9em;
+    max-height: 150px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    opacity: 0.8;
+}
+
+.vecthare-scene-preview summary {
+    cursor: pointer;
+    font-weight: 500;
+    margin-bottom: 8px;
+}
+
+.vecthare-scene-preview-content {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--SmartThemeBorderColor);
+}
+
+.vecthare-scene-preview-line {
+    margin-bottom: 6px;
+    line-height: 1.4;
+}
+
+.vecthare-scene-preview-name {
+    font-weight: 600;
+    color: var(--vecthare-primary);
+}
+
+.vecthare-scene-preview-more {
+    opacity: 0.5;
+    font-style: italic;
+}
+
+/* ============================================================================
+ * SCENES TAB IN VISUALIZER
+ * ============================================================================ */
+
+/* Visualizer tab content - show/hide based on active class */
+.vecthare-vis-tab-content {
+    display: none !important;
+}
+
+.vecthare-vis-tab-content.active {
+    display: flex !important;
+}
+
+/* Scenes tab specifically needs block display when active */
+.vecthare-scenes-tab.active {
+    display: block !important;
+    overflow-y: auto;
+}
+
+/* Tab bar */
+.vecthare-visualizer-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor);
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 3%, transparent);
+}
+
+.vecthare-visualizer-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-size: 0.95em;
+    font-weight: 500;
+    opacity: 0.6;
+    transition: all 0.2s;
+    margin-bottom: -1px;
+}
+
+.vecthare-visualizer-tab:hover {
+    opacity: 0.9;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, transparent);
+}
+
+.vecthare-visualizer-tab.active {
+    opacity: 1;
+    border-bottom-color: var(--vecthare-primary);
+    color: var(--vecthare-primary);
+}
+
+.vecthare-visualizer-tab i {
+    font-size: 0.9em;
+}
+
+/* Scenes container - split panel layout */
+.vecthare-scenes-tab .vecthare-scenes-container {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+}
+
+/* Scenes stats header */
+.vecthare-scenes-stats {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, transparent);
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 0.9em;
+    flex-wrap: wrap;
+}
+
+.vecthare-scenes-stat-divider {
+    opacity: 0.3;
+}
+
+.vecthare-badge-open {
+    color: var(--vecthare-warning);
+    font-weight: 600;
+}
+
+.vecthare-badge-closed {
+    color: var(--vecthare-success);
+    font-weight: 600;
+}
+
+/* ============================================================================
+ * SCENES TAB - SPLIT PANEL LAYOUT (matches Chunks tab)
+ * ============================================================================ */
+
+/* Empty state when no scenes */
+.vecthare-scenes-empty-full {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 40px;
+    text-align: center;
+    opacity: 0.6;
+}
+
+.vecthare-scenes-empty-full i {
+    font-size: 3em;
+    margin-bottom: 16px;
+    opacity: 0.4;
+}
+
+/* Left panel - Scene list */
+.vecthare-scene-list-panel {
+    width: 340px;
+    min-width: 280px;
+    max-width: 400px;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--SmartThemeBorderColor);
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 3%, transparent);
+}
+
+.vecthare-scene-list-status {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor);
+    font-size: 0.85em;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.vecthare-scene-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+/* Scene list item */
+.vecthare-scene-item {
+    padding: 12px 14px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    cursor: pointer;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, transparent);
+    border: 1px solid transparent;
+    transition: all 0.15s;
+}
+
+.vecthare-scene-item:hover {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 10%, transparent);
+    border-color: color-mix(in srgb, var(--SmartThemeBorderColor) 50%, transparent);
+}
+
+.vecthare-scene-item.selected {
+    background: color-mix(in srgb, var(--vecthare-primary) 15%, transparent);
+    border-color: var(--vecthare-primary);
+}
+
+.vecthare-scene-item.open {
+    border-left: 3px solid var(--vecthare-warning);
+}
+
+.vecthare-scene-item.closed {
+    border-left: 3px solid var(--vecthare-success);
+}
+
+.vecthare-scene-item-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.vecthare-scene-item-num {
+    font-weight: 600;
+    opacity: 0.5;
+    font-size: 0.85em;
+}
+
+.vecthare-scene-item-title {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vecthare-scene-item-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8em;
+    opacity: 0.7;
+}
+
+.vecthare-scene-item-range {
+    font-family: var(--monoFontFamily);
+}
+
+.vecthare-scene-item-badge {
+    font-size: 0.75em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.vecthare-scene-item-badge.open {
+    background: color-mix(in srgb, var(--vecthare-warning) 20%, transparent);
+    color: var(--vecthare-warning);
+}
+
+.vecthare-scene-item-badge.closed {
+    background: color-mix(in srgb, var(--vecthare-success) 20%, transparent);
+    color: var(--vecthare-success);
+}
+
+.vecthare-scene-item-preview {
+    font-size: 0.8em;
+    opacity: 0.6;
+    margin-top: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Right panel - Scene detail */
+.vecthare-scene-detail-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--SmartThemeBlurTintColor);
+}
+
+/* Scene detail content */
+.vecthare-scene-summary-textarea {
+    width: 100%;
+    min-height: 100px;
+    padding: 12px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background: var(--SmartThemeBlurTintColor);
+    resize: vertical;
+    font-size: 0.95em;
+    line-height: 1.5;
+}
+
+.vecthare-scene-summary-textarea:focus {
+    outline: none;
+    border-color: var(--vecthare-primary);
+}
+
+.vecthare-scene-keywords-field {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background: var(--SmartThemeBlurTintColor);
+    font-size: 0.95em;
+}
+
+.vecthare-scene-keywords-field:focus {
+    outline: none;
+    border-color: var(--vecthare-primary);
+}
+
+/* Scene preview messages */
+.vecthare-scene-preview-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.vecthare-scene-msg-preview {
+    padding: 8px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 30%, transparent);
+}
+
+.vecthare-scene-msg-preview:last-child {
+    border-bottom: none;
+}
+
+.vecthare-scene-msg-name {
+    font-weight: 600;
+    color: var(--vecthare-primary);
+    margin-right: 6px;
+}
+
+.vecthare-scene-msg-text {
+    opacity: 0.85;
+    line-height: 1.4;
+}
+
+.vecthare-scene-msg-more {
+    text-align: center;
+    opacity: 0.5;
+    font-style: italic;
+    padding: 8px;
+}
+
+/* Scene status colors in detail */
+.vecthare-scene-status-open {
+    color: var(--vecthare-warning);
+    font-weight: 600;
+}
+
+.vecthare-scene-status-closed {
+    color: var(--vecthare-success);
+}
+
+/* Scene actions */
+.vecthare-scene-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.vecthare-scene-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 10%, transparent);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: all 0.2s;
+}
+
+.vecthare-scene-action-btn:hover {
+    background: color-mix(in srgb, var(--vecthare-primary) 15%, transparent);
+    border-color: var(--vecthare-primary);
+}
+
+.vecthare-scene-action-btn.warning {
+    background: color-mix(in srgb, var(--vecthare-warning) 10%, transparent);
+    border-color: color-mix(in srgb, var(--vecthare-warning) 30%, transparent);
+}
+
+.vecthare-scene-action-btn.warning:hover {
+    background: color-mix(in srgb, var(--vecthare-warning) 20%, transparent);
+    border-color: var(--vecthare-warning);
+}
+
+.vecthare-scene-action-btn.primary {
+    background: color-mix(in srgb, var(--vecthare-primary) 15%, transparent);
+    border-color: color-mix(in srgb, var(--vecthare-primary) 40%, transparent);
+    color: var(--vecthare-primary);
+    font-weight: 500;
+}
+
+.vecthare-scene-action-btn.primary:hover {
+    background: color-mix(in srgb, var(--vecthare-primary) 25%, transparent);
+    border-color: var(--vecthare-primary);
+}
+
+/* ============================================================================
+ * SCENE VECTORIZATION UI
+ * ============================================================================ */
+
+/* Vectorized indicator in list */
+.vecthare-scene-item.vectorized {
+    border-left-color: var(--vecthare-primary);
+}
+
+.vecthare-scene-item.disabled {
+    opacity: 0.5;
+}
+
+.vecthare-scene-item-vectorized {
+    color: var(--vecthare-primary);
+    font-size: 0.9em;
+    margin-left: auto;
+}
+
+.vecthare-scene-item-badge.vectorized {
+    background: color-mix(in srgb, var(--vecthare-primary) 20%, transparent);
+    color: var(--vecthare-primary);
+}
+
+/* Vectorization section in detail panel */
+.vecthare-scene-vectorization-section {
+    background: color-mix(in srgb, var(--vecthare-primary) 5%, transparent);
+    border: 1px solid color-mix(in srgb, var(--vecthare-primary) 20%, transparent);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 16px;
+}
+
+.vecthare-scene-vectorization-section .vecthare-detail-section-title {
+    margin-bottom: 12px;
+    color: var(--vecthare-primary);
+}
+
+.vecthare-scene-vector-status {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.vecthare-scene-vector-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.vecthare-scene-vector-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.9em;
+}
+
+.vecthare-scene-vector-label {
+    font-weight: 500;
+    opacity: 0.8;
+    min-width: 130px;
+}
+
+.vecthare-scene-vector-value {
+    font-family: var(--monoFontFamily);
+}
+
+.vecthare-scene-vector-value.vecthare-hash-display {
+    cursor: pointer;
+    padding: 4px 8px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 10%, transparent);
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.vecthare-scene-vector-value.vecthare-hash-display:hover {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 20%, transparent);
+}
+
+.vecthare-scene-vector-hint {
+    font-size: 0.9em;
+    opacity: 0.7;
+    line-height: 1.5;
+    margin: 0;
+}
+
+/* Vectorized status badge in info bar */
+.vecthare-scene-status-vectorized {
+    color: var(--vecthare-primary);
+    font-weight: 600;
+}

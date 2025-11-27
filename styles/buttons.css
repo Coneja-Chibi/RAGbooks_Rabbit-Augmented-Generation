@@ -1,0 +1,163 @@
+/* ============================================================================
+ * VECTHARE BUTTON STYLES
+ * ============================================================================
+ * Action buttons, primary/secondary/danger variants
+ *
+ * @author Coneja Chibi
+ * @version 2.0.0-alpha
+ * ============================================================================ */
+
+/* ============================================================================
+ * STUNNING ACTION BUTTONS
+ * ============================================================================ */
+
+.vecthare-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-top: 24px;
+}
+
+.vecthare-action-btn {
+    padding: 18px 24px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 1em;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    cursor: pointer;
+    border: 2px solid;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 12px color-mix(in srgb, black 15%, transparent);
+}
+
+.vecthare-action-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: color-mix(in srgb, white 20%, transparent);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s ease, height 0.6s ease;
+}
+
+.vecthare-action-btn:hover::before {
+    width: 300px;
+    height: 300px;
+}
+
+.vecthare-action-btn:hover {
+    transform: translateY(-4px);
+    box-shadow:
+        0 8px 24px color-mix(in srgb, currentColor 30%, transparent),
+        0 4px 8px color-mix(in srgb, black 20%, transparent);
+}
+
+.vecthare-action-btn:active {
+    transform: translateY(-2px);
+}
+
+.vecthare-action-btn i {
+    font-size: 1.2em;
+    position: relative;
+    z-index: 1;
+    transition: transform 0.3s ease;
+}
+
+.vecthare-action-btn:hover i {
+    transform: scale(1.2) rotate(5deg);
+}
+
+.vecthare-action-btn span {
+    position: relative;
+    z-index: 1;
+}
+
+.vecthare-btn-primary {
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-primary) 25%, var(--SmartThemeBlurTintColor)) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 15%, var(--SmartThemeBlurTintColor)) 100%);
+    border-color: var(--vecthare-primary);
+    color: var(--SmartThemeBodyColor);
+}
+
+.vecthare-btn-primary i {
+    color: var(--vecthare-primary-bright);
+}
+
+.vecthare-btn-danger {
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-danger) 25%, var(--SmartThemeBlurTintColor)) 0%,
+        color-mix(in srgb, var(--vecthare-danger) 15%, var(--SmartThemeBlurTintColor)) 100%);
+    border-color: var(--vecthare-danger);
+    color: var(--SmartThemeBodyColor);
+}
+
+.vecthare-btn-danger i {
+    color: var(--vecthare-danger);
+}
+
+.vecthare-btn-secondary {
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-secondary) 25%, var(--SmartThemeBlurTintColor)) 0%,
+        color-mix(in srgb, var(--vecthare-secondary) 15%, var(--SmartThemeBlurTintColor)) 100%);
+    border-color: var(--vecthare-secondary);
+    color: var(--SmartThemeBodyColor);
+}
+
+.vecthare-btn-secondary i {
+    color: var(--vecthare-secondary);
+}
+
+/* Featured action button - larger and more prominent */
+.vecthare-action-featured {
+    grid-column: span 2;
+    padding: 22px 28px;
+    font-size: 1.1em;
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-primary) 35%, var(--SmartThemeBlurTintColor)) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 20%, var(--SmartThemeBlurTintColor)) 100%);
+    border: 2px solid color-mix(in srgb, var(--vecthare-primary) 60%, transparent);
+    box-shadow:
+        0 4px 16px color-mix(in srgb, var(--vecthare-primary) 25%, transparent),
+        inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
+}
+
+.vecthare-action-featured:hover {
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-primary) 45%, var(--SmartThemeBlurTintColor)) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 30%, var(--SmartThemeBlurTintColor)) 100%);
+    border-color: var(--vecthare-primary);
+    box-shadow:
+        0 8px 28px color-mix(in srgb, var(--vecthare-primary) 35%, transparent),
+        inset 0 1px 0 color-mix(in srgb, white 15%, transparent);
+}
+
+.vecthare-action-featured i {
+    font-size: 1.3em;
+    color: var(--vecthare-primary-bright);
+}
+
+/* Danger outline button - less prominent destructive action */
+.vecthare-btn-danger-outline {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--vecthare-danger) 50%, transparent);
+    color: var(--vecthare-danger);
+}
+
+.vecthare-btn-danger-outline:hover {
+    background: color-mix(in srgb, var(--vecthare-danger) 15%, transparent);
+    border-color: var(--vecthare-danger);
+}
+
+.vecthare-btn-danger-outline i {
+    color: var(--vecthare-danger);
+}
+

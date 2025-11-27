@@ -1,0 +1,448 @@
+/**
+ * ============================================================================
+ * VECTHARE CONTENT TYPES REGISTRY
+ * ============================================================================
+ * Unified system for handling different content types with type-appropriate
+ * features while sharing the same pipeline infrastructure.
+ *
+ * CHUNKING STRATEGY DESIGN:
+ * - "unit" strategies (per_message, per_entry, per_field, per_page) = no size controls
+ * - "text" strategies (recursive, paragraph, sliding) = show size/overlap controls
+ *
+ * @author Coneja Chibi
+ * @version 2.0.0-alpha
+ * ============================================================================
+ */
+
+/**
+ * Chunking strategy metadata
+ * needsSize: whether chunk size slider should appear
+ * needsOverlap: whether overlap slider should appear
+ */
+export const CHUNKING_STRATEGIES = {
+    // ========================================================================
+    // UNIT-BASED STRATEGIES (no size controls - the unit IS the chunk)
+    // ========================================================================
+    per_message: {
+        id: 'per_message',
+        name: 'Per Message',
+        description: 'Each message becomes one chunk. Best for chat recall.',
+        needsSize: false,
+        needsOverlap: false,
+        bestFor: ['chat'],
+    },
+    per_entry: {
+        id: 'per_entry',
+        name: 'Per Entry',
+        description: 'Each lorebook entry becomes one chunk. Preserves WI structure.',
+        needsSize: false,
+        needsOverlap: false,
+        bestFor: ['lorebook'],
+    },
+    per_field: {
+        id: 'per_field',
+        name: 'Per Field',
+        description: 'Each character field becomes one chunk. Enables field-specific retrieval.',
+        needsSize: false,
+        needsOverlap: false,
+        bestFor: ['character'],
+    },
+    per_page: {
+        id: 'per_page',
+        name: 'Per Page',
+        description: 'Each wiki page becomes one chunk. Best for multi-page scrapes.',
+        needsSize: false,
+        needsOverlap: false,
+        bestFor: ['wiki'],
+    },
+    by_speaker: {
+        id: 'by_speaker',
+        name: 'By Speaker Turn',
+        description: 'Groups consecutive messages from the same speaker.',
+        needsSize: false,
+        needsOverlap: false,
+        bestFor: ['chat'],
+    },
+    by_scene: {
+        id: 'by_scene',
+        name: 'By Scene',
+        description: 'Each marked scene becomes one chunk. Requires closed scenes.',
+        needsSize: false,
+        needsOverlap: false,
+        bestFor: ['chat'],
+    },
+
+    // ========================================================================
+    // TEXT-BASED STRATEGIES (need size/overlap controls)
+    // ========================================================================
+    adaptive: {
+        id: 'adaptive',
+        name: 'Adaptive',
+        description: 'Intelligently splits at natural boundaries (paragraphs → sentences → words).',
+        needsSize: true,
+        needsOverlap: true,
+        bestFor: ['document', 'url', 'wiki', 'youtube'],
+        defaultSize: 400,
+        defaultOverlap: 50,
+    },
+    paragraph: {
+        id: 'paragraph',
+        name: 'By Paragraph',
+        description: 'Splits on double newlines. Each paragraph becomes a chunk.',
+        needsSize: false,
+        needsOverlap: false,
+        bestFor: ['document', 'url', 'lorebook'],
+    },
+    section: {
+        id: 'section',
+        name: 'By Section Headers',
+        description: 'Splits on markdown headers (#, ##). Each section becomes a chunk.',
+        needsSize: false,
+        needsOverlap: false,
+        bestFor: ['document', 'url', 'wiki'],
+    },
+    sliding: {
+        id: 'sliding',
+        name: 'Sliding Window',
+        description: 'Fixed-size chunks with overlap. Maximum context continuity.',
+        needsSize: true,
+        needsOverlap: true,
+        bestFor: ['document', 'youtube'],
+        defaultSize: 400,
+        defaultOverlap: 100,
+    },
+    sentence: {
+        id: 'sentence',
+        name: 'By Sentence',
+        description: 'Groups sentences up to target size. Most granular text splitting.',
+        needsSize: true,
+        needsOverlap: false,
+        bestFor: ['document'],
+        defaultSize: 300,
+        defaultOverlap: 0,
+    },
+};
+
+/**
+ * Get chunking strategy metadata
+ */
+export function getChunkingStrategy(strategyId) {
+    return CHUNKING_STRATEGIES[strategyId] || null;
+}
+
+/**
+ * Check if a strategy needs size controls
+ */
+export function strategyNeedsSize(strategyId) {
+    return CHUNKING_STRATEGIES[strategyId]?.needsSize ?? false;
+}
+
+/**
+ * Check if a strategy needs overlap controls
+ */
+export function strategyNeedsOverlap(strategyId) {
+    return CHUNKING_STRATEGIES[strategyId]?.needsOverlap ?? false;
+}
+
+/**
+ * Content Type Definitions
+ * Each type defines its unique characteristics while sharing core infrastructure
+ */
+export const CONTENT_TYPES = {
+    chat: {
+        id: 'chat',
+        name: 'Chat History',
+        icon: 'fa-comments',
+        description: 'Vectorize conversation history for semantic recall',
+
+        features: {
+            temporalDecay: true,
+            speakerAware: true,
+            autoSync: true,
+            scenes: true,
+        },
+
+        // Strategies ordered by recommendation
+        chunkingStrategies: ['per_message', 'by_speaker', 'by_scene', 'adaptive', 'sliding'],
+        defaultStrategy: 'per_message',
+
+        defaults: {
+            chunkSize: 500,
+            chunkOverlap: 50,
+            temporalDecay: { enabled: true, halfLife: 50, floor: 0.3 },
+            autoKeywords: false,
+        },
+
+        sourceType: 'chat',
+        sourceOptions: {
+            allowUpload: true,
+            uploadFormats: ['.txt', '.jsonl', '.json'],
+        },
+    },
+
+    lorebook: {
+        id: 'lorebook',
+        name: 'Lorebook / World Info',
+        icon: 'fa-book-atlas',
+        description: 'Vectorize world info entries for semantic activation',
+
+        features: {
+            temporalDecay: false,
+            keyInheritance: true,
+            scopeControl: true,
+            respectDisabled: true,
+        },
+
+        chunkingStrategies: ['per_entry', 'paragraph', 'adaptive'],
+        defaultStrategy: 'per_entry',
+
+        defaults: {
+            chunkSize: 600,
+            chunkOverlap: 50,
+            autoKeywords: true,
+            scope: 'global',
+        },
+
+        sourceType: 'select',
+        sourceOptions: {
+            allowUpload: true,
+            uploadFormats: ['.json', '.lorebook'],
+            selectLabel: 'Select Lorebook',
+        },
+    },
+
+    character: {
+        id: 'character',
+        name: 'Character Card',
+        icon: 'fa-user',
+        description: 'Vectorize character definitions for context retrieval',
+
+        features: {
+            temporalDecay: false,
+            fieldSelection: true,
+            scopeControl: true,
+            characterScoped: true,
+        },
+
+        chunkingStrategies: ['per_field', 'paragraph', 'adaptive'],
+        defaultStrategy: 'per_field',
+
+        defaults: {
+            chunkSize: 400,
+            chunkOverlap: 30,
+            autoKeywords: true,
+            scope: 'character',
+            fields: {
+                description: true,
+                personality: true,
+                scenario: true,
+                first_mes: false,
+                mes_example: false,
+                system_prompt: true,
+                post_history_instructions: true,
+                creator_notes: false,
+            },
+        },
+
+        sourceType: 'select',
+        sourceOptions: {
+            allowUpload: true,
+            uploadFormats: ['.png', '.json'],
+            selectLabel: 'Select Character',
+        },
+    },
+
+    url: {
+        id: 'url',
+        name: 'URL / Webpage',
+        icon: 'fa-globe',
+        description: 'Fetch and vectorize content from a webpage',
+
+        features: {
+            temporalDecay: false,
+            scopeControl: true,
+            sectionHeaders: true,
+        },
+
+        chunkingStrategies: ['adaptive', 'section', 'paragraph', 'sliding'],
+        defaultStrategy: 'adaptive',
+
+        defaults: {
+            chunkSize: 400,
+            chunkOverlap: 50,
+            autoKeywords: true,
+            scope: 'global',
+        },
+
+        sourceType: 'url',
+        sourceOptions: {
+            placeholder: 'https://example.com/article',
+        },
+    },
+
+    document: {
+        id: 'document',
+        name: 'Custom Document',
+        icon: 'fa-file-lines',
+        description: 'Paste text or upload files (.txt, .md, .json)',
+
+        features: {
+            temporalDecay: false,
+            scopeControl: true,
+            sectionHeaders: true,
+        },
+
+        chunkingStrategies: ['adaptive', 'section', 'paragraph', 'sentence', 'sliding'],
+        defaultStrategy: 'adaptive',
+
+        defaults: {
+            chunkSize: 400,
+            chunkOverlap: 50,
+            autoKeywords: false,
+            scope: 'global',
+        },
+
+        sourceType: 'input',
+        sourceOptions: {
+            methods: [
+                { id: 'paste', name: 'Paste Text', icon: 'fa-paste' },
+                { id: 'upload', name: 'Upload File', icon: 'fa-upload', formats: ['.txt', '.md', '.json', '.html', '.yaml'] },
+            ],
+        },
+    },
+
+    wiki: {
+        id: 'wiki',
+        name: 'Wiki Page',
+        icon: 'fa-book-open',
+        description: 'Scrape Fandom or MediaWiki pages',
+
+        features: {
+            temporalDecay: false,
+            scopeControl: true,
+            sectionHeaders: true,
+            requiresPlugin: true,
+            bulkScrape: true,
+        },
+
+        chunkingStrategies: ['per_page', 'section', 'adaptive', 'sliding'],
+        defaultStrategy: 'per_page',
+
+        defaults: {
+            chunkSize: 600,
+            chunkOverlap: 75,
+            autoKeywords: true,
+            scope: 'global',
+            wikiType: 'fandom',
+        },
+
+        sourceType: 'wiki',
+        sourceOptions: {
+            types: [
+                { id: 'fandom', name: 'Fandom Wiki', placeholder: 'https://baldursgate.fandom.com/ or just "baldursgate"' },
+                { id: 'mediawiki', name: 'MediaWiki / Wikipedia', placeholder: 'https://en.wikipedia.org/wiki/Article_Name' },
+            ],
+            filterPlaceholder: 'Astarion, Gale, Shadowheart (comma-separated page names)',
+            pluginUrl: 'https://github.com/SillyTavern/SillyTavern-Fandom-Scraper',
+        },
+    },
+
+    youtube: {
+        id: 'youtube',
+        name: 'YouTube Transcript',
+        icon: 'fa-youtube',
+        iconBrand: true,
+        description: 'Extract and vectorize video transcripts',
+
+        features: {
+            temporalDecay: false,
+            scopeControl: true,
+            timestamps: true,
+        },
+
+        chunkingStrategies: ['adaptive', 'paragraph', 'sliding'],
+        defaultStrategy: 'adaptive',
+
+        defaults: {
+            chunkSize: 400,
+            chunkOverlap: 50,
+            autoKeywords: true,
+            scope: 'global',
+        },
+
+        sourceType: 'youtube',
+        sourceOptions: {
+            placeholder: 'https://www.youtube.com/watch?v=... or video ID',
+            langPlaceholder: 'en (optional language code)',
+        },
+    },
+};
+
+/**
+ * Get content type definition by ID
+ */
+export function getContentType(typeId) {
+    return CONTENT_TYPES[typeId] || null;
+}
+
+/**
+ * Get all content types as array
+ */
+export function getAllContentTypes() {
+    return Object.values(CONTENT_TYPES);
+}
+
+/**
+ * Get chunking strategies for a content type (with full metadata)
+ */
+export function getChunkingStrategies(typeId) {
+    const type = CONTENT_TYPES[typeId];
+    if (!type?.chunkingStrategies) return [];
+
+    return type.chunkingStrategies
+        .map(id => CHUNKING_STRATEGIES[id])
+        .filter(Boolean);
+}
+
+/**
+ * Get default settings for a content type (includes defaultStrategy)
+ */
+export function getContentTypeDefaults(typeId) {
+    const type = CONTENT_TYPES[typeId];
+    if (!type) return {};
+    return {
+        ...type.defaults,
+        strategy: type.defaultStrategy,
+    };
+}
+
+/**
+ * Check if a content type supports a feature
+ */
+export function hasFeature(typeId, feature) {
+    const type = CONTENT_TYPES[typeId];
+    return type?.features?.[feature] === true;
+}
+
+/**
+ * Scope options available for content types that support it
+ */
+export const SCOPE_OPTIONS = [
+    { id: 'global', name: 'Global', description: 'Available in all chats', icon: 'fa-globe' },
+    { id: 'character', name: 'Character', description: 'Only with current character', icon: 'fa-user' },
+    { id: 'chat', name: 'This Chat', description: 'Only in current conversation', icon: 'fa-comment' },
+];
+
+/**
+ * Character card fields that can be vectorized
+ */
+export const CHARACTER_FIELDS = [
+    { id: 'description', name: 'Description', description: 'Character description/persona' },
+    { id: 'personality', name: 'Personality', description: 'Personality summary' },
+    { id: 'scenario', name: 'Scenario', description: 'Current scenario/setting' },
+    { id: 'first_mes', name: 'First Message', description: 'Opening message' },
+    { id: 'mes_example', name: 'Example Messages', description: 'Example dialogue' },
+    { id: 'system_prompt', name: 'System Prompt', description: 'System instructions' },
+    { id: 'post_history_instructions', name: 'Jailbreak/NSFW', description: 'Post-history instructions' },
+    { id: 'creator_notes', name: 'Creator Notes', description: 'Notes from card creator' },
+];

@@ -14,11 +14,36 @@ import {
     loadAllCollections,
     setCollectionEnabled,
     registerCollection,
-    unregisterCollection
+    unregisterCollection,
+    clearCollectionRegistry,
 } from '../core/collection-loader.js';
 import { purgeVectorIndex } from '../core/core-vector-api.js';
 import { getRequestHeaders } from '../../../../../script.js';
-import { cleanupOrphanedMeta, deleteCollectionMeta } from '../core/collection-metadata.js';
+import {
+    cleanupOrphanedMeta,
+    deleteCollectionMeta,
+    getCollectionConditions,
+    setCollectionConditions,
+    getCollectionTriggers,
+    setCollectionTriggers,
+    getCollectionMeta,
+    setCollectionMeta,
+    getCollectionActivationSummary,
+    getCollectionDecaySummary,
+    getCollectionDecaySettings,
+    setCollectionDecaySettings,
+    hasCustomDecaySettings,
+    getDefaultDecayForType
+} from '../core/collection-metadata.js';
+import {
+    VALID_EMOTIONS,
+    VALID_GENERATION_TYPES,
+    getExpressionsExtensionStatus
+} from '../core/conditional-activation.js';
+import { world_names, loadWorldInfo } from '../../../../world-info.js';
+import { icons } from './icons.js';
+import { openVisualizer } from './chunk-visualizer.js';
+import { queryCollection } from '../core/core-vector-api.js';
 
 // Browser state
 let browserState = {
@@ -81,10 +106,10 @@ export function closeDatabaseBrowser() {
 function createBrowserModal() {
     const modalHtml = `
         <div id="vecthare_database_browser_modal" class="vecthare-modal">
-            <div class="vecthare-modal-content vecthare-database-browser-content popup">
+            <div class="vecthare-modal-content vecthare-database-browser-content">
                 <!-- Header -->
                 <div class="vecthare-modal-header">
-                    <h3>📂 VectHare Database Browser</h3>
+                    <h3>🗃️ VectHare Database Browser</h3>
                     <button class="vecthare-btn-icon" id="vecthare_browser_close">✕</button>
                 </div>
 
@@ -129,7 +154,7 @@ function createBrowserModal() {
                             </label>
                             <label>
                                 <input type="radio" name="vecthare_type_filter" value="lorebook">
-                                📚 Lorebooks
+                                📖 Lorebooks
                             </label>
                         </div>
 
@@ -149,6 +174,9 @@ function createBrowserModal() {
                         <!-- Stats Footer -->
                         <div class="vecthare-browser-stats">
                             <span id="vecthare_browser_stats_text">No collections</span>
+                            <button id="vecthare_reset_registry" class="vecthare-reset-btn" title="Clear registry and rescan from disk">
+                                <i class="fa-solid fa-arrows-rotate"></i> Resync
+                            </button>
                         </div>
                     </div>
 
@@ -221,6 +249,33 @@ function bindBrowserEvents() {
         e.stopPropagation();
         browserState.filters.searchQuery = $(this).val().toLowerCase();
         renderCollections();
+    });
+
+    // Resync button - clears registry and rescans from disk
+    $('#vecthare_reset_registry').on('click', async function(e) {
+        e.stopPropagation();
+        e.preventDefault();
+
+        const confirmed = confirm(
+            'This will clear the collection registry and rescan from disk.\n\n' +
+            'Any ghost entries (collections that no longer exist on disk) will be removed.\n\n' +
+            'Continue?'
+        );
+
+        if (!confirmed) return;
+
+        try {
+            // Clear the registry
+            clearCollectionRegistry();
+
+            // Refresh collections (will rediscover from disk)
+            await refreshCollections();
+
+            toastr.success('Registry cleared and resynced from disk', 'VectHare');
+        } catch (error) {
+            console.error('VectHare: Failed to resync', error);
+            toastr.error('Failed to resync. Check console.', 'VectHare');
+        }
     });
 
     // Keyboard shortcuts
@@ -330,7 +385,7 @@ function renderCollectionCard(collection) {
     const typeIcon = {
         chat: '💬',
         file: '📄',
-        lorebook: '📚',
+        lorebook: '📖',
         unknown: '❓'
     }[collection.type] || '❓';
 
@@ -343,6 +398,17 @@ function renderCollectionCard(collection) {
     const statusBadge = collection.enabled
         ? '<span class="vecthare-badge vecthare-badge-success">Active</span>'
         : '<span class="vecthare-badge vecthare-badge-muted">Paused</span>';
+
+    // Activation badge (shows triggers or conditions)
+    const activationSummary = getCollectionActivationSummary(collection.id);
+    let activationBadge = '';
+    if (activationSummary.alwaysActive) {
+        activationBadge = '<span class="vecthare-badge vecthare-badge-always" title="Always active">∞ Always</span>';
+    } else if (activationSummary.triggerCount > 0) {
+        activationBadge = `<span class="vecthare-badge vecthare-badge-triggers" title="${activationSummary.triggerCount} trigger(s)">🎯 ${activationSummary.triggerCount}</span>`;
+    } else if (activationSummary.conditionsEnabled) {
+        activationBadge = `<span class="vecthare-badge vecthare-badge-conditions" title="${activationSummary.conditionCount} condition(s)">⚡ ${activationSummary.conditionCount}</span>`;
+    }
 
     // Backend badge - shows vector database (Standard, LanceDB, Qdrant)
     const backendDisplayName = {
@@ -360,51 +426,100 @@ function renderCollectionCard(collection) {
         ? `<span class="vecthare-badge vecthare-badge-source" title="Embedding source">${collection.source}</span>`
         : '';
 
+    // Model info - show current model and count if multiple
+    const hasMultipleModels = collection.models && collection.models.length > 1;
+    const currentModelName = collection.model || '(default)';
+    const modelBadge = hasMultipleModels
+        ? `<span class="vecthare-badge vecthare-badge-model" title="Current model: ${currentModelName} (${collection.models.length} available)">📐 ${currentModelName}</span>`
+        : '';
+
+    // Temporal decay badge
+    const decaySummary = getCollectionDecaySummary(collection.id);
+    let decayBadge = '';
+    if (decaySummary.enabled) {
+        const decayIcon = decaySummary.isCustom ? '⏳' : '⏱️';
+        const decayTitle = decaySummary.isCustom
+            ? `Custom decay: ${decaySummary.description}`
+            : `Default decay: ${decaySummary.description}`;
+        decayBadge = `<span class="vecthare-badge vecthare-badge-decay ${decaySummary.isCustom ? 'vecthare-badge-decay-custom' : ''}" title="${decayTitle}">${decayIcon}</span>`;
+    }
+
+    // Use registryKey for unique identification (source:id format)
+    const uniqueKey = collection.registryKey || collection.id;
+
     return `
-        <div class="vecthare-collection-card" data-collection-id="${collection.id}">
+        <div class="vecthare-collection-card" data-collection-key="${uniqueKey}" data-status="${collection.enabled ? 'active' : 'paused'}">
             <div class="vecthare-collection-header">
                 <span class="vecthare-collection-title">
-                    ${typeIcon} ${collection.name}
+                    ${collection.name}
                 </span>
                 <div class="vecthare-collection-badges">
                     ${scopeBadge}
                     ${backendBadge}
                     ${sourceBadge}
+                    ${modelBadge}
+                    ${decayBadge}
                     ${statusBadge}
                 </div>
             </div>
 
             <div class="vecthare-collection-meta">
-                <span>🧊 ${collection.chunkCount} chunks</span>
+                <span>${collection.chunkCount} chunks</span>
                 <span>ID: ${collection.id}</span>
             </div>
 
             <div class="vecthare-collection-actions">
-                <button class="vecthare-btn-sm vecthare-btn-primary vecthare-action-toggle"
-                        data-collection-id="${collection.id}"
+                <button class="vecthare-btn-sm vecthare-action-toggle"
+                        data-collection-key="${uniqueKey}"
                         data-enabled="${collection.enabled}">
-                    ${collection.enabled ? '⏸ Pause' : '▶ Enable'}
+                    ${collection.enabled ? '⏸️ Pause' : '▶️ Enable'}
                 </button>
+                <button class="vecthare-btn-sm vecthare-action-rename"
+                        data-collection-key="${uniqueKey}"
+                        data-current-name="${collection.name.replace(/"/g, '&quot;')}"
+                        title="Rename this collection">
+                    ✏️ Rename
+                </button>
+                <button class="vecthare-btn-sm vecthare-action-activation ${activationSummary.mode !== 'auto' || decaySummary.isCustom ? 'vecthare-has-settings' : ''}"
+                        data-collection-key="${uniqueKey}"
+                        title="Configure activation, triggers, conditions, and temporal decay">
+                    ⚙️ Settings
+                </button>
+                ${hasMultipleModels ? `
+                <button class="vecthare-btn-sm vecthare-action-switch-model"
+                        data-collection-key="${uniqueKey}"
+                        title="Switch embedding model (${collection.models.length} available)">
+                    <i class="fa-solid fa-code-branch"></i> Model
+                </button>
+                ` : ''}
                 <button class="vecthare-btn-sm vecthare-action-open-folder"
-                        data-collection-id="${collection.id}"
+                        data-collection-key="${uniqueKey}"
                         data-backend="${collection.backend}"
                         data-source="${collection.source || 'transformers'}"
                         title="Open in file explorer">
                     📁 Open Folder
                 </button>
                 <button class="vecthare-btn-sm vecthare-action-visualize"
-                        data-collection-id="${collection.id}"
-                        disabled
-                        title="Coming in Phase 2">
-                    📦 View Chunks
+                        data-collection-key="${uniqueKey}"
+                        data-backend="${collection.backend}"
+                        data-source="${collection.source || 'transformers'}"
+                        title="View and edit chunks in this collection">
+                    👁️ View Chunks
                 </button>
                 <button class="vecthare-btn-sm vecthare-btn-danger vecthare-action-delete"
-                        data-collection-id="${collection.id}">
-                    🗑 Delete
+                        data-collection-key="${uniqueKey}">
+                    🗑️ Delete
                 </button>
             </div>
         </div>
     `;
+}
+
+/**
+ * Helper to find collection by its unique key (registryKey or id)
+ */
+function findCollectionByKey(key) {
+    return browserState.collections.find(c => (c.registryKey || c.id) === key);
 }
 
 /**
@@ -414,14 +529,14 @@ function bindCollectionCardEvents() {
     // Toggle enabled/disabled
     $('.vecthare-action-toggle').off('click').on('click', async function(e) {
         e.stopPropagation();
-        const collectionId = $(this).data('collection-id');
+        const collectionKey = $(this).data('collection-key');
         const currentEnabled = $(this).data('enabled');
         const newEnabled = !currentEnabled;
 
-        setCollectionEnabled(collectionId, newEnabled);
+        setCollectionEnabled(collectionKey, newEnabled);
 
         // Update UI
-        const collection = browserState.collections.find(c => c.id === collectionId);
+        const collection = findCollectionByKey(collectionKey);
         if (collection) {
             collection.enabled = newEnabled;
         }
@@ -437,8 +552,8 @@ function bindCollectionCardEvents() {
     // Delete collection
     $('.vecthare-action-delete').off('click').on('click', async function(e) {
         e.stopPropagation();
-        const collectionId = $(this).data('collection-id');
-        const collection = browserState.collections.find(c => c.id === collectionId);
+        const collectionKey = $(this).data('collection-key');
+        const collection = findCollectionByKey(collectionKey);
 
         if (!collection) return;
 
@@ -451,17 +566,23 @@ function bindCollectionCardEvents() {
         if (!confirmed) return;
 
         try {
-            // Purge from vector backend
-            await purgeVectorIndex(collectionId, browserState.settings);
+            // Purge from vector backend (use collection's ID, backend, AND source)
+            const collectionSettings = {
+                ...browserState.settings,
+                vector_backend: collection.backend,
+                source: collection.source,  // CRITICAL: use collection's source, not global
+            };
+            console.log(`VectHare: Purging collection ${collection.id} with source=${collection.source}, backend=${collection.backend}`);
+            await purgeVectorIndex(collection.id, collectionSettings);
 
-            // Unregister from registry
-            unregisterCollection(collectionId);
+            // Unregister from registry - use the registryKey (source:id format) if available
+            unregisterCollection(collection.registryKey || collection.id);
 
             // Delete collection metadata
-            deleteCollectionMeta(collectionId);
+            deleteCollectionMeta(collection.id);
 
-            // Remove from state
-            browserState.collections = browserState.collections.filter(c => c.id !== collectionId);
+            // Remove from state (filter by key)
+            browserState.collections = browserState.collections.filter(c => (c.registryKey || c.id) !== collectionKey);
 
             // Re-render
             renderCollections();
@@ -476,15 +597,20 @@ function bindCollectionCardEvents() {
     // Open folder
     $('.vecthare-action-open-folder').off('click').on('click', async function(e) {
         e.stopPropagation();
-        const collectionId = $(this).data('collection-id');
-        const backend = $(this).data('backend');
-        const source = $(this).data('source');
+        const collectionKey = $(this).data('collection-key');
+        const collection = findCollectionByKey(collectionKey);
+
+        if (!collection) return;
 
         try {
             const response = await fetch('/api/plugins/similharity/open-folder', {
                 method: 'POST',
                 headers: getRequestHeaders(),
-                body: JSON.stringify({ collectionId, backend, source }),
+                body: JSON.stringify({
+                    collectionId: collection.id,
+                    backend: collection.backend,
+                    source: collection.source
+                }),
             });
 
             if (!response.ok) {
@@ -498,10 +624,108 @@ function bindCollectionCardEvents() {
         }
     });
 
-    // Visualize (Phase 2)
-    $('.vecthare-action-visualize').off('click').on('click', function(e) {
+    // Visualize chunks
+    $('.vecthare-action-visualize').off('click').on('click', async function(e) {
         e.stopPropagation();
-        toastr.info('Chunk viewer coming in Phase 2!', 'VectHare');
+        const collectionKey = $(this).data('collection-key');
+        const collection = findCollectionByKey(collectionKey);
+
+        if (!collection) return;
+
+        try {
+            toastr.info('Loading chunks...', 'VectHare');
+
+            // Use the collection's actual backend, not the global setting
+            // This ensures we query Standard collections with Standard backend, etc.
+            if (!collection.backend) {
+                toastr.error('Collection has no backend defined - this is a bug', 'VectHare');
+                console.error('VectHare: Collection missing backend:', collection);
+                return;
+            }
+
+            const collectionSettings = {
+                ...browserState.settings,
+                vector_backend: collection.backend
+            };
+
+            // Use unified plugin endpoint
+            const response = await fetch('/api/plugins/similharity/chunks/list', {
+                method: 'POST',
+                headers: getRequestHeaders(),
+                body: JSON.stringify({
+                    backend: collection.backend || 'vectra',
+                    collectionId: collection.id,
+                    source: collection.source || 'transformers',
+                    model: collection.model || '',
+                    limit: 1000, // Get first 1000 chunks
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to list chunks: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            const results = data.items || [];
+
+            if (!results || results.length === 0) {
+                toastr.warning('No chunks found in this collection', 'VectHare');
+                return;
+            }
+
+            // Format chunks for visualizer
+            const chunks = results.map((item, idx) => ({
+                hash: item.hash,
+                index: item.index ?? idx,
+                text: item.text || item.metadata?.text || 'No text available',
+                score: 1.0,
+                similarity: 1.0,
+                messageAge: item.metadata?.messageAge,
+                decayApplied: false,
+                decayMultiplier: 1.0,
+                metadata: item.metadata, // Pass through all metadata including keywords
+            }));
+
+            // Pass collection-specific settings so visualizer uses correct backend for edits/deletes
+            // Include collection type so visualizer knows if this is a chat (for Scenes tab)
+            openVisualizer({ chunks, collectionType: collection.type }, collection.id, collectionSettings);
+        } catch (error) {
+            console.error('VectHare: Failed to load chunks', error);
+            toastr.error('Failed to load chunks. Check console.', 'VectHare');
+        }
+    });
+
+    // Activation editor (triggers + conditions)
+    $('.vecthare-action-activation').off('click').on('click', function(e) {
+        e.stopPropagation();
+        const collectionKey = $(this).data('collection-key');
+        const collection = findCollectionByKey(collectionKey);
+        if (collection) {
+            openActivationEditor(collection.id, collection.name);
+        }
+    });
+
+    // Rename collection
+    $('.vecthare-action-rename').off('click').on('click', function(e) {
+        e.stopPropagation();
+        const collectionKey = $(this).data('collection-key');
+        const collection = findCollectionByKey(collectionKey);
+        if (collection) {
+            openRenameDialog(collection.id, collection.name);
+        }
+    });
+
+    // Switch model (for collections with multiple embedding models)
+    $('.vecthare-action-switch-model').off('click').on('click', async function(e) {
+        e.stopPropagation();
+        const collectionKey = $(this).data('collection-key');
+        const collection = findCollectionByKey(collectionKey);
+
+        if (!collection || !collection.models || collection.models.length < 2) {
+            return;
+        }
+
+        openModelSwitcher(collection);
     });
 }
 
@@ -516,4 +740,1013 @@ function updateStats(collectionCount, chunkCount) {
         : `${collectionCount} collection${collectionCount === 1 ? '' : 's'}, ${chunkCount} total chunks`;
 
     $('#vecthare_browser_stats_text').text(statsText);
+}
+
+// ============================================================================
+// RENAME DIALOG
+// ============================================================================
+
+/**
+ * Opens a rename dialog for a collection
+ * @param {string} collectionId Collection ID
+ * @param {string} currentName Current display name
+ */
+function openRenameDialog(collectionId, currentName) {
+    // Create modal if needed
+    if ($('#vecthare_rename_modal').length === 0) {
+        const modalHtml = `
+            <div id="vecthare_rename_modal" class="vecthare-modal">
+                <div class="vecthare-modal-content vecthare-rename-dialog popup">
+                    <div class="vecthare-modal-header">
+                        <h3>✏️ Rename Collection</h3>
+                        <button class="vecthare-btn-icon" id="vecthare_rename_close">✕</button>
+                    </div>
+                    <div class="vecthare-rename-body">
+                        <label for="vecthare_rename_input">New name:</label>
+                        <input type="text" id="vecthare_rename_input" placeholder="Enter new name..." autocomplete="off">
+                        <small class="vecthare-rename-hint">Leave empty to reset to auto-generated name</small>
+                    </div>
+                    <div class="vecthare-modal-footer">
+                        <button class="vecthare-btn" id="vecthare_rename_cancel">Cancel</button>
+                        <button class="vecthare-btn vecthare-btn-primary" id="vecthare_rename_save">Save</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        $('body').append(modalHtml);
+
+        // Bind events
+        $('#vecthare_rename_close, #vecthare_rename_cancel').on('click', closeRenameDialog);
+        $('#vecthare_rename_modal').on('click', function(e) {
+            if (e.target === this) closeRenameDialog();
+        });
+        $('#vecthare_rename_input').on('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                $('#vecthare_rename_save').click();
+            } else if (e.key === 'Escape') {
+                closeRenameDialog();
+            }
+        });
+    }
+
+    // Store collection ID for save handler
+    $('#vecthare_rename_modal').data('collection-id', collectionId);
+
+    // Set current name
+    $('#vecthare_rename_input').val(currentName);
+
+    // Bind save handler (rebind each time to get fresh collectionId)
+    $('#vecthare_rename_save').off('click').on('click', function() {
+        const newName = $('#vecthare_rename_input').val().trim();
+        const id = $('#vecthare_rename_modal').data('collection-id');
+
+        // Save the new name (or null to reset)
+        setCollectionMeta(id, { displayName: newName || null });
+
+        // Update local state
+        const collection = browserState.collections.find(c => c.id === id);
+        if (collection) {
+            collection.name = newName || collection.name; // Will refresh properly on next load
+        }
+
+        closeRenameDialog();
+        refreshCollections(); // Reload to get updated names
+
+        if (newName) {
+            toastr.success(`Renamed to "${newName}"`, 'VectHare');
+        } else {
+            toastr.success('Reset to auto-generated name', 'VectHare');
+        }
+    });
+
+    // Show modal and focus input
+    $('#vecthare_rename_modal').fadeIn(200, function() {
+        $('#vecthare_rename_input').focus().select();
+    });
+}
+
+/**
+ * Closes the rename dialog
+ */
+function closeRenameDialog() {
+    $('#vecthare_rename_modal').fadeOut(200);
+}
+
+// ============================================================================
+// MODEL SWITCHER
+// ============================================================================
+
+/**
+ * Opens the model switcher modal
+ * @param {object} collection Collection object with models array
+ */
+function openModelSwitcher(collection) {
+    // Create modal if it doesn't exist
+    if ($('#vecthare_model_switcher_modal').length === 0) {
+        const modalHtml = `
+            <div id="vecthare_model_switcher_modal" class="vecthare-modal">
+                <div class="vecthare-modal-content vecthare-model-switcher-content popup">
+                    <div class="vecthare-modal-header">
+                        <h3><i class="fa-solid fa-code-branch"></i> Switch Embedding Model</h3>
+                        <button class="vecthare-btn-icon" id="vecthare_model_switcher_close">✕</button>
+                    </div>
+                    <div class="vecthare-modal-body">
+                        <p class="vecthare-model-switcher-desc">
+                            Select which embedding model to use for this collection.
+                            Each model may have different vectors from different embedding providers.
+                        </p>
+                        <div id="vecthare_model_list" class="vecthare-model-list"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        $('body').append(modalHtml);
+
+        // Bind close
+        $('#vecthare_model_switcher_close').on('click', closeModelSwitcher);
+        $('#vecthare_model_switcher_modal').on('click', function(e) {
+            if (e.target === this) closeModelSwitcher();
+        });
+    }
+
+    // Store collection reference
+    $('#vecthare_model_switcher_modal').data('collection', collection);
+
+    // Build model list
+    const modelListHtml = collection.models.map(model => {
+        const isActive = model.path === collection.model;
+        const modelName = model.name || '(default)';
+        const chunkLabel = model.chunkCount === 1 ? 'chunk' : 'chunks';
+
+        return `
+            <div class="vecthare-model-item ${isActive ? 'vecthare-model-active' : ''}"
+                 data-model-path="${model.path}">
+                <div class="vecthare-model-item-info">
+                    <span class="vecthare-model-name">
+                        ${isActive ? '<i class="fa-solid fa-check"></i>' : '<i class="fa-solid fa-cube"></i>'}
+                        ${modelName}
+                    </span>
+                    <span class="vecthare-model-chunks">${model.chunkCount} ${chunkLabel}</span>
+                </div>
+                ${isActive
+                    ? '<span class="vecthare-model-badge-current">Current</span>'
+                    : '<button class="vecthare-btn-sm vecthare-model-select-btn">Set as Primary</button>'
+                }
+            </div>
+        `;
+    }).join('');
+
+    $('#vecthare_model_list').html(modelListHtml);
+
+    // Bind selection
+    $('.vecthare-model-select-btn').off('click').on('click', function(e) {
+        e.stopPropagation();
+        const modelPath = $(this).closest('.vecthare-model-item').data('model-path');
+        const coll = $('#vecthare_model_switcher_modal').data('collection');
+
+        // Update collection
+        coll.model = modelPath;
+        const modelInfo = coll.models.find(m => m.path === modelPath);
+        if (modelInfo) {
+            coll.chunkCount = modelInfo.chunkCount;
+        }
+
+        // Persist
+        setCollectionMeta(coll.registryKey || coll.id, {
+            preferredModel: modelPath
+        });
+
+        toastr.success(`Set primary model: ${modelPath || '(default)'}`, 'VectHare');
+        closeModelSwitcher();
+        renderCollections();
+    });
+
+    // Show
+    $('#vecthare_model_switcher_modal').fadeIn(200);
+}
+
+/**
+ * Closes the model switcher modal
+ */
+function closeModelSwitcher() {
+    $('#vecthare_model_switcher_modal').fadeOut(200);
+}
+
+// ============================================================================
+// CONDITIONS EDITOR
+// ============================================================================
+
+// Collection-level condition types (11 types)
+// Note: "keyword" renamed to "pattern" - triggers handle simple keywords,
+// this is for advanced regex/pattern matching with custom scan depth
+const CONDITION_TYPES = [
+    { value: 'pattern', label: '🔍 Pattern Match', desc: 'Advanced regex/pattern in messages' },
+    { value: 'speaker', label: '🗣️ Speaker', desc: 'Match by who spoke last' },
+    { value: 'characterPresent', label: '👥 Character Present', desc: 'Check if character spoke recently' },
+    { value: 'messageCount', label: '#️⃣ Message Count', desc: 'Conversation length check' },
+    { value: 'emotion', label: '😊 Emotion', desc: 'Detect emotional tone' },
+    { value: 'isGroupChat', label: '👪 Group Chat', desc: 'Group vs 1-on-1' },
+    { value: 'generationType', label: '⚙️ Gen Type', desc: 'Normal, swipe, continue, etc.' },
+    { value: 'lorebookActive', label: '📖 Lorebook', desc: 'Check if lorebook entry active' },
+    { value: 'swipeCount', label: '👆 Swipe Count', desc: 'Swipes on last message' },
+    { value: 'timeOfDay', label: '🕐 Time of Day', desc: 'Real-world time window' },
+    { value: 'randomChance', label: '🎲 Random', desc: 'Probabilistic activation' },
+];
+
+// ============================================================================
+// COLLECTION SETTINGS EDITOR (Activation + Triggers + Conditions + Decay)
+// ============================================================================
+
+let activationEditorState = {
+    collectionId: null,
+    collectionName: null,
+    collectionType: 'unknown',
+    alwaysActive: false,
+    triggers: [],
+    triggerMatchMode: 'any',
+    triggerCaseSensitive: false,
+    triggerScanDepth: 5,
+    conditions: null,
+    // Temporal Decay
+    temporalDecay: {
+        enabled: false,
+        mode: 'exponential',
+        halfLife: 50,
+        linearRate: 0.01,
+        minRelevance: 0.3,
+        sceneAware: false
+    }
+};
+
+/**
+ * Opens the collection settings editor
+ * @param {string} collectionId Collection ID
+ * @param {string} collectionName Display name
+ */
+function openActivationEditor(collectionId, collectionName) {
+    const meta = getCollectionMeta(collectionId);
+    const triggerSettings = getCollectionTriggers(collectionId);
+    const conditions = getCollectionConditions(collectionId);
+
+    // Get decay settings - use type-aware defaults if not explicitly set
+    const collectionType = meta.scope === 'chat' ? 'chat' : (meta.type || 'unknown');
+    const decaySettings = getCollectionDecaySettings(collectionId);
+
+    activationEditorState = {
+        collectionId,
+        collectionName,
+        collectionType,
+        alwaysActive: meta.alwaysActive || false,
+        triggers: triggerSettings.triggers || [],
+        triggerMatchMode: triggerSettings.matchMode || 'any',
+        triggerCaseSensitive: triggerSettings.caseSensitive || false,
+        triggerScanDepth: triggerSettings.scanDepth || 5,
+        conditions,
+        temporalDecay: {
+            enabled: decaySettings.enabled,
+            mode: decaySettings.mode,
+            halfLife: decaySettings.halfLife,
+            linearRate: decaySettings.linearRate,
+            minRelevance: decaySettings.minRelevance,
+            sceneAware: decaySettings.sceneAware
+        }
+    };
+
+    // Create modal if needed
+    if ($('#vecthare_activation_editor_modal').length === 0) {
+        createActivationEditorModal();
+    }
+
+    // Populate with current settings
+    renderActivationEditor();
+
+    $('#vecthare_activation_editor_modal').fadeIn(200);
+}
+
+/**
+ * Closes the activation editor
+ */
+function closeActivationEditor() {
+    $('#vecthare_activation_editor_modal').fadeOut(200);
+    activationEditorState.collectionId = null;
+}
+
+/**
+ * Creates the activation editor modal
+ * Primary: Triggers (like lorebook)
+ * Secondary: Advanced conditions
+ */
+function createActivationEditorModal() {
+    const modalHtml = `
+        <div id="vecthare_activation_editor_modal" class="vecthare-modal">
+            <div class="vecthare-modal-content vecthare-activation-editor popup">
+                <div class="vecthare-modal-header">
+                    <h3>⚙️ Collection Settings</h3>
+                    <button class="vecthare-btn-icon" id="vecthare_activation_close">✕</button>
+                </div>
+
+                <div class="vecthare-activation-body">
+                    <div class="vecthare-activation-collection-name">
+                        Collection: <strong id="vecthare_activation_collection_name"></strong>
+                    </div>
+
+                    <!-- Always Active Toggle -->
+                    <div class="vecthare-activation-section vecthare-always-active">
+                        <label class="vecthare-checkbox-label">
+                            <input type="checkbox" id="vecthare_always_active">
+                            <strong>∞ Always Active</strong>
+                        </label>
+                        <small>When enabled, this collection always queries (ignores triggers and conditions)</small>
+                    </div>
+
+                    <!-- ========================================== -->
+                    <!-- PRIMARY: ACTIVATION TRIGGERS (Like Lorebook) -->
+                    <!-- ========================================== -->
+                    <div class="vecthare-activation-section vecthare-triggers-section">
+                        <div class="vecthare-section-header">
+                            <h4>🎯 Activation Triggers <span class="vecthare-badge-primary">Primary</span></h4>
+                            <small>Simple keyword-based activation, like lorebook entries</small>
+                        </div>
+
+                        <div class="vecthare-triggers-input">
+                            <label>Trigger keywords:</label>
+                            <textarea id="vecthare_triggers_input"
+                                      placeholder="Enter keywords, one per line or comma-separated.&#10;Supports regex: /pattern/i"
+                                      rows="4"></textarea>
+                        </div>
+
+                        <div class="vecthare-triggers-options">
+                            <div class="vecthare-option-row">
+                                <label>Match mode:</label>
+                                <select id="vecthare_trigger_match_mode">
+                                    <option value="any">ANY trigger matches (OR)</option>
+                                    <option value="all">ALL triggers must match (AND)</option>
+                                </select>
+                            </div>
+                            <div class="vecthare-option-row">
+                                <label>Scan depth:</label>
+                                <input type="number" id="vecthare_trigger_scan_depth" min="1" max="20" value="5">
+                                <small>recent messages</small>
+                            </div>
+                            <div class="vecthare-option-row">
+                                <label class="vecthare-checkbox-label">
+                                    <input type="checkbox" id="vecthare_trigger_case_sensitive">
+                                    Case sensitive
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ========================================== -->
+                    <!-- SECONDARY: ADVANCED CONDITIONS -->
+                    <!-- ========================================== -->
+                    <div class="vecthare-activation-section vecthare-conditions-section">
+                        <div class="vecthare-section-header">
+                            <h4>⚡ Advanced Conditions <span class="vecthare-badge-secondary">Secondary</span></h4>
+                            <small>Complex rule-based activation (evaluated if triggers don't match or are empty)</small>
+                        </div>
+
+                        <!-- Enable toggle -->
+                        <div class="vecthare-conditions-toggle">
+                            <label class="vecthare-checkbox-label">
+                                <input type="checkbox" id="vecthare_conditions_enabled">
+                                Enable advanced conditions
+                            </label>
+                        </div>
+
+                        <!-- Logic selector -->
+                        <div class="vecthare-conditions-logic">
+                            <label>Condition logic:</label>
+                            <select id="vecthare_conditions_logic">
+                                <option value="AND">ALL conditions must match (AND)</option>
+                                <option value="OR">ANY condition can match (OR)</option>
+                            </select>
+                        </div>
+
+                        <!-- Rules list -->
+                        <div class="vecthare-conditions-rules">
+                            <div class="vecthare-conditions-rules-header">
+                                <span>Conditions</span>
+                                <button class="vecthare-btn-sm" id="vecthare_add_condition">+ Add</button>
+                            </div>
+                            <div id="vecthare_conditions_list"></div>
+                        </div>
+                    </div>
+
+                    <!-- ========================================== -->
+                    <!-- TEMPORAL DECAY (Per-Collection) -->
+                    <!-- ========================================== -->
+                    <div class="vecthare-activation-section vecthare-decay-section">
+                        <div class="vecthare-section-header">
+                            <h4>⏳ Temporal Decay</h4>
+                            <small>Reduce relevance of older chunks over time (chat collections default to enabled)</small>
+                        </div>
+
+                        <div class="vecthare-decay-settings">
+                            <div class="vecthare-option-row">
+                                <label class="vecthare-checkbox-label">
+                                    <input type="checkbox" id="vecthare_decay_enabled">
+                                    <strong>Enable temporal decay</strong>
+                                </label>
+                            </div>
+
+                            <div class="vecthare-decay-advanced" id="vecthare_decay_advanced">
+                                <div class="vecthare-option-row">
+                                    <label>Decay mode:</label>
+                                    <select id="vecthare_decay_mode">
+                                        <option value="exponential">Exponential (half-life)</option>
+                                        <option value="linear">Linear (fixed rate)</option>
+                                    </select>
+                                </div>
+
+                                <div class="vecthare-option-row vecthare-decay-exponential">
+                                    <label>Half-life:</label>
+                                    <input type="number" id="vecthare_decay_halflife" min="1" max="500" value="50">
+                                    <small>messages until 50% relevance</small>
+                                </div>
+
+                                <div class="vecthare-option-row vecthare-decay-linear" style="display: none;">
+                                    <label>Decay rate:</label>
+                                    <input type="number" id="vecthare_decay_rate" min="0.001" max="0.5" step="0.001" value="0.01">
+                                    <small>per message (0.01 = 1%)</small>
+                                </div>
+
+                                <div class="vecthare-option-row">
+                                    <label>Minimum relevance:</label>
+                                    <input type="number" id="vecthare_decay_min" min="0" max="1" step="0.05" value="0.3">
+                                    <small>never decay below this (0-1)</small>
+                                </div>
+
+                                <div class="vecthare-option-row">
+                                    <label class="vecthare-checkbox-label">
+                                        <input type="checkbox" id="vecthare_decay_scene_aware">
+                                        Scene-aware decay
+                                    </label>
+                                    <small>Reset decay at scene boundaries</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Activation Priority Info -->
+                    <div class="vecthare-activation-info">
+                        <strong>Activation Priority:</strong>
+                        <ol>
+                            <li><strong>Always Active</strong> → Collection always queries</li>
+                            <li><strong>Triggers</strong> → Match keywords in recent messages</li>
+                            <li><strong>Advanced Conditions</strong> → Evaluated if triggers empty/don't match</li>
+                            <li><strong>No config</strong> → Auto-activates (backwards compatible)</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <div class="vecthare-modal-footer">
+                    <button class="vecthare-btn" id="vecthare_activation_cancel">Cancel</button>
+                    <button class="vecthare-btn vecthare-btn-primary" id="vecthare_activation_save">Save</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    $('body').append(modalHtml);
+    bindActivationEditorEvents();
+}
+
+/**
+ * Binds event handlers for activation editor
+ */
+function bindActivationEditorEvents() {
+    $('#vecthare_activation_close, #vecthare_activation_cancel').on('click', closeActivationEditor);
+
+    $('#vecthare_activation_save').on('click', saveActivation);
+
+    $('#vecthare_add_condition').on('click', addConditionRule);
+
+    // Close on background click
+    $('#vecthare_activation_editor_modal').on('click', function(e) {
+        if (e.target === this) closeActivationEditor();
+    });
+
+    // Always active disables other sections
+    $('#vecthare_always_active').on('change', function() {
+        const isAlwaysActive = $(this).prop('checked');
+        $('.vecthare-triggers-section, .vecthare-conditions-section').toggleClass('vecthare-disabled', isAlwaysActive);
+    });
+
+    // Decay enabled toggle shows/hides advanced settings
+    $('#vecthare_decay_enabled').on('change', function() {
+        const enabled = $(this).prop('checked');
+        $('#vecthare_decay_advanced').toggle(enabled);
+    });
+
+    // Decay mode toggle shows/hides exponential vs linear settings
+    $('#vecthare_decay_mode').on('change', function() {
+        const mode = $(this).val();
+        $('.vecthare-decay-exponential').toggle(mode === 'exponential');
+        $('.vecthare-decay-linear').toggle(mode === 'linear');
+    });
+}
+
+/**
+ * Renders the activation editor content
+ */
+function renderActivationEditor() {
+    const state = activationEditorState;
+
+    $('#vecthare_activation_collection_name').text(state.collectionName);
+    $('#vecthare_always_active').prop('checked', state.alwaysActive);
+
+    // Triggers
+    const triggersText = state.triggers.join('\n');
+    $('#vecthare_triggers_input').val(triggersText);
+    $('#vecthare_trigger_match_mode').val(state.triggerMatchMode);
+    $('#vecthare_trigger_scan_depth').val(state.triggerScanDepth);
+    $('#vecthare_trigger_case_sensitive').prop('checked', state.triggerCaseSensitive);
+
+    // Conditions
+    $('#vecthare_conditions_enabled').prop('checked', state.conditions.enabled);
+    $('#vecthare_conditions_logic').val(state.conditions.logic || 'AND');
+
+    // Temporal Decay
+    const decay = state.temporalDecay;
+    $('#vecthare_decay_enabled').prop('checked', decay.enabled);
+    $('#vecthare_decay_mode').val(decay.mode);
+    $('#vecthare_decay_halflife').val(decay.halfLife);
+    $('#vecthare_decay_rate').val(decay.linearRate);
+    $('#vecthare_decay_min').val(decay.minRelevance);
+    $('#vecthare_decay_scene_aware').prop('checked', decay.sceneAware);
+
+    // Show/hide advanced decay settings based on enabled
+    $('#vecthare_decay_advanced').toggle(decay.enabled);
+
+    // Show correct decay mode fields
+    $('.vecthare-decay-exponential').toggle(decay.mode === 'exponential');
+    $('.vecthare-decay-linear').toggle(decay.mode === 'linear');
+
+    // Disable sections if always active
+    const isAlwaysActive = state.alwaysActive;
+    $('.vecthare-triggers-section, .vecthare-conditions-section').toggleClass('vecthare-disabled', isAlwaysActive);
+
+    renderConditionRules();
+}
+
+/**
+ * Saves collection settings (activation + triggers + conditions + decay)
+ */
+function saveActivation() {
+    const state = activationEditorState;
+
+    // Parse triggers from textarea
+    const triggersRaw = $('#vecthare_triggers_input').val();
+    const triggers = triggersRaw
+        .split(/[\n,]/)
+        .map(t => t.trim())
+        .filter(t => t.length > 0);
+
+    // Build temporal decay settings
+    const temporalDecay = {
+        enabled: $('#vecthare_decay_enabled').prop('checked'),
+        mode: $('#vecthare_decay_mode').val(),
+        halfLife: parseInt($('#vecthare_decay_halflife').val()) || 50,
+        linearRate: parseFloat($('#vecthare_decay_rate').val()) || 0.01,
+        minRelevance: parseFloat($('#vecthare_decay_min').val()) || 0.3,
+        sceneAware: $('#vecthare_decay_scene_aware').prop('checked'),
+    };
+
+    // Update metadata (all in one call)
+    setCollectionMeta(state.collectionId, {
+        alwaysActive: $('#vecthare_always_active').prop('checked'),
+        triggers: triggers,
+        triggerMatchMode: $('#vecthare_trigger_match_mode').val(),
+        triggerScanDepth: parseInt($('#vecthare_trigger_scan_depth').val()) || 5,
+        triggerCaseSensitive: $('#vecthare_trigger_case_sensitive').prop('checked'),
+        temporalDecay: temporalDecay,
+    });
+
+    // Save conditions
+    const conditions = {
+        enabled: $('#vecthare_conditions_enabled').prop('checked'),
+        logic: $('#vecthare_conditions_logic').val(),
+        rules: state.conditions.rules || []
+    };
+    setCollectionConditions(state.collectionId, conditions);
+
+    closeActivationEditor();
+    refreshCollections();
+    toastr.success('Collection settings saved', 'VectHare');
+}
+
+/**
+ * Renders the list of condition rules
+ */
+function renderConditionRules() {
+    const rules = activationEditorState.conditions.rules || [];
+    const container = $('#vecthare_conditions_list');
+
+    if (rules.length === 0) {
+        container.html('<div class="vecthare-empty-rules">No conditions yet. Click "+ Add Condition" to add one.</div>');
+        return;
+    }
+
+    const rulesHtml = rules.map((rule, idx) => renderConditionRule(rule, idx)).join('');
+    container.html(rulesHtml);
+
+    // Bind rule events
+    bindConditionRuleEvents();
+}
+
+/**
+ * Renders a single condition rule
+ */
+function renderConditionRule(rule, index) {
+    const typeOptions = CONDITION_TYPES.map(t =>
+        `<option value="${t.value}" ${rule.type === t.value ? 'selected' : ''}>${t.label}</option>`
+    ).join('');
+
+    return `
+        <div class="vecthare-condition-rule" data-rule-index="${index}">
+            <div class="vecthare-condition-row">
+                <select class="vecthare-condition-type" data-rule-index="${index}">
+                    ${typeOptions}
+                </select>
+                <label class="vecthare-condition-negate">
+                    <input type="checkbox" ${rule.negate ? 'checked' : ''} data-rule-index="${index}">
+                    NOT
+                </label>
+                <button class="vecthare-btn-icon vecthare-condition-remove" data-rule-index="${index}">🗑️</button>
+            </div>
+            <div class="vecthare-condition-settings" data-rule-index="${index}">
+                ${renderConditionSettings(rule, index)}
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Renders settings for a specific condition type
+ */
+function renderConditionSettings(rule, index) {
+    const settings = rule.settings || {};
+
+    switch (rule.type) {
+        case 'keyword': // Legacy support
+        case 'pattern':
+            return `
+                <div class="vecthare-pattern-condition-wrapper">
+                    <div class="vecthare-pattern-row">
+                        <textarea class="vecthare-pattern-input" placeholder="Patterns (one per line)&#10;Plain text or regex: /pattern/i"
+                                  data-field="patterns" data-rule-index="${index}"
+                                  rows="3">${(settings.patterns || settings.values || []).join('\n')}</textarea>
+                    </div>
+                    <div class="vecthare-pattern-options">
+                        <div class="vecthare-option-row">
+                            <label>Match mode:</label>
+                            <select data-field="matchMode" data-rule-index="${index}">
+                                <option value="any" ${settings.matchMode === 'any' ? 'selected' : ''}>ANY pattern matches</option>
+                                <option value="all" ${settings.matchMode === 'all' ? 'selected' : ''}>ALL patterns must match</option>
+                            </select>
+                        </div>
+                        <div class="vecthare-option-row">
+                            <label>Scan depth:</label>
+                            <input type="number" data-field="scanDepth" data-rule-index="${index}"
+                                   min="1" max="100" value="${settings.scanDepth || 10}">
+                            <small>messages</small>
+                        </div>
+                        <div class="vecthare-option-row">
+                            <label>Search in:</label>
+                            <select data-field="searchIn" data-rule-index="${index}">
+                                <option value="all" ${settings.searchIn === 'all' ? 'selected' : ''}>All messages</option>
+                                <option value="user" ${settings.searchIn === 'user' ? 'selected' : ''}>User only</option>
+                                <option value="assistant" ${settings.searchIn === 'assistant' ? 'selected' : ''}>Assistant only</option>
+                            </select>
+                        </div>
+                        <div class="vecthare-option-row">
+                            <label class="vecthare-checkbox-label">
+                                <input type="checkbox" data-field="caseSensitive" data-rule-index="${index}"
+                                       ${settings.caseSensitive ? 'checked' : ''}>
+                                Case sensitive
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+        case 'speaker':
+        case 'characterPresent':
+            return `
+                <input type="text" placeholder="Character names (comma-separated)"
+                       value="${(settings.values || []).join(', ')}"
+                       data-field="values" data-rule-index="${index}">
+                <select data-field="matchType" data-rule-index="${index}">
+                    <option value="any" ${settings.matchType === 'any' ? 'selected' : ''}>Any matches</option>
+                    <option value="all" ${settings.matchType === 'all' ? 'selected' : ''}>All must match</option>
+                </select>
+            `;
+
+        case 'messageCount':
+        case 'swipeCount':
+            return `
+                <input type="number" placeholder="Count" min="0"
+                       value="${settings.count || 0}"
+                       data-field="count" data-rule-index="${index}">
+                <select data-field="operator" data-rule-index="${index}">
+                    <option value="eq" ${settings.operator === 'eq' ? 'selected' : ''}>Exactly</option>
+                    <option value="gte" ${settings.operator === 'gte' ? 'selected' : ''}>At least</option>
+                    <option value="lte" ${settings.operator === 'lte' ? 'selected' : ''}>At most</option>
+                </select>
+            `;
+
+        case 'emotion':
+            const emotionOptions = VALID_EMOTIONS.map(e =>
+                `<option value="${e}" ${(settings.values || []).includes(e) ? 'selected' : ''}>${e}</option>`
+            ).join('');
+            const expressionsStatus = getExpressionsExtensionStatus();
+            return `
+                <div class="vecthare-emotion-condition-wrapper">
+                    <div class="vecthare-conditions-notice vecthare-notice-${expressionsStatus.level} vecthare-emotion-notice">
+                        ${expressionsStatus.message}
+                    </div>
+                    <div class="vecthare-emotion-controls">
+                        <select multiple data-field="values" data-rule-index="${index}" class="vecthare-multi-select">
+                            ${emotionOptions}
+                        </select>
+                        <select data-field="detectionMethod" data-rule-index="${index}">
+                            <option value="auto" ${settings.detectionMethod === 'auto' ? 'selected' : ''}>Auto (recommended)</option>
+                            <option value="expressions" ${settings.detectionMethod === 'expressions' ? 'selected' : ''}>Expressions only</option>
+                            <option value="patterns" ${settings.detectionMethod === 'patterns' ? 'selected' : ''}>Patterns only</option>
+                            <option value="both" ${settings.detectionMethod === 'both' ? 'selected' : ''}>Both must match</option>
+                        </select>
+                    </div>
+                </div>
+            `;
+
+        case 'isGroupChat':
+            return `
+                <select data-field="isGroup" data-rule-index="${index}">
+                    <option value="true" ${settings.isGroup === true ? 'selected' : ''}>Is group chat</option>
+                    <option value="false" ${settings.isGroup === false ? 'selected' : ''}>Is 1-on-1 chat</option>
+                </select>
+            `;
+
+        case 'generationType':
+            const genOptions = VALID_GENERATION_TYPES.map(g =>
+                `<option value="${g}" ${(settings.values || []).includes(g) ? 'selected' : ''}>${g}</option>`
+            ).join('');
+            return `
+                <select multiple data-field="values" data-rule-index="${index}" class="vecthare-multi-select">
+                    ${genOptions}
+                </select>
+            `;
+
+        case 'lorebookActive':
+            // Get available world names for the picker
+            const availableWorlds = world_names || [];
+            const worldOptions = availableWorlds.map(w =>
+                `<option value="${w}">${w}</option>`
+            ).join('');
+            const selectedValues = settings.values || [];
+            return `
+                <div class="vecthare-lorebook-picker-wrapper">
+                    <div class="vecthare-lorebook-picker-row">
+                        <select class="vecthare-lorebook-select" data-rule-index="${index}">
+                            <option value="">-- Select Lorebook --</option>
+                            ${worldOptions}
+                        </select>
+                        <select class="vecthare-lorebook-entry-select" data-rule-index="${index}" disabled>
+                            <option value="">-- Select Entry (optional) --</option>
+                        </select>
+                        <button class="vecthare-btn-sm vecthare-lorebook-add" data-rule-index="${index}" type="button">+ Add</button>
+                    </div>
+                    <div class="vecthare-lorebook-selected" data-rule-index="${index}">
+                        ${selectedValues.map(v => `
+                            <span class="vecthare-lorebook-tag" data-value="${v}">
+                                ${v} <button class="vecthare-lorebook-remove" data-value="${v}" data-rule-index="${index}">×</button>
+                            </span>
+                        `).join('')}
+                    </div>
+                    <input type="hidden" data-field="values" data-rule-index="${index}" value="${selectedValues.join(',')}">
+                </div>
+            `;
+
+        case 'timeOfDay':
+            return `
+                <input type="time" value="${settings.startTime || '00:00'}"
+                       data-field="startTime" data-rule-index="${index}">
+                <span>to</span>
+                <input type="time" value="${settings.endTime || '23:59'}"
+                       data-field="endTime" data-rule-index="${index}">
+            `;
+
+        case 'randomChance':
+            return `
+                <input type="number" placeholder="Probability %" min="0" max="100"
+                       value="${settings.probability || 50}"
+                       data-field="probability" data-rule-index="${index}">
+                <span>%</span>
+            `;
+
+        default:
+            return '<span class="vecthare-unknown-type">Unknown condition type</span>';
+    }
+}
+
+/**
+ * Binds events for individual condition rules
+ */
+function bindConditionRuleEvents() {
+    // Type change
+    $('.vecthare-condition-type').off('change').on('change', function() {
+        const idx = $(this).data('rule-index');
+        activationEditorState.conditions.rules[idx].type = $(this).val();
+        activationEditorState.conditions.rules[idx].settings = {};
+        renderConditionRules();
+    });
+
+    // Negate toggle
+    $('.vecthare-condition-negate input').off('change').on('change', function() {
+        const idx = $(this).data('rule-index');
+        activationEditorState.conditions.rules[idx].negate = $(this).prop('checked');
+    });
+
+    // Remove rule
+    $('.vecthare-condition-remove').off('click').on('click', function() {
+        const idx = $(this).data('rule-index');
+        activationEditorState.conditions.rules.splice(idx, 1);
+        renderConditionRules();
+    });
+
+    // Settings fields (inputs, selects, and textareas)
+    $('.vecthare-condition-settings input, .vecthare-condition-settings select, .vecthare-condition-settings textarea').off('change').on('change', function() {
+        const idx = $(this).data('rule-index');
+        const field = $(this).data('field');
+        let value = $(this).val();
+
+        // Handle patterns (textarea, newline-separated)
+        if (field === 'patterns' && typeof value === 'string') {
+            value = value.split('\n').map(v => v.trim()).filter(v => v);
+        }
+
+        // Handle comma-separated values
+        if (field === 'values' && typeof value === 'string') {
+            value = value.split(',').map(v => v.trim()).filter(v => v);
+        }
+
+        // Handle multi-select
+        if ($(this).prop('multiple')) {
+            value = $(this).val() || [];
+        }
+
+        // Handle checkboxes
+        if ($(this).attr('type') === 'checkbox') {
+            value = $(this).prop('checked');
+        }
+
+        // Handle booleans from select
+        if (field === 'isGroup') {
+            value = value === 'true';
+        }
+
+        // Handle numbers
+        if (['count', 'probability', 'scanDepth'].includes(field)) {
+            value = parseInt(value) || 0;
+        }
+
+        if (!activationEditorState.conditions.rules[idx].settings) {
+            activationEditorState.conditions.rules[idx].settings = {};
+        }
+        activationEditorState.conditions.rules[idx].settings[field] = value;
+    });
+
+    // Lorebook picker: world select change - load entries
+    $('.vecthare-lorebook-select').off('change').on('change', async function() {
+        const idx = $(this).data('rule-index');
+        const worldName = $(this).val();
+        const entrySelect = $(`.vecthare-lorebook-entry-select[data-rule-index="${idx}"]`);
+
+        if (!worldName) {
+            entrySelect.prop('disabled', true).html('<option value="">-- Select Entry (optional) --</option>');
+            return;
+        }
+
+        // Load world info entries
+        entrySelect.prop('disabled', true).html('<option value="">Loading...</option>');
+        try {
+            const worldData = await loadWorldInfo(worldName);
+            if (worldData && worldData.entries) {
+                const entries = Object.values(worldData.entries);
+                const entryOptions = entries.map(entry => {
+                    const displayName = entry.comment || entry.key?.join(', ') || `Entry ${entry.uid}`;
+                    return `<option value="${entry.uid}" data-key="${entry.key?.join(',') || ''}">${displayName}</option>`;
+                }).join('');
+                entrySelect.html(`<option value="">-- Entire Lorebook --</option>${entryOptions}`);
+                entrySelect.prop('disabled', false);
+            }
+        } catch (error) {
+            console.error('VectHare: Failed to load world info', error);
+            entrySelect.html('<option value="">-- Error loading entries --</option>');
+        }
+    });
+
+    // Lorebook picker: add button
+    $('.vecthare-lorebook-add').off('click').on('click', function() {
+        const idx = $(this).data('rule-index');
+        const worldSelect = $(`.vecthare-lorebook-select[data-rule-index="${idx}"]`);
+        const entrySelect = $(`.vecthare-lorebook-entry-select[data-rule-index="${idx}"]`);
+        const selectedContainer = $(`.vecthare-lorebook-selected[data-rule-index="${idx}"]`);
+        const hiddenInput = $(`input[data-field="values"][data-rule-index="${idx}"]`);
+
+        const worldName = worldSelect.val();
+        if (!worldName) {
+            toastr.warning('Please select a lorebook first', 'VectHare');
+            return;
+        }
+
+        const entryUid = entrySelect.val();
+        let valueToAdd;
+
+        if (entryUid) {
+            // Specific entry: use "worldName:uid" format
+            valueToAdd = `${worldName}:${entryUid}`;
+        } else {
+            // Entire lorebook
+            valueToAdd = worldName;
+        }
+
+        // Get current values
+        const currentValues = hiddenInput.val() ? hiddenInput.val().split(',').filter(v => v) : [];
+        if (currentValues.includes(valueToAdd)) {
+            toastr.info('Already added', 'VectHare');
+            return;
+        }
+
+        currentValues.push(valueToAdd);
+        hiddenInput.val(currentValues.join(','));
+
+        // Update the visual tags
+        const displayName = entryUid ? `${worldName}:${entrySelect.find(':selected').text()}` : worldName;
+        selectedContainer.append(`
+            <span class="vecthare-lorebook-tag" data-value="${valueToAdd}">
+                ${displayName} <button class="vecthare-lorebook-remove" data-value="${valueToAdd}" data-rule-index="${idx}">×</button>
+            </span>
+        `);
+
+        // Update state
+        if (!activationEditorState.conditions.rules[idx].settings) {
+            activationEditorState.conditions.rules[idx].settings = {};
+        }
+        activationEditorState.conditions.rules[idx].settings.values = currentValues;
+
+        // Rebind remove buttons
+        bindLorebookRemoveButtons();
+
+        // Reset selects
+        worldSelect.val('');
+        entrySelect.prop('disabled', true).html('<option value="">-- Select Entry (optional) --</option>');
+    });
+
+    // Bind remove buttons
+    bindLorebookRemoveButtons();
+}
+
+/**
+ * Binds lorebook tag remove buttons
+ */
+function bindLorebookRemoveButtons() {
+    $('.vecthare-lorebook-remove').off('click').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const idx = $(this).data('rule-index');
+        const valueToRemove = $(this).data('value');
+        const hiddenInput = $(`input[data-field="values"][data-rule-index="${idx}"]`);
+
+        // Remove from values
+        const currentValues = hiddenInput.val() ? hiddenInput.val().split(',').filter(v => v && v !== valueToRemove) : [];
+        hiddenInput.val(currentValues.join(','));
+
+        // Update state
+        if (activationEditorState.conditions.rules[idx]?.settings) {
+            activationEditorState.conditions.rules[idx].settings.values = currentValues;
+        }
+
+        // Remove the tag
+        $(this).closest('.vecthare-lorebook-tag').remove();
+    });
+}
+
+/**
+ * Adds a new condition rule
+ */
+function addConditionRule() {
+    if (!activationEditorState.conditions.rules) {
+        activationEditorState.conditions.rules = [];
+    }
+
+    activationEditorState.conditions.rules.push({
+        type: 'pattern',
+        negate: false,
+        settings: {}
+    });
+
+    renderConditionRules();
 }

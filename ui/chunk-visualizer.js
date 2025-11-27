@@ -2,184 +2,1673 @@
  * ============================================================================
  * VECTHARE CHUNK VISUALIZER
  * ============================================================================
- * Modal for displaying, searching, and inspecting vector search results
+ * Split-panel master/detail layout for browsing and editing chunks
+ * Left panel: scrollable chunk list with search/filter/sort
+ * Right panel: full details of selected chunk
  *
  * @author Coneja Chibi
  * @version 2.0.0-alpha
  * ============================================================================
  */
 
-// State
+import {
+    isChunkTemporallyBlind,
+    setChunkTemporallyBlind,
+    getChunkMetadata,
+    saveChunkMetadata,
+    deleteChunkMetadata,
+} from '../core/collection-metadata.js';
+import {
+    deleteVectorItems,
+    insertVectorItems,
+    updateChunkText,
+    updateChunkMetadata,
+} from '../core/core-vector-api.js';
+import { getStringHash } from '../../../../utils.js';
+import {
+    filterSceneChunks,
+    filterNonSceneChunks,
+    deleteSceneChunk,
+    updateSceneChunkMetadata,
+    getPendingScene,
+} from '../core/scenes.js';
+import { getContext } from '../../../../extensions.js';
+import { eventSource } from '../../../../../script.js';
+
+// ============================================================================
+// STATE
+// ============================================================================
+
 let currentResults = null;
+let currentCollectionId = null;
+let currentSettings = null;
+let allChunks = [];
 let filteredChunks = [];
+let selectedChunkId = null; // Use uniqueId, not hash (hashes can be duplicated)
+let displayLimit = 50;
+let sortBy = 'index'; // 'index', 'length-desc', 'length-asc', 'keywords', 'modified'
+let filterBy = 'all'; // 'all', 'enabled', 'disabled', 'conditions', 'blind'
+let searchQuery = '';
+let bulkSelectMode = false;
+let selectedHashes = new Set();
+let hasUnsavedChanges = false;
+let pendingChanges = new Map(); // hash -> {keywords, enabled, conditions, etc.}
+let plaintextKeywordMode = false; // Toggle for plaintext keyword editing
+let activeTab = 'chunks'; // 'chunks' or 'scenes'
+
+// ============================================================================
+// COLLECTION TYPE HELPERS
+// ============================================================================
 
 /**
- * Opens the visualizer modal with search results
- * @param {object} results Search results object
+ * Checks if the current collection is a chat collection (supports scenes)
  */
-export function openVisualizer(results) {
-    currentResults = results;
-    filteredChunks = [...results.chunks];
-
-    renderChunks();
-    $('#vecthare_visualizer_modal').fadeIn(200);
+function isChatCollection() {
+    return currentResults?.collectionType === 'chat';
 }
 
 /**
- * Renders all chunks into the container
+ * Gets the appropriate icon for the collection type
  */
-function renderChunks() {
-    const container = $('#vecthare_visualizer_content');
-    container.empty();
+function getCollectionIcon() {
+    const icons = {
+        chat: '💬',
+        file: '📄',
+        lorebook: '📚',
+        document: '📝',
+    };
+    return icons[currentResults?.collectionType] || '📦';
+}
 
-    if (filteredChunks.length === 0) {
-        container.html(renderEmptyState());
+// ============================================================================
+// CHUNK DATA HELPERS
+// ============================================================================
+
+/**
+ * Normalize keywords to the new format: { text: string, weight: number }
+ * Handles migration from old string[] format
+ * Weight is a MULTIPLIER: 1.0 = no boost, 1.5 = 50% boost, 2.0 = double
+ */
+function normalizeKeywords(keywords) {
+    if (!keywords || !Array.isArray(keywords)) return [];
+    return keywords.map(k => {
+        // Old format: just a string
+        if (typeof k === 'string') {
+            return { text: k, weight: 1.5 }; // Default boost for legacy keywords
+        }
+        // New format: { text, weight }
+        if (k && typeof k === 'object' && k.text) {
+            return { text: k.text, weight: k.weight ?? 1.0 };
+        }
+        return null;
+    }).filter(Boolean);
+}
+
+function getChunkData(chunk) {
+    const stored = getChunkMetadata(chunk.hash) || {};
+
+    // User overrides take priority, then fall back to DB-stored keywords
+    const dbKeywords = chunk.metadata?.keywords || chunk.keywords || [];
+    const keywords = stored.keywords !== undefined ? stored.keywords : dbKeywords;
+
+    return {
+        hash: chunk.hash,
+        index: chunk.index,
+        text: chunk.text,
+        score: chunk.score || 1,
+        similarity: chunk.similarity || 1,
+        messageAge: chunk.messageAge,
+        enabled: stored.enabled !== false,
+        keywords: normalizeKeywords(keywords),
+        conditions: stored.conditions || { enabled: false, logic: 'AND', rules: [] },
+        chunkLinks: stored.chunkLinks || [],
+        summaries: stored.summaries || [],
+        temporallyBlind: stored.temporallyBlind || false,
+        name: stored.name || null,
+    };
+}
+
+function updateChunkData(hash, updates) {
+    const existing = pendingChanges.get(hash) || {};
+    pendingChanges.set(hash, { ...existing, ...updates });
+    hasUnsavedChanges = true;
+}
+
+async function saveAllChanges() {
+    const count = pendingChanges.size;
+    if (count === 0) {
+        toastr.info('No changes to save', 'VectHare');
         return;
     }
 
-    filteredChunks.forEach(chunk => {
-        container.append(renderChunkCard(chunk));
-    });
+    try {
+        for (const [hash, updates] of pendingChanges) {
+            // Check what kind of update is needed
+            if (updates.text !== undefined) {
+                // Text changed - requires re-embedding
+                await updateChunkText(currentCollectionId, hash, updates.text, currentSettings);
+            }
 
-    updateStats();
+            // Handle new summaries - vectorize them
+            if (updates._newSummaries?.length > 0) {
+                for (const summaryText of updates._newSummaries) {
+                    const summaryHash = getStringHash(summaryText);
+                    const summaryItem = {
+                        text: summaryText,
+                        hash: summaryHash,
+                        index: 0,
+                        keywords: [],
+                        metadata: {
+                            isSummary: true,
+                            parentHash: hash,
+                            contentType: 'summary',
+                        },
+                    };
+                    await insertVectorItems(currentCollectionId, [summaryItem], currentSettings);
+                }
+            }
+
+            // Handle deleted summaries - remove vectors
+            if (updates._deletedSummaries?.length > 0) {
+                const hashesToDelete = updates._deletedSummaries.map(text => getStringHash(text));
+                await deleteVectorItems(currentCollectionId, hashesToDelete, currentSettings);
+            }
+
+            // Metadata updates (keywords, enabled, conditions, etc.) - no re-embedding
+            const metadataUpdates = { ...updates };
+            delete metadataUpdates.text;
+            delete metadataUpdates._newSummaries;
+            delete metadataUpdates._deletedSummaries;
+
+            if (Object.keys(metadataUpdates).length > 0) {
+                await updateChunkMetadata(currentCollectionId, hash, metadataUpdates, currentSettings);
+            }
+
+            // Save to local settings (without temp tracking fields)
+            const toSave = { ...updates };
+            delete toSave._newSummaries;
+            delete toSave._deletedSummaries;
+            const existing = getChunkMetadata(hash) || {};
+            saveChunkMetadata(hash, { ...existing, ...toSave });
+        }
+
+        pendingChanges.clear();
+        hasUnsavedChanges = false;
+        toastr.success(`Saved changes to ${count} chunk(s)`, 'VectHare');
+    } catch (error) {
+        console.error('VectHare: Failed to save changes', error);
+        toastr.error('Failed to save some changes. Check console.', 'VectHare');
+    }
 }
 
-/**
- * Renders a single chunk card
- * @param {object} chunk Chunk data
- * @returns {string} HTML for chunk card
- */
-function renderChunkCard(chunk) {
-    const scorePercent = (chunk.score * 100).toFixed(1);
-    const similarityPercent = (chunk.similarity * 100).toFixed(1);
-
-    return `
-        <div class="vecthare-chunk-card" data-hash="${chunk.hash}">
-            <div class="vecthare-chunk-header">
-                <div class="vecthare-chunk-score-badge">${scorePercent}%</div>
-                <div class="vecthare-chunk-meta">
-                    <span class="vecthare-chunk-source">
-                        <i class="fa-solid fa-comments"></i> Chat
-                    </span>
-                    <span class="vecthare-chunk-index">#${chunk.index}</span>
-                </div>
-            </div>
-            <div class="vecthare-chunk-body">
-                <div class="vecthare-chunk-text">${escapeHtml(chunk.text)}</div>
-            </div>
-            <div class="vecthare-chunk-footer">
-                <div class="vecthare-chunk-details">
-                    <span title="Raw similarity score">
-                        <i class="fa-solid fa-chart-line"></i> ${similarityPercent}%
-                    </span>
-                    ${renderTemporalDecayInfo(chunk)}
-                </div>
-            </div>
-        </div>
-    `;
+function discardAllChanges() {
+    pendingChanges.clear();
+    hasUnsavedChanges = false;
+    // Reload chunk data from stored metadata
+    allChunks = allChunks.map(chunk => ({
+        ...chunk,
+        data: getChunkData(chunk)
+    }));
+    renderChunkList();
+    renderDetailPanel();
 }
 
-/**
- * Renders temporal decay information if applicable
- * @param {object} chunk Chunk data
- * @returns {string} HTML for decay info
- */
-function renderTemporalDecayInfo(chunk) {
-    if (!chunk.decayApplied) return '';
+// ============================================================================
+// MAIN API
+// ============================================================================
 
-    const decayPercent = (chunk.decayMultiplier * 100).toFixed(1);
+export function openVisualizer(results, collectionId, settings) {
+    currentResults = results;
+    currentCollectionId = collectionId;
+    currentSettings = settings;
+    selectedChunkId = null;
+    displayLimit = 50;
+    searchQuery = '';
+    bulkSelectMode = false;
+    selectedHashes.clear();
+    pendingChanges.clear();
+    hasUnsavedChanges = false;
+    activeTab = 'chunks'; // Reset to chunks tab on open
 
-    return `
-        <span title="Message age">
-            <i class="fa-solid fa-clock"></i> ${chunk.messageAge} msgs
-        </span>
-        <span title="Decay multiplier applied">
-            <i class="fa-solid fa-arrow-trend-down"></i> ${decayPercent}%
-        </span>
-    `;
+    // Process chunks - add unique identifier for each chunk
+    allChunks = (results?.chunks || []).map((chunk, idx) => ({
+        ...chunk,
+        uniqueId: `chunk_${idx}_${chunk.hash}`, // Create truly unique ID
+        data: getChunkData(chunk)
+    }));
+
+
+    applyFilters();
+    createModal();
+    renderChunkList();
+    renderDetailPanel();
+    bindEvents();
+
+    $('#vecthare_visualizer_modal').fadeIn(200);
 }
 
-/**
- * Filters chunks based on search text
- * @param {string} searchText Search query
- */
-function filterChunks(searchText) {
-    if (!searchText) {
-        filteredChunks = [...currentResults.chunks];
-    } else {
-        const query = searchText.toLowerCase();
-        filteredChunks = currentResults.chunks.filter(chunk =>
-            chunk.text.toLowerCase().includes(query)
+export function closeVisualizer() {
+    if (hasUnsavedChanges) {
+        if (!confirm('You have unsaved text changes. Are you sure you want to close?')) {
+            return;
+        }
+    }
+    hasUnsavedChanges = false;
+    $('#vecthare_visualizer_modal').fadeOut(200);
+    currentResults = null;
+    currentCollectionId = null;
+    selectedChunkId = null;
+}
+
+// ============================================================================
+// FILTERING & SORTING
+// ============================================================================
+
+function applyFilters() {
+    let chunks = [...allChunks];
+
+    // Search
+    if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        chunks = chunks.filter(c =>
+            c.text.toLowerCase().includes(q) ||
+            c.data.name?.toLowerCase().includes(q) ||
+            c.data.keywords.some(k => k.text.toLowerCase().includes(q))
         );
     }
-    renderChunks();
-}
 
-/**
- * Updates stats display
- */
-function updateStats() {
-    const count = filteredChunks.length;
-    const total = currentResults.chunks.length;
-
-    if (count === total) {
-        $('#vecthare_visualizer_count').text(`${count} chunks`);
-    } else {
-        $('#vecthare_visualizer_count').text(`${count} / ${total} chunks`);
+    // Filter
+    switch (filterBy) {
+        case 'enabled':
+            chunks = chunks.filter(c => c.data.enabled);
+            break;
+        case 'disabled':
+            chunks = chunks.filter(c => !c.data.enabled);
+            break;
+        case 'conditions':
+            chunks = chunks.filter(c => c.data.conditions?.enabled && c.data.conditions?.rules?.length > 0);
+            break;
+        case 'blind':
+            chunks = chunks.filter(c => c.data.temporallyBlind);
+            break;
+        case 'keywords':
+            chunks = chunks.filter(c => c.data.keywords?.length > 0);
+            break;
     }
+
+    // Sort
+    switch (sortBy) {
+        case 'length-desc':
+            chunks.sort((a, b) => (b.data.text?.length || 0) - (a.data.text?.length || 0));
+            break;
+        case 'length-asc':
+            chunks.sort((a, b) => (a.data.text?.length || 0) - (b.data.text?.length || 0));
+            break;
+        case 'keywords':
+            chunks.sort((a, b) => (b.data.keywords?.length || 0) - (a.data.keywords?.length || 0));
+            break;
+        case 'modified':
+            // Sort by whether chunk has customizations (keywords, conditions, name, blind)
+            chunks.sort((a, b) => {
+                const aModified = (a.data.keywords?.length || 0) + (a.data.conditions?.rules?.length || 0) + (a.data.name ? 1 : 0) + (a.data.temporallyBlind ? 1 : 0);
+                const bModified = (b.data.keywords?.length || 0) + (b.data.conditions?.rules?.length || 0) + (b.data.name ? 1 : 0) + (b.data.temporallyBlind ? 1 : 0);
+                return bModified - aModified;
+            });
+            break;
+        default: // 'index'
+            chunks.sort((a, b) => a.index - b.index);
+    }
+
+    filteredChunks = chunks;
+}
+
+// ============================================================================
+// MODAL CREATION
+// ============================================================================
+
+function createModal() {
+    // Remove existing
+    $('#vecthare_visualizer_modal').remove();
+
+    const collectionName = currentCollectionId || 'Collection';
+    const isChat = isChatCollection();
+    const icon = getCollectionIcon();
+
+    const html = `
+        <div id="vecthare_visualizer_modal" class="vecthare-visualizer-modal">
+            <div class="vecthare-visualizer-container">
+                <!-- Header -->
+                <div class="vecthare-visualizer-header">
+                    <div class="vecthare-visualizer-title">
+                        <span class="vecthare-visualizer-title-icon">${icon}</span>
+                        <span>${escapeHtml(collectionName)}</span>
+                    </div>
+                    <div class="vecthare-visualizer-header-actions">
+                        <button class="vecthare-visualizer-save" id="vecthare_visualizer_save" title="Save changes">
+                            <i class="fa-solid fa-floppy-disk"></i> Save
+                        </button>
+                        <button class="vecthare-visualizer-close" id="vecthare_visualizer_close">✕</button>
+                    </div>
+                </div>
+
+                <!-- Tab Bar (only for chat collections) -->
+                ${isChat ? `
+                <div class="vecthare-visualizer-tabs">
+                    <button class="vecthare-visualizer-tab active" data-tab="chunks">
+                        <i class="fa-solid fa-puzzle-piece"></i> Chunks
+                    </button>
+                    <button class="vecthare-visualizer-tab" data-tab="scenes">
+                        <i class="fa-solid fa-bookmark"></i> Scenes
+                    </button>
+                </div>
+                ` : ''}
+
+                <!-- Body: Split Panel (Chunks Tab) -->
+                <div class="vecthare-visualizer-body vecthare-vis-tab-content active" data-tab="chunks">
+                    <!-- Left: Chunk List -->
+                    <div class="vecthare-chunk-list-panel">
+                        <div class="vecthare-list-toolbar">
+                            <input type="text" class="vecthare-list-search" id="vecthare_chunk_search" placeholder="🔍 Search...">
+                            <div class="vecthare-list-controls">
+                                <select class="vecthare-list-sort" id="vecthare_chunk_sort">
+                                    <option value="index">Sort: Message Order</option>
+                                    <option value="length-desc">Sort: Longest First</option>
+                                    <option value="length-asc">Sort: Shortest First</option>
+                                    <option value="keywords">Sort: Most Keywords</option>
+                                    <option value="modified">Sort: Recently Modified</option>
+                                </select>
+                                <select class="vecthare-list-filter" id="vecthare_chunk_filter">
+                                    <option value="all">Filter: All</option>
+                                    <option value="enabled">Enabled</option>
+                                    <option value="disabled">Disabled</option>
+                                    <option value="keywords">Has Keywords</option>
+                                    <option value="conditions">Has Conditions</option>
+                                    <option value="blind">Decay Immune</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="vecthare-chunk-list" id="vecthare_chunk_list"></div>
+                        <div class="vecthare-bulk-actions">
+                            <label class="vecthare-bulk-toggle">
+                                <input type="checkbox" id="vecthare_bulk_mode">
+                                <span>Bulk Select Mode</span>
+                            </label>
+                            <div class="vecthare-bulk-buttons" id="vecthare_bulk_buttons" style="display: none;">
+                                <button class="vecthare-bulk-btn" id="vecthare_bulk_enable">Enable All</button>
+                                <button class="vecthare-bulk-btn" id="vecthare_bulk_disable">Disable All</button>
+                            </div>
+                        </div>
+                        <div class="vecthare-list-status" id="vecthare_list_status"></div>
+                    </div>
+
+                    <!-- Right: Detail Panel -->
+                    <div class="vecthare-chunk-detail-panel" id="vecthare_detail_panel">
+                        <div class="vecthare-detail-empty">Select a chunk to view details</div>
+                    </div>
+                </div>
+
+                <!-- Scenes Tab Content (only for chat collections) -->
+                ${isChat ? `
+                <div class="vecthare-visualizer-body vecthare-vis-tab-content vecthare-scenes-tab" data-tab="scenes">
+                    <div class="vecthare-scenes-container" id="vecthare_scenes_container"></div>
+                </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+
+    $('body').append(html);
+}
+
+// ============================================================================
+// SCENES TAB STATE & RENDERING
+// ============================================================================
+// Scenes are chunks with metadata.isScene === true
+// We filter them from allChunks to display in the Scenes tab
+
+let selectedSceneHash = null;
+
+/**
+ * Gets scene chunks from the loaded collection
+ * @returns {object[]} Chunks where metadata.isScene === true
+ */
+function getSceneChunks() {
+    return filterSceneChunks(allChunks);
 }
 
 /**
- * Initializes visualizer event handlers
+ * Renders the scenes tab content - split-panel like chunks tab
  */
-export function initializeVisualizer() {
-    // Close buttons
-    $(document).on('click', '#vecthare_visualizer_close, #vecthare_visualizer_done', () => {
-        $('#vecthare_visualizer_modal').fadeOut(200);
-    });
+function renderScenesTab() {
+    const container = $('#vecthare_scenes_container');
+    if (!container.length) return;
 
-    // Overlay click to close
-    $(document).on('click', '.vecthare-modal-overlay', function(e) {
-        if (e.target === this) {
-            $('#vecthare_visualizer_modal').fadeOut(200);
-        }
-    });
+    const sceneChunks = getSceneChunks();
+    const pendingScene = getPendingScene();
 
-    // ESC key to close
-    $(document).on('keydown', function(e) {
-        if (e.key === 'Escape' && $('#vecthare_visualizer_modal').is(':visible')) {
-            $('#vecthare_visualizer_modal').fadeOut(200);
-        }
-    });
+    if (sceneChunks.length === 0 && !pendingScene) {
+        container.html(`
+            <div class="vecthare-scenes-empty-full">
+                <i class="fa-solid fa-bookmark"></i>
+                <p><strong>No scenes in this collection</strong></p>
+                <p>Mark scene starts and ends on chat messages using the bookmark buttons</p>
+            </div>
+        `);
+        return;
+    }
 
-    // Search input
-    $(document).on('input', '#vecthare_visualizer_search', function() {
-        filterChunks($(this).val());
-    });
+    // Split-panel layout matching chunks tab
+    container.html(`
+        <!-- Left: Scene List -->
+        <div class="vecthare-scene-list-panel">
+            <div class="vecthare-scene-list-status">
+                <span>${sceneChunks.length} scene${sceneChunks.length !== 1 ? 's' : ''}</span>
+                ${pendingScene ? '<span class="vecthare-badge-open">1 pending</span>' : ''}
+            </div>
+            <div class="vecthare-scene-list" id="vecthare_scene_list"></div>
+        </div>
+        <!-- Right: Scene Detail -->
+        <div class="vecthare-scene-detail-panel" id="vecthare_scene_detail">
+            <div class="vecthare-detail-empty">Select a scene to view details</div>
+        </div>
+    `);
 
-    console.log('VectHare: Visualizer initialized');
+    renderSceneList();
+    bindScenesTabEvents();
 }
 
 /**
- * Renders empty state when no results match
- * @returns {string} HTML for empty state
+ * Renders the scene list (left panel)
  */
-function renderEmptyState() {
+function renderSceneList() {
+    const container = $('#vecthare_scene_list');
+    const sceneChunks = getSceneChunks();
+
+    let html = '';
+
+    // Sort scenes by start index
+    const sortedScenes = [...sceneChunks].sort((a, b) =>
+        (a.metadata?.sceneStart || 0) - (b.metadata?.sceneStart || 0)
+    );
+
+    sortedScenes.forEach((scene, index) => {
+        const meta = scene.metadata || {};
+        const start = meta.sceneStart ?? 0;
+        const end = meta.sceneEnd ?? start;
+        const msgCount = end - start + 1;
+        const isSelected = selectedSceneHash === scene.hash;
+        const title = meta.title || `Scene ${index + 1}`;
+        const containedCount = meta.containedHashes?.length || 0;
+
+        // Get preview from scene text
+        let preview = '';
+        if (scene.text) {
+            preview = scene.text.substring(0, 60).replace(/\s+/g, ' ');
+            if (scene.text.length > 60) preview += '...';
+        } else if (meta.summary) {
+            preview = meta.summary.substring(0, 60);
+            if (meta.summary.length > 60) preview += '...';
+        }
+
+        html += `
+            <div class="vecthare-scene-item ${isSelected ? 'selected' : ''}" data-scene-hash="${scene.hash}">
+                <div class="vecthare-scene-item-header">
+                    <span class="vecthare-scene-item-num">${index + 1}.</span>
+                    <span class="vecthare-scene-item-title">${escapeHtml(title)}</span>
+                </div>
+                <div class="vecthare-scene-item-meta">
+                    <span class="vecthare-scene-item-range">#${start} - #${end}</span>
+                    <span class="vecthare-scene-item-badge closed">${msgCount} msgs</span>
+                    <span class="vecthare-scene-item-badge vectorized">${containedCount} chunks</span>
+                </div>
+                ${preview ? `<div class="vecthare-scene-item-preview">${escapeHtml(preview)}</div>` : ''}
+            </div>
+        `;
+    });
+
+    container.html(html);
+}
+
+/**
+ * Gets the currently selected scene chunk
+ * @returns {object|null}
+ */
+function getSelectedScene() {
+    if (!selectedSceneHash) return null;
+    return allChunks.find(c => c.hash === selectedSceneHash && c.metadata?.isScene);
+}
+
+/**
+ * Renders the scene detail panel (right panel)
+ */
+function renderSceneDetailPanel() {
+    const panel = $('#vecthare_scene_detail');
+    const scene = getSelectedScene();
+
+    if (!scene) {
+        panel.html('<div class="vecthare-detail-empty">Select a scene to view details</div>');
+        return;
+    }
+
+    const meta = scene.metadata || {};
+    const start = meta.sceneStart ?? 0;
+    const end = meta.sceneEnd ?? start;
+    const msgCount = end - start + 1;
+    const containedCount = meta.containedHashes?.length || 0;
+    const title = meta.title || `Scene ${start}-${end}`;
+    const summary = meta.summary || '';
+    const keywords = meta.keywords || [];
+
+    // Scene text preview (first 500 chars)
+    const textPreview = scene.text
+        ? (scene.text.length > 500 ? scene.text.substring(0, 500) + '...' : scene.text)
+        : '';
+
+    panel.html(`
+        <!-- Header -->
+        <div class="vecthare-detail-header">
+            <div class="vecthare-detail-name-section">
+                <input type="text" class="vecthare-chunk-name-input" id="vecthare_scene_title"
+                       placeholder="Scene title..."
+                       value="${escapeHtml(title)}">
+            </div>
+            <button class="vecthare-detail-delete" id="vecthare_delete_scene">
+                <i class="fa-solid fa-trash"></i> Delete
+            </button>
+        </div>
+
+        <!-- Info Bar -->
+        <div class="vecthare-detail-info-bar">
+            <span class="vecthare-info-item">
+                <span class="vecthare-info-label">Messages</span>
+                <span class="vecthare-info-value">#${start} - #${end}</span>
+            </span>
+            <span class="vecthare-info-divider">•</span>
+            <span class="vecthare-info-item">
+                <span class="vecthare-info-value">${msgCount} messages</span>
+            </span>
+            <span class="vecthare-info-divider">•</span>
+            <span class="vecthare-info-item">
+                <span class="vecthare-info-value">${containedCount} chunks disabled</span>
+            </span>
+        </div>
+
+        <!-- Content -->
+        <div class="vecthare-detail-content">
+            <!-- Hash Info -->
+            <div class="vecthare-detail-section">
+                <div class="vecthare-detail-section-title">Scene Hash</div>
+                <div class="vecthare-scene-vector-row">
+                    <span class="vecthare-scene-vector-value vecthare-hash-display" title="Click to copy">${scene.hash}</span>
+                </div>
+            </div>
+
+            <!-- Preview Block -->
+            <div class="vecthare-detail-text-block">
+                <div class="vecthare-detail-section-title">Content Preview</div>
+                <div class="vecthare-scene-preview-text">${escapeHtml(textPreview)}</div>
+            </div>
+
+            <!-- Summary Section -->
+            <div class="vecthare-detail-section">
+                <div class="vecthare-detail-section-title">Summary <span class="vecthare-section-hint">(for search)</span></div>
+                <textarea class="vecthare-scene-summary-textarea" id="vecthare_scene_summary"
+                          placeholder="Brief summary of what happens in this scene...">${escapeHtml(summary)}</textarea>
+            </div>
+
+            <!-- Keywords Section -->
+            <div class="vecthare-detail-section">
+                <div class="vecthare-detail-section-title">Keywords <span class="vecthare-section-hint">(comma-separated)</span></div>
+                <input type="text" class="vecthare-scene-keywords-field" id="vecthare_scene_keywords"
+                       placeholder="keyword1, keyword2, ..."
+                       value="${escapeHtml(keywords.join(', '))}">
+            </div>
+
+            <!-- Actions Section -->
+            <div class="vecthare-detail-section">
+                <div class="vecthare-detail-section-title">Actions</div>
+                <div class="vecthare-scene-actions">
+                    <button class="vecthare-scene-action-btn" id="vecthare_scene_jump">
+                        <i class="fa-solid fa-arrow-up-right-from-square"></i> Jump to Scene
+                    </button>
+                </div>
+            </div>
+        </div>
+    `);
+
+    bindSceneDetailEvents();
+}
+
+/**
+ * Binds events for scenes tab (list interactions)
+ */
+function bindScenesTabEvents() {
+    // Scene item click - select scene by hash
+    $(document).off('click', '.vecthare-scene-item').on('click', '.vecthare-scene-item', function() {
+        const hash = $(this).data('scene-hash');
+        selectedSceneHash = hash;
+        renderSceneList();
+        renderSceneDetailPanel();
+    });
+}
+
+function bindSceneDetailEvents() {
+    const scene = getSelectedScene();
+    if (!scene) return;
+
+    const meta = scene.metadata || {};
+
+    // Title input - saves to chunk metadata
+    $('#vecthare_scene_title').off('blur').on('blur', async function() {
+        const title = $(this).val().trim();
+        await updateSceneChunkMetadata(scene.hash, { title }, currentSettings);
+        // Update local chunk data
+        if (scene.metadata) scene.metadata.title = title;
+        renderSceneList();
+    });
+
+    // Summary input
+    $('#vecthare_scene_summary').off('blur').on('blur', async function() {
+        const summary = $(this).val().trim();
+        await updateSceneChunkMetadata(scene.hash, { summary }, currentSettings);
+        if (scene.metadata) scene.metadata.summary = summary;
+    });
+
+    // Keywords input
+    $('#vecthare_scene_keywords').off('blur').on('blur', async function() {
+        const keywordsStr = $(this).val().trim();
+        const keywords = keywordsStr ? keywordsStr.split(',').map(k => k.trim()).filter(Boolean) : [];
+        await updateSceneChunkMetadata(scene.hash, { keywords }, currentSettings);
+        if (scene.metadata) scene.metadata.keywords = keywords;
+    });
+
+    // Jump to scene
+    $('#vecthare_scene_jump').off('click').on('click', function() {
+        const start = meta.sceneStart ?? 0;
+        closeVisualizer();
+        setTimeout(() => {
+            const messageElement = document.querySelector(`.mes[mesid="${start}"]`);
+            if (messageElement) {
+                messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                messageElement.classList.add('flash');
+                setTimeout(() => messageElement.classList.remove('flash'), 1000);
+            } else {
+                toastr.warning('Scene message not found. Is the chat open?');
+            }
+        }, 300);
+    });
+
+    // Copy hash to clipboard
+    $('.vecthare-hash-display').off('click').on('click', function() {
+        const hash = $(this).text();
+        navigator.clipboard.writeText(hash).then(() => {
+            toastr.info('Hash copied to clipboard');
+        });
+    });
+
+    // Delete scene - removes chunk from vector DB and re-enables contained chunks
+    $('#vecthare_delete_scene').off('click').on('click', async function() {
+        const containedHashes = meta.containedHashes || [];
+        const warningText = `Delete this scene? ${containedHashes.length} individual chunks will be re-enabled. This cannot be undone.`;
+
+        if (!confirm(warningText)) return;
+
+        const result = await deleteSceneChunk(scene.hash, containedHashes, currentSettings);
+        if (result.success) {
+            // Remove from local allChunks array
+            const idx = allChunks.findIndex(c => c.hash === scene.hash);
+            if (idx !== -1) allChunks.splice(idx, 1);
+
+            toastr.success('Scene deleted');
+            selectedSceneHash = null;
+            renderScenesTab();
+            eventSource.emit('vecthare_scenes_changed');
+        } else {
+            toastr.error(result.error || 'Failed to delete scene');
+        }
+    });
+}
+
+// ============================================================================
+// CHUNK LIST RENDERING
+// ============================================================================
+
+function renderChunkList() {
+    const container = $('#vecthare_chunk_list');
+    const displayChunks = filteredChunks.slice(0, displayLimit);
+
+    let html = displayChunks.map((chunk, idx) => renderChunkItem(chunk, idx)).join('');
+
+    if (filteredChunks.length > displayLimit) {
+        html += `<div class="vecthare-load-more" id="vecthare_load_more">[Load ${Math.min(50, filteredChunks.length - displayLimit)} more...]</div>`;
+    }
+
+    container.html(html);
+    updateStatusBar();
+}
+
+function renderChunkItem(chunk, listIndex) {
+    const data = chunk.data;
+    const isSelected = chunk.uniqueId === selectedChunkId;
+    const hasConditions = data.conditions?.enabled && data.conditions?.rules?.length > 0;
+    const hasKeywords = data.keywords?.length > 0;
+
+    // Use the display position in the filtered/sorted list (1-based)
+    const displayNumber = listIndex + 1;
+
+    // Create a text preview (first ~60 chars, clean it up)
+    const textPreview = data.text
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 60) + (data.text.length > 60 ? '...' : '');
+
+    // Use custom name if set, otherwise show text preview
+    const displayName = data.name || textPreview;
+
+    // Calculate text length for display
+    const textLength = data.text?.length || 0;
+    const textLengthDisplay = textLength > 1000 ? `${(textLength / 1000).toFixed(1)}k` : textLength;
+
+    // Message info from metadata
+    const msgId = chunk.metadata?.messageId ?? chunk.index ?? '?';
+    const chunkIdx = chunk.metadata?.chunkIndex ?? 0;
+    const totalChunks = chunk.metadata?.totalChunks ?? 1;
+
+    // Build info badges
+    const infoBadges = [];
+    infoBadges.push(`<span class="vecthare-chunk-item-badge msg">Msg ${msgId}</span>`);
+    if (totalChunks > 1) {
+        infoBadges.push(`<span class="vecthare-chunk-item-badge chunk-part">${chunkIdx + 1}/${totalChunks}</span>`);
+    }
+    infoBadges.push(`<span class="vecthare-chunk-item-badge chars">${textLengthDisplay} chars</span>`);
+
+    // Build feature badges
+    const featureBadges = [];
+    if (hasConditions) featureBadges.push(`<span class="vecthare-chunk-item-badge conditions" title="Has ${data.conditions.rules.length} condition(s)">⚡${data.conditions.rules.length}</span>`);
+    if (hasKeywords) featureBadges.push(`<span class="vecthare-chunk-item-badge keywords" title="Has ${data.keywords.length} keyword(s)">🏷️${data.keywords.length}</span>`);
+    if (data.temporallyBlind) featureBadges.push(`<span class="vecthare-chunk-item-badge blind" title="Immune to temporal decay">🛡️</span>`);
+
     return `
-        <div class="vecthare-empty-state">
-            <i class="fa-solid fa-magnifying-glass" style="font-size: 3em; opacity: 0.3;"></i>
-            <p>No chunks match your search</p>
+        <div class="vecthare-chunk-item ${isSelected ? 'selected' : ''} ${!data.enabled ? 'disabled' : ''}"
+             data-uid="${chunk.uniqueId}" data-list-index="${listIndex}">
+            <div class="vecthare-chunk-item-content">
+                <div class="vecthare-chunk-item-header">
+                    <span class="vecthare-chunk-item-index">${displayNumber}.</span>
+                    <span class="vecthare-chunk-item-name">${escapeHtml(displayName)}</span>
+                </div>
+                <div class="vecthare-chunk-item-stats">
+                    <div class="vecthare-chunk-item-badges info-badges">${infoBadges.join('')}</div>
+                    ${featureBadges.length > 0 ? `<div class="vecthare-chunk-item-badges feature-badges">${featureBadges.join('')}</div>` : ''}
+                </div>
+            </div>
         </div>
     `;
 }
 
+function updateStatusBar() {
+    const shown = filteredChunks.length;
+    const withConditions = allChunks.filter(c => c.data.conditions?.enabled && c.data.conditions?.rules?.length > 0).length;
+    const withKeywords = allChunks.filter(c => c.data.keywords?.length > 0).length;
+    const blind = allChunks.filter(c => c.data.temporallyBlind).length;
+
+    $('#vecthare_list_status').html(`
+        <span>${shown} chunks</span>
+        ${withKeywords > 0 ? `<span>• 🏷️${withKeywords}</span>` : ''}
+        ${withConditions > 0 ? `<span>• ⚡${withConditions}</span>` : ''}
+        ${blind > 0 ? `<span>• 🛡️${blind}</span>` : ''}
+    `);
+}
+
+// ============================================================================
+// DETAIL PANEL RENDERING
+// ============================================================================
+
+function renderDetailPanel() {
+    const panel = $('#vecthare_detail_panel');
+
+    if (!selectedChunkId) {
+        panel.html('<div class="vecthare-detail-empty">Select a chunk to view details</div>');
+        return;
+    }
+
+    // Find chunk by uniqueId
+    const chunk = allChunks.find(c => c.uniqueId === selectedChunkId);
+    if (!chunk) {
+        console.error('VectHare: Chunk not found for uniqueId:', selectedChunkId);
+        panel.html('<div class="vecthare-detail-empty">Chunk not found</div>');
+        return;
+    }
+
+    const data = chunk.data;
+    const wordCount = data.text.split(/\s+/).filter(Boolean).length;
+    const tokenEstimate = Math.round(wordCount * 1.3);
+
+    // Find position in filtered list (what user sees in the sidebar)
+    const listPosition = filteredChunks.findIndex(c => c.uniqueId === selectedChunkId);
+    const displayNumber = listPosition >= 0 ? listPosition + 1 : '?';
+
+    const hasConditions = data.conditions?.enabled && data.conditions?.rules?.length > 0;
+    const hasSummaries = data.summaries?.length > 0;
+
+    panel.html(`
+        <!-- Header -->
+        <div class="vecthare-detail-header">
+            <!-- Chunk Name - Primary/Biggest -->
+            <div class="vecthare-detail-name-section">
+                <input type="text" class="vecthare-chunk-name-input" id="vecthare_chunk_name"
+                       placeholder="Name this chunk..."
+                       value="${escapeHtml(data.name || '')}">
+            </div>
+            <button class="vecthare-detail-delete" id="vecthare_delete_chunk">
+                <i class="fa-solid fa-trash"></i> Delete
+            </button>
+        </div>
+
+        <!-- Chunk Info Bar - Secondary -->
+        <div class="vecthare-detail-info-bar">
+            <span class="vecthare-info-item">
+                <span class="vecthare-info-label">Chunk</span>
+                <span class="vecthare-info-value">#${displayNumber}</span>
+            </span>
+            <span class="vecthare-info-divider">•</span>
+            <span class="vecthare-info-item">
+                <span class="vecthare-info-label">from Message</span>
+                <span class="vecthare-info-value">#${chunk.index}</span>
+            </span>
+            <span class="vecthare-info-divider">•</span>
+            <span class="vecthare-info-item vecthare-info-hash" title="Click to copy hash" id="vecthare_copy_hash">
+                <span class="vecthare-info-value">${chunk.hash}</span>
+            </span>
+        </div>
+
+        <!-- Content -->
+        <div class="vecthare-detail-content">
+            <!-- Text Block - Inline Editable -->
+            <div class="vecthare-detail-text-block">
+                <div class="vecthare-detail-text" id="vecthare_chunk_text" contenteditable="true">${escapeHtml(data.text)}</div>
+                <div class="vecthare-detail-text-meta">
+                    <span>${wordCount} words • ~${tokenEstimate} tokens</span>
+                    <button class="vecthare-detail-save-btn vecthare-hidden" id="vecthare_save_text">
+                        <i class="fa-solid fa-save"></i> Save & Re-embed
+                    </button>
+                </div>
+            </div>
+
+            <!-- Status Section -->
+            <div class="vecthare-detail-section">
+                <div class="vecthare-detail-section-title">Status</div>
+                <div class="vecthare-detail-status-row">
+                    <div class="vecthare-detail-toggle-item">
+                        <span class="vecthare-toggle-label">Enabled</span>
+                        <label class="vecthare-toggle-switch">
+                            <input type="checkbox" id="vecthare_detail_enabled" ${data.enabled ? 'checked' : ''}>
+                            <span class="vecthare-toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="vecthare-detail-toggle-item">
+                        <span class="vecthare-toggle-label">Decay Immune</span>
+                        <label class="vecthare-toggle-switch">
+                            <input type="checkbox" id="vecthare_detail_blind" ${data.temporallyBlind ? 'checked' : ''}>
+                            <span class="vecthare-toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Keywords Section -->
+            <div class="vecthare-detail-section">
+                <div class="vecthare-detail-section-header">
+                    <span class="vecthare-detail-section-title">Keywords <span class="vecthare-section-hint">(boost when query matches)</span></span>
+                    <button class="vecthare-keyword-mode-toggle" id="vecthare_keyword_mode" title="Toggle plaintext mode">
+                        <i class="fa-solid ${plaintextKeywordMode ? 'fa-tag' : 'fa-code'}"></i>
+                    </button>
+                </div>
+                <div class="vecthare-detail-keywords" id="vecthare_keywords_container">
+                    ${plaintextKeywordMode ? `
+                        <textarea class="vecthare-keyword-plaintext" id="vecthare_keywords_plaintext" placeholder="keyword:1.5x, another:2x, plain">${data.keywords.map(k => k.weight !== 1.0 ? `${k.text}:${k.weight}x` : k.text).join(', ')}</textarea>
+                        <div class="vecthare-keyword-plaintext-hint">Format: keyword:2x for boost, or just keyword (defaults to 1.5x)</div>
+                    ` : `
+                        <div class="vecthare-keywords-list">
+                            ${data.keywords.map((k, idx) => `
+                                <span class="vecthare-keyword-tag" data-index="${idx}">
+                                    <span class="vecthare-keyword-tag-text">${escapeHtml(k.text || 'unnamed')}</span>
+                                    <span class="vecthare-keyword-tag-weight">${k.weight}x</span>
+                                    <i class="fa-solid fa-xmark vecthare-keyword-remove" data-index="${idx}"></i>
+                                </span>
+                            `).join('')}
+                        </div>
+                        <button class="vecthare-keyword-add" id="vecthare_add_keyword">+ Add keyword...</button>
+                    `}
+                </div>
+            </div>
+
+            <!-- Conditions Section -->
+            <div class="vecthare-detail-section">
+                <div class="vecthare-detail-section-title">Conditions</div>
+                <div class="vecthare-detail-conditions">
+                    <div class="vecthare-conditions-header">
+                        <label class="vecthare-conditions-toggle">
+                            <input type="checkbox" id="vecthare_conditions_enabled" ${data.conditions?.enabled ? 'checked' : ''}>
+                            <span>Enable conditional activation</span>
+                        </label>
+                        <div class="vecthare-conditions-logic">
+                            <button class="vecthare-logic-btn ${data.conditions?.logic === 'AND' ? 'active' : ''}" data-logic="AND">AND</button>
+                            <button class="vecthare-logic-btn ${data.conditions?.logic === 'OR' ? 'active' : ''}" data-logic="OR">OR</button>
+                        </div>
+                    </div>
+                    <div class="vecthare-conditions-list" id="vecthare_conditions_list">
+                        ${(data.conditions?.rules || []).map((rule, i) => `
+                            <div class="vecthare-condition-item" data-index="${i}">
+                                <span class="vecthare-condition-item-num">${i + 1}.</span>
+                                <span class="vecthare-condition-item-text">${escapeHtml(formatConditionRule(rule))}</span>
+                                <i class="fa-solid fa-xmark vecthare-condition-item-remove"></i>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <button class="vecthare-add-condition-btn" id="vecthare_add_condition">+ Add Condition Rule</button>
+                </div>
+            </div>
+
+            <!-- Chunk Links Section -->
+            <div class="vecthare-detail-section">
+                <div class="vecthare-detail-section-title">
+                    <i class="fa-solid fa-link"></i> Chunk Links
+                    <span class="vecthare-section-hint">(pull related chunks into results)</span>
+                </div>
+                <div class="vecthare-detail-links">
+                    <div class="vecthare-links-list" id="vecthare_links_list">
+                        ${(data.chunkLinks || []).map((link, i) => `
+                            <div class="vecthare-link-item ${link.mode}" data-index="${i}">
+                                <span class="vecthare-link-mode-badge ${link.mode}">${link.mode === 'force' ? '🔗 Force' : '〰️ Soft'}</span>
+                                <span class="vecthare-link-target" title="Target hash: ${link.targetHash}">${link.targetHash.toString().substring(0, 12)}...</span>
+                                <i class="fa-solid fa-xmark vecthare-link-item-remove"></i>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="vecthare-links-help">
+                        <span class="vecthare-help-badge force">Force</span> = Target chunk MUST appear if this chunk appears<br>
+                        <span class="vecthare-help-badge soft">Soft</span> = Target chunk gets score boost if this chunk appears
+                    </div>
+                    <button class="vecthare-add-link-btn" id="vecthare_add_link">+ Add Link</button>
+                </div>
+            </div>
+
+            <!-- Summaries Section -->
+            <div class="vecthare-detail-section">
+                <div class="vecthare-detail-section-title">Dual-Vector Summaries</div>
+                <div class="vecthare-detail-summaries">
+                    <div class="vecthare-summaries-header">
+                        <span>Alternative search vectors for this chunk</span>
+                    </div>
+                    <div class="vecthare-summaries-list" id="vecthare_summaries_list">
+                        ${(data.summaries || []).map((summary, i) => {
+                            const summaryHash = getStringHash(summary);
+                            return `
+                            <div class="vecthare-summary-item" data-index="${i}">
+                                <div class="vecthare-summary-item-content">
+                                    <span class="vecthare-summary-item-text">${escapeHtml(summary)}</span>
+                                    <span class="vecthare-summary-item-hash" title="Summary vector hash">#${summaryHash}</span>
+                                </div>
+                                <i class="fa-solid fa-xmark vecthare-summary-item-remove"></i>
+                            </div>
+                        `}).join('')}
+                    </div>
+                    <button class="vecthare-add-summary-btn" id="vecthare_add_summary">+ Add Summary</button>
+                </div>
+            </div>
+        </div>
+    `);
+
+    bindDetailEvents();
+}
+
+function formatConditionRule(rule) {
+    if (!rule || !rule.type) return 'Unknown condition';
+    const negation = rule.negated ? 'NOT ' : '';
+    switch (rule.type) {
+        case 'messageCount': return `${negation}messageCount ${rule.operator || '>='} ${rule.value}`;
+        case 'emotion': return `${negation}emotion: ${rule.value}`;
+        case 'isGroupChat': return `${negation}isGroupChat`;
+        case 'speaker': return `${negation}speaker: ${rule.value}`;
+        default: return `${negation}${rule.type}: ${rule.value || ''}`;
+    }
+}
+
+// ============================================================================
+// EVENT BINDING
+// ============================================================================
+
+function bindEvents() {
+    // Save
+    $('#vecthare_visualizer_save').on('click', saveAllChanges);
+
+    // Close
+    $('#vecthare_visualizer_close').on('click', closeVisualizer);
+    $('#vecthare_visualizer_modal').on('click', function(e) {
+        if (e.target === this) closeVisualizer();
+    });
+
+    // Tab switching
+    $('.vecthare-visualizer-tab').on('click', function() {
+        const tab = $(this).data('tab');
+        if (tab === activeTab) return;
+
+        activeTab = tab;
+
+        // Update tab button states
+        $('.vecthare-visualizer-tab').removeClass('active');
+        $(this).addClass('active');
+
+        // Show/hide tab content
+        $('.vecthare-vis-tab-content').removeClass('active');
+        $(`.vecthare-vis-tab-content[data-tab="${tab}"]`).addClass('active');
+
+        // Render scenes tab when switching to it
+        if (tab === 'scenes') {
+            renderScenesTab();
+        }
+    });
+
+    // Search
+    $('#vecthare_chunk_search').on('input', debounce(function() {
+        searchQuery = $(this).val();
+        applyFilters();
+        renderChunkList();
+    }, 200));
+
+    // Sort
+    $('#vecthare_chunk_sort').on('change', function() {
+        sortBy = $(this).val();
+        applyFilters();
+        renderChunkList();
+    });
+
+    // Filter
+    $('#vecthare_chunk_filter').on('change', function() {
+        filterBy = $(this).val();
+        applyFilters();
+        renderChunkList();
+    });
+
+    // Chunk selection
+    $(document).on('click', '.vecthare-chunk-item', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const uid = $(this).attr('data-uid');
+        console.log('VectHare: Clicked chunk with uniqueId:', uid);
+        if (!uid) {
+            console.error('VectHare: No uniqueId found on clicked element');
+            return;
+        }
+        // Warn if switching chunks with unsaved changes
+        if (hasUnsavedChanges && uid !== selectedChunkId) {
+            if (!confirm('You have unsaved text changes. Switch chunks anyway?')) {
+                return;
+            }
+            hasUnsavedChanges = false;
+        }
+        selectedChunkId = uid;
+        renderChunkList();
+        renderDetailPanel();
+    });
+
+    // Load more
+    $(document).on('click', '#vecthare_load_more', function() {
+        displayLimit += 50;
+        renderChunkList();
+    });
+
+    // Bulk mode
+    $('#vecthare_bulk_mode').on('change', function() {
+        bulkSelectMode = $(this).is(':checked');
+        $('#vecthare_bulk_buttons').toggle(bulkSelectMode);
+    });
+
+    $('#vecthare_bulk_enable').on('click', () => bulkSetEnabled(true));
+    $('#vecthare_bulk_disable').on('click', () => bulkSetEnabled(false));
+}
+
+function bindDetailEvents() {
+    const chunk = allChunks.find(c => c.uniqueId === selectedChunkId);
+    if (!chunk) return;
+
+    const originalText = chunk.data.text;
+
+    // Chunk name input
+    $('#vecthare_chunk_name').on('input', debounce(function() {
+        const name = $(this).val().trim();
+        chunk.data.name = name || null;
+        updateChunkData(chunk.hash, { name: chunk.data.name });
+        renderChunkList();
+    }, 300));
+
+    // Inline text editing - track changes
+    $('#vecthare_chunk_text').on('input', function() {
+        const newText = $(this).text().trim();
+        if (newText !== originalText) {
+            hasUnsavedChanges = true;
+            $('#vecthare_save_text').removeClass('vecthare-hidden');
+        } else {
+            hasUnsavedChanges = false;
+            $('#vecthare_save_text').addClass('vecthare-hidden');
+        }
+    });
+
+    // Save text changes
+    $('#vecthare_save_text').on('click', async function() {
+        const newText = $('#vecthare_chunk_text').text().trim();
+        if (!newText) return;
+
+        $(this).prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Saving...');
+
+        try {
+            // Delete old
+            await deleteVectorItems(currentCollectionId, [chunk.hash], currentSettings);
+
+            // Insert new with new hash
+            const newHash = String(getStringHash(newText));
+            await insertVectorItems(currentCollectionId, [{
+                hash: newHash,
+                text: newText,
+                index: chunk.index
+            }], currentSettings);
+
+            // Update metadata
+            const oldMeta = getChunkMetadata(chunk.hash);
+            if (oldMeta) {
+                deleteChunkMetadata(chunk.hash);
+                saveChunkMetadata(newHash, { ...oldMeta });
+            }
+
+            // Update local state
+            chunk.hash = newHash;
+            chunk.text = newText;
+            chunk.data.text = newText;
+            hasUnsavedChanges = false;
+
+            renderChunkList();
+            renderDetailPanel();
+            toastr.success('Chunk updated successfully', 'VectHare');
+        } catch (error) {
+            console.error('Failed to update chunk:', error);
+            toastr.error('Failed to update chunk', 'VectHare');
+            $(this).prop('disabled', false).html('<i class="fa-solid fa-save"></i> Save & Re-embed');
+        }
+    });
+
+    // Enabled toggle
+    $('#vecthare_detail_enabled').on('change', function() {
+        const enabled = $(this).is(':checked');
+        updateChunkData(chunk.hash, { enabled });
+        chunk.data.enabled = enabled;
+        renderChunkList();
+    });
+
+    // Blind toggle
+    $('#vecthare_detail_blind').on('change', function() {
+        const blind = $(this).is(':checked');
+        setChunkTemporallyBlind(chunk.hash, blind);
+        chunk.data.temporallyBlind = blind;
+        renderChunkList();
+    });
+
+    // Delete chunk
+    $('#vecthare_delete_chunk').on('click', () => deleteChunk(chunk));
+
+    // Keyword mode toggle (plaintext vs badge)
+    $('#vecthare_keyword_mode').on('click', function() {
+        // If in plaintext mode, parse and save before switching
+        if (plaintextKeywordMode) {
+            const plaintext = $('#vecthare_keywords_plaintext').val();
+            chunk.data.keywords = parsePlaintextKeywords(plaintext);
+            updateChunkData(chunk.hash, { keywords: chunk.data.keywords });
+        }
+        plaintextKeywordMode = !plaintextKeywordMode;
+        renderDetailPanel();
+    });
+
+    // Plaintext keywords - save on blur
+    $('#vecthare_keywords_plaintext').on('blur', function() {
+        const plaintext = $(this).val();
+        chunk.data.keywords = parsePlaintextKeywords(plaintext);
+        updateChunkData(chunk.hash, { keywords: chunk.data.keywords });
+    });
+
+    // Keywords - add new
+    $('#vecthare_add_keyword').on('click', function() {
+        $(this).replaceWith('<input type="text" class="vecthare-keyword-input" id="vecthare_keyword_input" placeholder="Enter keyword...">');
+        $('#vecthare_keyword_input').focus().on('keydown', function(e) {
+            if (e.key === 'Enter') {
+                const keyword = $(this).val().trim();
+                if (keyword && !chunk.data.keywords.some(k => k.text === keyword)) {
+                    chunk.data.keywords.push({ text: keyword, weight: 1.5 }); // Default 1.5x boost
+                    updateChunkData(chunk.hash, { keywords: chunk.data.keywords });
+                }
+                renderDetailPanel();
+            } else if (e.key === 'Escape') {
+                renderDetailPanel();
+            }
+        }).on('blur', function() {
+            renderDetailPanel();
+        });
+    });
+
+    // Keyword remove button
+    $('.vecthare-keyword-remove').on('click', function() {
+        const index = $(this).data('index');
+        chunk.data.keywords.splice(index, 1);
+        updateChunkData(chunk.hash, { keywords: chunk.data.keywords });
+        renderDetailPanel();
+    });
+
+    // Conditions
+    $('#vecthare_conditions_enabled').on('change', function() {
+        chunk.data.conditions.enabled = $(this).is(':checked');
+        updateChunkData(chunk.hash, { conditions: chunk.data.conditions });
+    });
+
+    $('.vecthare-logic-btn').on('click', function() {
+        const logic = $(this).data('logic');
+        chunk.data.conditions.logic = logic;
+        updateChunkData(chunk.hash, { conditions: chunk.data.conditions });
+        $('.vecthare-logic-btn').removeClass('active');
+        $(this).addClass('active');
+    });
+
+    $('.vecthare-condition-item-remove').on('click', function() {
+        const index = $(this).closest('.vecthare-condition-item').data('index');
+        chunk.data.conditions.rules.splice(index, 1);
+        updateChunkData(chunk.hash, { conditions: chunk.data.conditions });
+        renderDetailPanel();
+        renderChunkList();
+    });
+
+    // Add condition rule
+    $('#vecthare_add_condition').on('click', function() {
+        openConditionEditor(chunk);
+    });
+
+    // Chunk links
+    $('#vecthare_add_link').on('click', function() {
+        openLinkEditor(chunk);
+    });
+
+    $('.vecthare-link-item-remove').on('click', function() {
+        const index = $(this).closest('.vecthare-link-item').data('index');
+        chunk.data.chunkLinks.splice(index, 1);
+        updateChunkData(chunk.hash, { chunkLinks: chunk.data.chunkLinks });
+        renderDetailPanel();
+    });
+
+    // Summaries
+    $('.vecthare-summary-item-remove').on('click', function() {
+        const index = $(this).closest('.vecthare-summary-item').data('index');
+        const summaryText = chunk.data.summaries[index];
+
+        // Track for deletion on save
+        if (!chunk.data._deletedSummaries) chunk.data._deletedSummaries = [];
+        chunk.data._deletedSummaries.push(summaryText);
+
+        // Remove from local data
+        chunk.data.summaries.splice(index, 1);
+        updateChunkData(chunk.hash, { summaries: chunk.data.summaries, _deletedSummaries: chunk.data._deletedSummaries });
+        renderDetailPanel();
+    });
+
+    $('#vecthare_add_summary').on('click', function() {
+        const summary = prompt('Enter summary text:');
+        if (summary && summary.trim()) {
+            const summaryText = summary.trim();
+
+            // Track for vectorization on save
+            if (!chunk.data._newSummaries) chunk.data._newSummaries = [];
+            chunk.data._newSummaries.push(summaryText);
+
+            // Add to local data
+            chunk.data.summaries.push(summaryText);
+            updateChunkData(chunk.hash, { summaries: chunk.data.summaries, _newSummaries: chunk.data._newSummaries });
+            renderDetailPanel();
+        }
+    });
+}
+
 /**
- * Escapes HTML entities
- * @param {string} text Text to escape
- * @returns {string} Escaped text
+ * Parse plaintext keywords format: "keyword:2x, another:1.5x, plain"
  */
+function parsePlaintextKeywords(text) {
+    if (!text || !text.trim()) return [];
+
+    return text.split(',').map(item => {
+        const trimmed = item.trim();
+        if (!trimmed) return null;
+
+        // Check for weight suffix like :2x or :1.5x
+        const match = trimmed.match(/^(.+?):(\d+\.?\d*)x?$/i);
+        if (match) {
+            return { text: match[1].trim(), weight: parseFloat(match[2]) };
+        }
+        // No weight specified, default to 1.5x
+        return { text: trimmed, weight: 1.5 };
+    }).filter(Boolean);
+}
+
+// ============================================================================
+// TEXT EDITOR
+// ============================================================================
+
+function openTextEditor(chunk) {
+    const overlay = $(`
+        <div class="vecthare-text-editor-overlay" id="vecthare_text_editor_overlay">
+            <div class="vecthare-text-editor-modal">
+                <div class="vecthare-text-editor-header">
+                    <h4>Edit Chunk Text</h4>
+                </div>
+                <div class="vecthare-text-editor-body">
+                    <textarea class="vecthare-text-editor-textarea" id="vecthare_text_editor_textarea">${escapeHtml(chunk.data.text)}</textarea>
+                </div>
+                <div class="vecthare-text-editor-footer">
+                    <button class="vecthare-text-editor-btn vecthare-text-editor-cancel" id="vecthare_text_cancel">Cancel</button>
+                    <button class="vecthare-text-editor-btn vecthare-text-editor-save" id="vecthare_text_save">Save & Re-embed</button>
+                </div>
+            </div>
+        </div>
+    `);
+
+    $('.vecthare-visualizer-container').append(overlay);
+
+    $('#vecthare_text_cancel').on('click', () => overlay.remove());
+    overlay.on('click', function(e) {
+        if (e.target === this) overlay.remove();
+    });
+
+    $('#vecthare_text_save').on('click', async function() {
+        const newText = $('#vecthare_text_editor_textarea').val().trim();
+        if (!newText) return;
+
+        $(this).prop('disabled', true).text('Saving...');
+
+        try {
+            // Delete old
+            await deleteVectorItems(currentCollectionId, [chunk.hash], currentSettings);
+
+            // Insert new with new hash
+            const newHash = String(getStringHash(newText));
+            await insertVectorItems(currentCollectionId, [{
+                hash: newHash,
+                text: newText,
+                index: chunk.index
+            }], currentSettings);
+
+            // Update metadata
+            const oldMeta = getChunkMetadata(chunk.hash);
+            if (oldMeta) {
+                deleteChunkMetadata(chunk.hash);
+                saveChunkMetadata(newHash, { ...oldMeta });
+            }
+
+            // Update local state - update hash but keep same uniqueId for selection
+            chunk.hash = newHash;
+            chunk.text = newText;
+            chunk.data.text = newText;
+            // selectedChunkId stays the same since uniqueId doesn't change
+
+            overlay.remove();
+            renderChunkList();
+            renderDetailPanel();
+            toastr.success('Chunk updated successfully', 'VectHare');
+        } catch (error) {
+            console.error('Failed to update chunk:', error);
+            toastr.error('Failed to update chunk', 'VectHare');
+            $(this).prop('disabled', false).text('Save & Re-embed');
+        }
+    });
+}
+
+// ============================================================================
+// CONDITION EDITOR
+// ============================================================================
+
+const CONDITION_TYPES = [
+    { value: 'pattern', label: 'Pattern Match', icon: '🔍' },
+    { value: 'speaker', label: 'Speaker', icon: '💬' },
+    { value: 'messageCount', label: 'Message Count', icon: '📊' },
+    { value: 'emotion', label: 'Emotion', icon: '😊' },
+    { value: 'isGroupChat', label: 'Group Chat', icon: '👥' },
+    { value: 'timeOfDay', label: 'Time of Day', icon: '🕐' },
+    { value: 'randomChance', label: 'Random Chance', icon: '🎲' },
+];
+
+function openConditionEditor(chunk) {
+    const overlay = $(`
+        <div class="vecthare-editor-overlay" id="vecthare_condition_editor">
+            <div class="vecthare-editor-modal">
+                <div class="vecthare-editor-header">
+                    <h4><i class="fa-solid fa-bolt"></i> Add Condition Rule</h4>
+                    <button class="vecthare-editor-close" id="vecthare_condition_close">×</button>
+                </div>
+                <div class="vecthare-editor-body">
+                    <div class="vecthare-editor-field">
+                        <label>Condition Type</label>
+                        <select id="vecthare_condition_type" class="vecthare-editor-select">
+                            ${CONDITION_TYPES.map(t => `<option value="${t.value}">${t.icon} ${t.label}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="vecthare-editor-field" id="vecthare_condition_settings">
+                        <label>Pattern</label>
+                        <input type="text" id="vecthare_condition_value" class="vecthare-editor-input" placeholder="Enter pattern or value...">
+                    </div>
+                    <div class="vecthare-editor-field">
+                        <label class="vecthare-editor-checkbox">
+                            <input type="checkbox" id="vecthare_condition_negate">
+                            <span>Negate (NOT)</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="vecthare-editor-footer">
+                    <button class="vecthare-editor-btn cancel" id="vecthare_condition_cancel">Cancel</button>
+                    <button class="vecthare-editor-btn primary" id="vecthare_condition_add">Add Condition</button>
+                </div>
+            </div>
+        </div>
+    `);
+
+    $('.vecthare-visualizer-container').append(overlay);
+
+    $('#vecthare_condition_close, #vecthare_condition_cancel').on('click', () => overlay.remove());
+    overlay.on('click', function(e) {
+        if (e.target === this) overlay.remove();
+    });
+
+    $('#vecthare_condition_add').on('click', function() {
+        const type = $('#vecthare_condition_type').val();
+        const value = $('#vecthare_condition_value').val().trim();
+        const negated = $('#vecthare_condition_negate').is(':checked');
+
+        if (!value && type !== 'isGroupChat' && type !== 'randomChance') {
+            toastr.warning('Please enter a value', 'VectHare');
+            return;
+        }
+
+        const rule = {
+            type,
+            negated,
+            settings: { value }
+        };
+
+        if (!chunk.data.conditions.rules) {
+            chunk.data.conditions.rules = [];
+        }
+        chunk.data.conditions.rules.push(rule);
+        updateChunkData(chunk.hash, { conditions: chunk.data.conditions });
+
+        overlay.remove();
+        renderDetailPanel();
+        renderChunkList();
+        toastr.success('Condition added', 'VectHare');
+    });
+}
+
+// ============================================================================
+// LINK EDITOR
+// ============================================================================
+
+function openLinkEditor(chunk) {
+    // Get available chunks to link to (excluding self)
+    const availableChunks = allChunks.filter(c => c.hash !== chunk.hash);
+
+    const overlay = $(`
+        <div class="vecthare-editor-overlay" id="vecthare_link_editor">
+            <div class="vecthare-editor-modal">
+                <div class="vecthare-editor-header">
+                    <h4><i class="fa-solid fa-link"></i> Add Chunk Link</h4>
+                    <button class="vecthare-editor-close" id="vecthare_link_close">×</button>
+                </div>
+                <div class="vecthare-editor-body">
+                    <div class="vecthare-editor-field">
+                        <label>Link Mode</label>
+                        <div class="vecthare-link-mode-selector">
+                            <label class="vecthare-link-mode-option">
+                                <input type="radio" name="link_mode" value="force" checked>
+                                <span class="vecthare-link-mode-card force">
+                                    <span class="icon">🔗</span>
+                                    <span class="title">Force Link</span>
+                                    <span class="desc">Target MUST appear when this chunk appears</span>
+                                </span>
+                            </label>
+                            <label class="vecthare-link-mode-option">
+                                <input type="radio" name="link_mode" value="soft">
+                                <span class="vecthare-link-mode-card soft">
+                                    <span class="icon">〰️</span>
+                                    <span class="title">Soft Link</span>
+                                    <span class="desc">Target gets score boost when this chunk appears</span>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="vecthare-editor-field">
+                        <label>Target Chunk</label>
+                        <select id="vecthare_link_target" class="vecthare-editor-select">
+                            ${availableChunks.map(c => {
+                                const preview = c.data.text.substring(0, 40).replace(/\s+/g, ' ') + '...';
+                                const name = c.data.name || preview;
+                                return `<option value="${c.hash}">[Msg #${c.index}] ${escapeHtml(name)}</option>`;
+                            }).join('')}
+                        </select>
+                    </div>
+                </div>
+                <div class="vecthare-editor-footer">
+                    <button class="vecthare-editor-btn cancel" id="vecthare_link_cancel">Cancel</button>
+                    <button class="vecthare-editor-btn primary" id="vecthare_link_add">Add Link</button>
+                </div>
+            </div>
+        </div>
+    `);
+
+    $('.vecthare-visualizer-container').append(overlay);
+
+    $('#vecthare_link_close, #vecthare_link_cancel').on('click', () => overlay.remove());
+    overlay.on('click', function(e) {
+        if (e.target === this) overlay.remove();
+    });
+
+    $('#vecthare_link_add').on('click', function() {
+        const mode = $('input[name="link_mode"]:checked').val();
+        const targetHash = $('#vecthare_link_target').val();
+
+        if (!targetHash) {
+            toastr.warning('Please select a target chunk', 'VectHare');
+            return;
+        }
+
+        // Check for duplicate
+        if (chunk.data.chunkLinks.some(l => l.targetHash === targetHash)) {
+            toastr.warning('Link to this chunk already exists', 'VectHare');
+            return;
+        }
+
+        chunk.data.chunkLinks.push({ targetHash, mode });
+        updateChunkData(chunk.hash, { chunkLinks: chunk.data.chunkLinks });
+
+        overlay.remove();
+        renderDetailPanel();
+        toastr.success('Link added', 'VectHare');
+    });
+}
+
+// ============================================================================
+// DELETE CHUNK
+// ============================================================================
+
+async function deleteChunk(chunk) {
+    if (!confirm(`Delete chunk #${chunk.index}?`)) return;
+
+    try {
+        await deleteVectorItems(currentCollectionId, [chunk.hash], currentSettings);
+        deleteChunkMetadata(chunk.hash);
+
+        // Remove from local state by uniqueId
+        const idx = allChunks.findIndex(c => c.uniqueId === chunk.uniqueId);
+        if (idx !== -1) allChunks.splice(idx, 1);
+
+        selectedChunkId = null;
+        applyFilters();
+        renderChunkList();
+        renderDetailPanel();
+        toastr.success('Chunk deleted', 'VectHare');
+    } catch (error) {
+        console.error('Failed to delete chunk:', error);
+        toastr.error('Failed to delete chunk', 'VectHare');
+    }
+}
+
+// ============================================================================
+// BULK OPERATIONS
+// ============================================================================
+
+function bulkSetEnabled(enabled) {
+    for (const chunk of filteredChunks) {
+        chunk.data.enabled = enabled;
+        updateChunkData(chunk.hash, { enabled });
+    }
+    renderChunkList();
+    if (selectedChunkId) renderDetailPanel();
+    toastr.success(`${enabled ? 'Enabled' : 'Disabled'} ${filteredChunks.length} chunks`, 'VectHare');
+}
+
+// ============================================================================
+// UTILITIES
+// ============================================================================
+
 function escapeHtml(text) {
+    if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
+
+function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+    };
+}
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+/**
+ * Initialize the chunk visualizer module
+ * Called from index.js on extension load
+ */
+export function initializeVisualizer() {
+    console.log('VectHare: Chunk visualizer initialized');
+    // No DOM setup needed - modal is created dynamically when opened
+}
+
+// ============================================================================
+// EXPORTS
+// ============================================================================
+
+export { openVisualizer as default };

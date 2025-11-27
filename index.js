@@ -23,17 +23,18 @@ import { debounce } from '../../../utils.js';
 import { debounce_timeout } from '../../../constants.js';
 
 // VectHare modules - Core
-import { synchronizeChat, rearrangeChat, vectorizeAll, purgeChatIndex } from './core/chat-vectorization.js';
+import { synchronizeChat, rearrangeChat, vectorizeAll } from './core/chat-vectorization.js';
+import { purgeAllVectorIndexes, purgeVectorIndex } from './core/core-vector-api.js';
+import { getChatCollectionId } from './core/chat-vectorization.js';
 import { getDefaultDecaySettings } from './core/temporal-decay.js';
 import { migrateOldEnabledKeys } from './core/collection-metadata.js';
+import { clearCollectionRegistry } from './core/collection-loader.js';
 
 // VectHare modules - UI
-import { renderSettings, showDiagnosticsResults } from './ui/ui-manager.js';
+import { renderSettings, openDiagnosticsModal } from './ui/ui-manager.js';
 import { initializeVisualizer } from './ui/chunk-visualizer.js';
 import { initializeDatabaseBrowser } from './ui/database-browser.js';
-
-// VectHare modules - Diagnostics
-import { runDiagnostics } from './diagnostics/diagnostics.js';
+import { initializeSceneMarkers, updateAllMarkerStates, setSceneSettings } from './ui/scene-markers.js';
 
 // Constants
 const MODULE_NAME = 'VectHare';
@@ -112,19 +113,52 @@ async function onVectorizeAllClick() {
 }
 
 /**
- * Action: Purge vector index for current chat
+ * Action: Full purge - wipes ALL vector data and settings
  */
 async function onPurgeClick() {
-    await purgeChatIndex(settings);
+    const confirmed = confirm(
+        'WARNING: This will delete ALL vector data and reset VectHare settings.\n\n' +
+        'This cannot be undone. Continue?'
+    );
+
+    if (!confirmed) {
+        toastr.info('Purge cancelled');
+        return;
+    }
+
+    try {
+        const { getRequestHeaders } = await import('../../../../script.js');
+
+        // 1. Delete entire vectors folder
+        await fetch('/api/plugins/similharity/purge-all', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+        });
+
+        // 2. Clear extension_settings.vecthare
+        for (const key in extension_settings.vecthare) {
+            if (key !== 'enabled') {
+                delete extension_settings.vecthare[key];
+            }
+        }
+
+        // 3. Save settings
+        const { saveSettingsDebounced } = await import('../../../../script.js');
+        saveSettingsDebounced();
+
+        toastr.success('All vector data purged', 'Purge Complete');
+
+    } catch (error) {
+        console.error('VectHare: Purge failed:', error);
+        toastr.error('Purge failed: ' + error.message);
+    }
 }
 
 /**
- * Action: Run diagnostics
+ * Action: Run diagnostics - opens the diagnostics modal
  */
-async function onRunDiagnosticsClick() {
-    const includeProductionTests = $('#vecthare_include_production_tests').prop('checked');
-    const results = await runDiagnostics(settings, includeProductionTests);
-    showDiagnosticsResults(results);
+function onRunDiagnosticsClick() {
+    openDiagnosticsModal();
 }
 
 /**
@@ -171,14 +205,35 @@ jQuery(async () => {
     // Initialize database browser
     initializeDatabaseBrowser(settings);
 
+    // Initialize scene markers on chat messages (settings needed for DB operations)
+    setSceneSettings(settings);
+    initializeSceneMarkers();
+
     // Register event handlers
     eventSource.on(event_types.MESSAGE_DELETED, onChatEvent);
     eventSource.on(event_types.MESSAGE_EDITED, onChatEvent);
     eventSource.on(event_types.MESSAGE_SENT, onChatEvent);
     eventSource.on(event_types.MESSAGE_RECEIVED, onChatEvent);
     eventSource.on(event_types.MESSAGE_SWIPED, onChatEvent);
-    eventSource.on(event_types.CHAT_DELETED, (chatId) => purgeChatIndex(settings));
-    eventSource.on(event_types.GROUP_CHAT_DELETED, (chatId) => purgeChatIndex(settings));
+    // When a chat is deleted, purge its vectors (not full purge, just that chat)
+    eventSource.on(event_types.CHAT_DELETED, async (chatId) => {
+        if (chatId) {
+            const collectionId = getChatCollectionId(chatId);
+            if (collectionId) {
+                await purgeVectorIndex(collectionId, settings);
+                console.log(`VectHare: Purged vectors for deleted chat: ${chatId}`);
+            }
+        }
+    });
+    eventSource.on(event_types.GROUP_CHAT_DELETED, async (chatId) => {
+        if (chatId) {
+            const collectionId = getChatCollectionId(chatId);
+            if (collectionId) {
+                await purgeVectorIndex(collectionId, settings);
+                console.log(`VectHare: Purged vectors for deleted group chat: ${chatId}`);
+            }
+        }
+    });
 
     console.log('VectHare: ✅ Initialized successfully');
 });

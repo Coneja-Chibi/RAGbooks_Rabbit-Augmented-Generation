@@ -18,11 +18,14 @@ export class ProgressTracker {
         this.panel = null;
         this.isVisible = false;
         this.currentOperation = null;
+        this.timeIntervalId = null;
+        this.isComplete = false;
         this.stats = {
             totalItems: 0,
             processedItems: 0,
             currentBatch: 0,
             totalBatches: 0,
+            totalChunks: 0,
             startTime: null,
             errors: [],
         };
@@ -32,14 +35,17 @@ export class ProgressTracker {
      * Show progress panel
      * @param {string} operation - Operation name (e.g., "Vectorizing Chat", "Purging Index")
      * @param {number} totalItems - Total number of items to process
+     * @param {string} itemLabel - Label for items (e.g., "Messages", "Steps", "Entries")
      */
-    show(operation, totalItems = 0) {
+    show(operation, totalItems = 0, itemLabel = 'Progress') {
         this.currentOperation = operation;
+        this.isComplete = false;
         this.stats = {
             totalItems: totalItems,
             processedItems: 0,
             currentBatch: 0,
             totalBatches: 0,
+            totalChunks: 0,
             startTime: Date.now(),
             errors: [],
         };
@@ -47,6 +53,13 @@ export class ProgressTracker {
         if (!this.panel) {
             this.createPanel();
         }
+
+        // Set the item label
+        const labelEl = document.getElementById('vecthare_progress_stat_label');
+        if (labelEl) labelEl.textContent = itemLabel;
+
+        // Start/restart time updater
+        this.startTimeUpdater();
 
         this.updateDisplay();
         this.panel.style.display = 'block';
@@ -86,6 +99,32 @@ export class ProgressTracker {
     }
 
     /**
+     * Update chunk count (for showing message → chunk splitting)
+     * @param {number} totalChunks - Total chunks created from messages
+     */
+    updateChunks(totalChunks) {
+        this.stats.totalChunks = totalChunks;
+        this.updateDisplay();
+    }
+
+    /**
+     * Update current item being processed (e.g., "Message 3, Chunk 2/5")
+     * @param {string} text - Current item description
+     */
+    updateCurrentItem(text) {
+        const el = document.getElementById('vecthare_progress_current');
+        const textEl = document.getElementById('vecthare_progress_current_text');
+        if (el && textEl) {
+            if (text) {
+                textEl.textContent = text;
+                el.style.display = 'block';
+            } else {
+                el.style.display = 'none';
+            }
+        }
+    }
+
+    /**
      * Add error to tracker
      * @param {string} error - Error message
      */
@@ -103,6 +142,14 @@ export class ProgressTracker {
      * @param {string} message - Completion message
      */
     complete(success, message = '') {
+        this.isComplete = true;
+
+        // Stop the time updater
+        if (this.timeIntervalId) {
+            clearInterval(this.timeIntervalId);
+            this.timeIntervalId = null;
+        }
+
         const duration = Date.now() - this.stats.startTime;
         const seconds = (duration / 1000).toFixed(1);
 
@@ -139,15 +186,20 @@ export class ProgressTracker {
                         </div>
                     </div>
 
+                    <!-- Current Item Progress -->
+                    <div id="vecthare_progress_current" class="vecthare-progress-current" style="display: none;">
+                        <span id="vecthare_progress_current_text">Processing...</span>
+                    </div>
+
                     <!-- Stats Grid -->
                     <div class="vecthare-progress-stats">
                         <div class="vecthare-progress-stat">
-                            <div class="vecthare-progress-stat-label">Processed</div>
+                            <div id="vecthare_progress_stat_label" class="vecthare-progress-stat-label">Progress</div>
                             <div id="vecthare_progress_processed" class="vecthare-progress-stat-value">0 / 0</div>
                         </div>
                         <div class="vecthare-progress-stat">
-                            <div class="vecthare-progress-stat-label">Batch</div>
-                            <div id="vecthare_progress_batch" class="vecthare-progress-stat-value">0 / 0</div>
+                            <div class="vecthare-progress-stat-label">Chunks</div>
+                            <div id="vecthare_progress_chunks" class="vecthare-progress-stat-value">0</div>
                         </div>
                         <div class="vecthare-progress-stat">
                             <div class="vecthare-progress-stat-label">Time</div>
@@ -213,8 +265,17 @@ export class ProgressTracker {
         document.getElementById('vecthare_progress_processed').textContent =
             `${this.stats.processedItems} / ${this.stats.totalItems}`;
 
-        document.getElementById('vecthare_progress_batch').textContent =
-            `${this.stats.currentBatch} / ${this.stats.totalBatches}`;
+        // Show chunks - if more chunks than messages, it means messages are being split
+        const chunksEl = document.getElementById('vecthare_progress_chunks');
+        if (chunksEl) {
+            if (this.stats.totalChunks > this.stats.processedItems && this.stats.processedItems > 0) {
+                // Messages are being split into multiple chunks
+                const avgChunks = (this.stats.totalChunks / this.stats.processedItems).toFixed(1);
+                chunksEl.textContent = `${this.stats.totalChunks} (~${avgChunks}/msg)`;
+            } else {
+                chunksEl.textContent = `${this.stats.totalChunks}`;
+            }
+        }
 
         // Calculate speed
         const elapsed = (Date.now() - this.stats.startTime) / 1000;
@@ -257,10 +318,19 @@ export class ProgressTracker {
      * Start interval to update elapsed time
      */
     startTimeUpdater() {
-        setInterval(() => {
-            if (this.isVisible && this.stats.startTime) {
+        // Clear any existing interval first
+        if (this.timeIntervalId) {
+            clearInterval(this.timeIntervalId);
+        }
+
+        this.timeIntervalId = setInterval(() => {
+            // Only update if visible, not complete, and has start time
+            if (this.isVisible && !this.isComplete && this.stats.startTime) {
                 const elapsed = ((Date.now() - this.stats.startTime) / 1000).toFixed(1);
-                document.getElementById('vecthare_progress_time').textContent = `${elapsed}s`;
+                const timeEl = document.getElementById('vecthare_progress_time');
+                if (timeEl) {
+                    timeEl.textContent = `${elapsed}s`;
+                }
             }
         }, 100);
     }

@@ -1,0 +1,378 @@
+/* ============================================================================
+ * VECTHARE FORM STYLES
+ * ============================================================================
+ * Form elements, inputs, selects, range sliders, provider settings
+ *
+ * @author Coneja Chibi
+ * @version 2.0.0-alpha
+ * ============================================================================ */
+
+/* ============================================================================
+ * FORM ELEMENTS WITH POLISH
+ * ============================================================================ */
+
+#vecthare_settings label:not(.checkbox_label) {
+    display: block;
+    margin-top: 18px;
+    margin-bottom: 8px;
+    color: color-mix(in srgb, var(--SmartThemeBodyColor) 90%, transparent);
+    font-weight: 500;
+    font-size: 0.95em;
+}
+
+#vecthare_settings label:not(.checkbox_label):first-child {
+    margin-top: 0;
+}
+
+#vecthare_settings .text_pole,
+#vecthare_settings input[type="number"],
+#vecthare_settings select {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 8px;
+}
+
+#vecthare_settings .text_pole:hover,
+#vecthare_settings input[type="number"]:hover,
+#vecthare_settings select:hover {
+    border-color: color-mix(in srgb, var(--vecthare-primary) 50%, var(--SmartThemeBorderColor));
+}
+
+#vecthare_settings .text_pole:focus,
+#vecthare_settings input[type="number"]:focus,
+#vecthare_settings select:focus {
+    border-color: var(--vecthare-primary);
+    box-shadow:
+        0 0 0 3px color-mix(in srgb, var(--vecthare-primary) 15%, transparent),
+        0 2px 8px color-mix(in srgb, var(--vecthare-primary) 10%, transparent);
+}
+
+#vecthare_settings .checkbox_label {
+    margin: 14px 0;
+    padding: 14px 16px;
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--SmartThemeBlurTintColor) 60%, transparent) 0%,
+        color-mix(in srgb, var(--SmartThemeBlurTintColor) 40%, transparent) 100%);
+    border: 1px solid color-mix(in srgb, var(--vecthare-primary) 10%, var(--SmartThemeBorderColor));
+    border-radius: 10px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+
+#vecthare_settings .checkbox_label::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background: var(--vecthare-primary);
+    transform: scaleY(0);
+    transition: transform 0.2s ease;
+}
+
+#vecthare_settings .checkbox_label:hover {
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--SmartThemeBlurTintColor) 80%, transparent) 0%,
+        color-mix(in srgb, var(--SmartThemeBlurTintColor) 60%, transparent) 100%);
+    border-color: var(--vecthare-primary);
+    transform: translateX(2px);
+}
+
+#vecthare_settings .checkbox_label:hover::before {
+    transform: scaleY(1);
+}
+
+#vecthare_settings input[type="checkbox"]:checked + span {
+    color: var(--vecthare-primary-bright);
+    font-weight: 600;
+}
+
+/* ============================================================================
+ * PROVIDER SETTINGS WITH DEPTH
+ * ============================================================================ */
+
+#vecthare_provider_settings {
+    margin-top: 0;
+    padding-top: 4px;
+}
+
+.vecthare_provider_setting {
+    margin-top: 16px;
+    padding: 16px 18px;
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-primary) 8%, var(--SmartThemeBlurTintColor)) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 4%, var(--SmartThemeBlurTintColor)) 100%);
+    border: 1px solid color-mix(in srgb, var(--vecthare-primary) 20%, transparent);
+    border-left: 4px solid var(--vecthare-primary);
+    border-radius: 10px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 6px color-mix(in srgb, black 8%, transparent);
+    position: relative;
+    overflow: hidden;
+}
+
+.vecthare_provider_setting::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 60px;
+    height: 60px;
+    background: radial-gradient(circle,
+        color-mix(in srgb, var(--vecthare-primary) 15%, transparent) 0%,
+        transparent 70%);
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.vecthare_provider_setting:hover {
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-primary) 12%, var(--SmartThemeBlurTintColor)) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 6%, var(--SmartThemeBlurTintColor)) 100%);
+    border-color: var(--vecthare-primary);
+    transform: translateX(4px);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--vecthare-primary) 15%, transparent);
+}
+
+.vecthare_hint {
+    display: block;
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--vecthare-primary) 5%, var(--SmartThemeBlurTintColor));
+    border-left: 3px solid color-mix(in srgb, var(--vecthare-primary) 30%, transparent);
+    border-radius: 6px;
+    color: color-mix(in srgb, var(--SmartThemeBodyColor) 85%, transparent);
+    font-size: 0.88em;
+    line-height: 1.5;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================================================
+ * CUSTOM SELECT DROPDOWN
+ * ============================================================================ */
+
+.vecthare-select {
+    width: 100%;
+    padding: 12px 16px;
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-primary) 10%, var(--SmartThemeBlurTintColor)) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 5%, var(--SmartThemeBlurTintColor)) 100%);
+    border: 2px solid color-mix(in srgb, var(--vecthare-primary) 25%, var(--SmartThemeBorderColor));
+    border-radius: 10px;
+    color: var(--SmartThemeBodyColor);
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow:
+        0 2px 6px color-mix(in srgb, black 8%, transparent),
+        inset 0 1px 2px color-mix(in srgb, white 5%, transparent);
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='10' viewBox='0 0 14 10'%3E%3Cpath fill='%23A0A0A0' d='M7 10L0 0h14z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: calc(100% - 14px) center;
+    background-size: 14px 10px;
+    padding-right: 40px;
+    margin-bottom: 16px;
+}
+
+.vecthare-select:hover {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='10' viewBox='0 0 14 10'%3E%3Cpath fill='%23A0A0A0' d='M7 10L0 0h14z'/%3E%3C/svg%3E"),
+        linear-gradient(135deg,
+            color-mix(in srgb, var(--vecthare-primary) 15%, var(--SmartThemeBlurTintColor)) 0%,
+            color-mix(in srgb, var(--vecthare-primary) 8%, var(--SmartThemeBlurTintColor)) 100%);
+    border-color: color-mix(in srgb, var(--vecthare-primary) 40%, var(--SmartThemeBorderColor));
+    box-shadow:
+        0 4px 12px color-mix(in srgb, var(--vecthare-primary) 12%, transparent),
+        inset 0 1px 2px color-mix(in srgb, white 8%, transparent);
+}
+
+.vecthare-select:focus {
+    outline: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='10' viewBox='0 0 14 10'%3E%3Cpath fill='%23A0A0A0' d='M7 10L0 0h14z'/%3E%3C/svg%3E"),
+        linear-gradient(135deg,
+            color-mix(in srgb, var(--vecthare-primary) 10%, var(--SmartThemeBlurTintColor)) 0%,
+            color-mix(in srgb, var(--vecthare-primary) 5%, var(--SmartThemeBlurTintColor)) 100%);
+    border-color: var(--vecthare-primary);
+    box-shadow:
+        0 4px 16px color-mix(in srgb, var(--vecthare-primary) 20%, transparent),
+        0 0 0 4px color-mix(in srgb, var(--vecthare-primary) 15%, transparent);
+}
+
+.vecthare-select option {
+    background: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+    padding: 10px;
+}
+
+/* ============================================================================
+ * CUSTOM TEXT INPUTS
+ * ============================================================================ */
+
+.vecthare-input {
+    width: 100%;
+    padding: 12px 16px;
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-primary) 10%, var(--SmartThemeBlurTintColor)) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 5%, var(--SmartThemeBlurTintColor)) 100%);
+    border: 2px solid color-mix(in srgb, var(--vecthare-primary) 25%, var(--SmartThemeBorderColor));
+    border-radius: 10px;
+    color: var(--SmartThemeBodyColor);
+    font-size: 1em;
+    font-weight: 600;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow:
+        0 2px 6px color-mix(in srgb, black 8%, transparent),
+        inset 0 1px 2px color-mix(in srgb, white 5%, transparent);
+    margin-bottom: 16px;
+}
+
+.vecthare-input:hover {
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-primary) 15%, var(--SmartThemeBlurTintColor)) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 8%, var(--SmartThemeBlurTintColor)) 100%);
+    border-color: color-mix(in srgb, var(--vecthare-primary) 40%, var(--SmartThemeBorderColor));
+    box-shadow:
+        0 4px 12px color-mix(in srgb, var(--vecthare-primary) 12%, transparent),
+        inset 0 1px 2px color-mix(in srgb, white 8%, transparent);
+}
+
+.vecthare-input:focus {
+    outline: none;
+    border-color: var(--vecthare-primary);
+    box-shadow:
+        0 4px 16px color-mix(in srgb, var(--vecthare-primary) 20%, transparent),
+        0 0 0 4px color-mix(in srgb, var(--vecthare-primary) 15%, transparent);
+}
+
+.vecthare-input::placeholder {
+    color: color-mix(in srgb, var(--SmartThemeBodyColor) 50%, transparent);
+    font-weight: 400;
+}
+
+/* ============================================================================
+ * RANGE SLIDERS
+ * ============================================================================ */
+
+.vecthare-slider {
+    width: 100%;
+    height: 8px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: linear-gradient(90deg,
+        color-mix(in srgb, var(--vecthare-primary) 20%, var(--SmartThemeBlurTintColor)) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 40%, var(--SmartThemeBlurTintColor)) 100%);
+    border-radius: 6px;
+    outline: none;
+    margin: 12px 0;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow:
+        inset 0 1px 3px rgba(0, 0, 0, 0.2),
+        0 1px 2px color-mix(in srgb, var(--vecthare-primary) 10%, transparent);
+}
+
+.vecthare-slider:hover {
+    background: linear-gradient(90deg,
+        color-mix(in srgb, var(--vecthare-primary) 30%, var(--SmartThemeBlurTintColor)) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 50%, var(--SmartThemeBlurTintColor)) 100%);
+}
+
+/* Webkit/Blink (Chrome, Safari, Edge) */
+.vecthare-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    background: linear-gradient(135deg,
+        var(--vecthare-primary-bright) 0%,
+        var(--vecthare-primary) 100%);
+    border: 2px solid var(--SmartThemeBorderColor);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.3),
+        0 0 0 0 color-mix(in srgb, var(--vecthare-primary) 40%, transparent);
+}
+
+.vecthare-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+    box-shadow:
+        0 3px 10px rgba(0, 0, 0, 0.4),
+        0 0 0 4px color-mix(in srgb, var(--vecthare-primary) 25%, transparent);
+}
+
+.vecthare-slider::-webkit-slider-thumb:active {
+    transform: scale(1.05);
+    box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.3),
+        0 0 0 6px color-mix(in srgb, var(--vecthare-primary) 20%, transparent);
+}
+
+/* Firefox */
+.vecthare-slider::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    background: linear-gradient(135deg,
+        var(--vecthare-primary-bright) 0%,
+        var(--vecthare-primary) 100%);
+    border: 2px solid var(--SmartThemeBorderColor);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.3),
+        0 0 0 0 color-mix(in srgb, var(--vecthare-primary) 40%, transparent);
+}
+
+.vecthare-slider::-moz-range-thumb:hover {
+    transform: scale(1.15);
+    box-shadow:
+        0 3px 10px rgba(0, 0, 0, 0.4),
+        0 0 0 4px color-mix(in srgb, var(--vecthare-primary) 25%, transparent);
+}
+
+.vecthare-slider::-moz-range-thumb:active {
+    transform: scale(1.05);
+    box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.3),
+        0 0 0 6px color-mix(in srgb, var(--vecthare-primary) 20%, transparent);
+}
+
+/* Firefox track */
+.vecthare-slider::-moz-range-track {
+    height: 8px;
+    background: transparent;
+    border-radius: 6px;
+}
+
+.vecthare_info {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--vecthare-primary) 10%, transparent) 0%,
+        color-mix(in srgb, var(--vecthare-primary) 5%, transparent) 100%);
+    border-left: 4px solid var(--vecthare-primary);
+    border-radius: 8px;
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.92em;
+    line-height: 1.6;
+    box-shadow: 0 2px 6px color-mix(in srgb, var(--vecthare-primary) 10%, transparent);
+}
+
+.vecthare_info i {
+    color: var(--vecthare-primary-bright);
+    font-size: 1.2em;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+

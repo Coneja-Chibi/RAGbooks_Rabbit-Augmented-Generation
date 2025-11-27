@@ -1,7 +1,10 @@
 // =============================================================================
 // TEMPORAL DECAY SYSTEM
 // Reduces relevance of older chunks over time (optional, OFF by default)
+// Chunks marked as "temporally blind" are immune to decay
 // =============================================================================
+
+import { isChunkTemporallyBlind } from './collection-metadata.js';
 
 /**
  * Calculates exponential decay multiplier
@@ -55,6 +58,7 @@ export function applyTemporalDecay(score, messageAge, decaySettings) {
 /**
  * Applies temporal decay to all chunks in search results
  * Only applies to chat chunks with message metadata
+ * Skips chunks marked as temporally blind
  * @param {Array} chunks - Array of chunks with scores
  * @param {number} currentMessageId - Current message ID in chat
  * @param {Object} decaySettings - Decay configuration
@@ -65,10 +69,22 @@ export function applyDecayToResults(chunks, currentMessageId, decaySettings) {
         return chunks;
     }
 
+    let blindCount = 0;
     const decayed = chunks.map(chunk => {
-        // Only apply decay to chat chunks
-        if (chunk.metadata?.source !== 'chat' || !chunk.metadata?.messageId) {
+        // Only apply decay to chat chunks (messageId can be 0, so check for undefined/null)
+        if (chunk.metadata?.source !== 'chat' || chunk.metadata?.messageId === undefined || chunk.metadata?.messageId === null) {
             return chunk;
+        }
+
+        // Check if chunk is temporally blind (immune to decay)
+        const chunkHash = chunk.hash || chunk.metadata?.hash;
+        if (chunkHash && isChunkTemporallyBlind(chunkHash)) {
+            blindCount++;
+            return {
+                ...chunk,
+                temporallyBlind: true,
+                decayApplied: false
+            };
         }
 
         const messageAge = currentMessageId - chunk.metadata.messageId;
@@ -85,7 +101,7 @@ export function applyDecayToResults(chunks, currentMessageId, decaySettings) {
     });
 
     const affectedCount = decayed.filter(c => c.decayApplied).length;
-    console.log(`⏳ [Decay] Applied temporal decay to ${affectedCount} chat chunks`);
+    console.log(`⏳ [Decay] Applied temporal decay to ${affectedCount} chat chunks (${blindCount} temporally blind, skipped)`);
 
     return decayed;
 }
@@ -110,6 +126,7 @@ function getSceneContext(messageId, scenes) {
 /**
  * Applies scene-aware temporal decay
  * Decay resets when a new scene starts
+ * Skips chunks marked as temporally blind
  * @param {Array} chunks - Array of chunks
  * @param {number} currentMessageId - Current message ID
  * @param {Array} scenes - Array of scenes from chat_metadata
@@ -123,9 +140,21 @@ export function applySceneAwareDecay(chunks, currentMessageId, scenes, decaySett
 
     const currentSceneContext = getSceneContext(currentMessageId, scenes);
 
+    let blindCount = 0;
     const decayed = chunks.map(chunk => {
-        if (chunk.metadata?.source !== 'chat' || !chunk.metadata?.messageId) {
+        if (chunk.metadata?.source !== 'chat' || chunk.metadata?.messageId === undefined || chunk.metadata?.messageId === null) {
             return chunk;
+        }
+
+        // Check if chunk is temporally blind (immune to decay)
+        const chunkHash = chunk.hash || chunk.metadata?.hash;
+        if (chunkHash && isChunkTemporallyBlind(chunkHash)) {
+            blindCount++;
+            return {
+                ...chunk,
+                temporallyBlind: true,
+                sceneAwareDecay: false
+            };
         }
 
         const chunkMessageId = chunk.metadata.messageId;
@@ -159,7 +188,8 @@ export function applySceneAwareDecay(chunks, currentMessageId, scenes, decaySett
         };
     });
 
-    console.log(`⏳ [Decay] Applied scene-aware decay`);
+    const affectedCount = decayed.filter(c => c.sceneAwareDecay).length;
+    console.log(`⏳ [Decay] Applied scene-aware decay to ${affectedCount} chunks (${blindCount} temporally blind, skipped)`);
 
     return decayed;
 }
@@ -255,10 +285,39 @@ export function getDecayStats(chunks) {
     };
 }
 
+/**
+ * Applies temporal decay to results for a specific collection
+ * Uses per-collection decay settings (chat collections default to enabled)
+ * @param {Array} chunks - Array of chunks with scores
+ * @param {number} currentMessageId - Current message ID in chat
+ * @param {string} collectionId - Collection identifier
+ * @param {Array} scenes - Optional scenes array for scene-aware decay
+ * @returns {Promise<Array>} Chunks with decay applied
+ */
+export async function applyDecayForCollection(chunks, currentMessageId, collectionId, scenes = null) {
+    // Import dynamically to avoid circular dependency
+    const { getCollectionDecaySettings } = await import('./collection-metadata.js');
+
+    const decaySettings = getCollectionDecaySettings(collectionId);
+
+    if (!decaySettings.enabled) {
+        return chunks;
+    }
+
+    // Use scene-aware decay if enabled and scenes provided
+    if (decaySettings.sceneAware && scenes && scenes.length > 0) {
+        return applySceneAwareDecay(chunks, currentMessageId, scenes, decaySettings);
+    }
+
+    // Standard decay
+    return applyDecayToResults(chunks, currentMessageId, decaySettings);
+}
+
 export default {
     applyTemporalDecay,
     applyDecayToResults,
     applySceneAwareDecay,
+    applyDecayForCollection,
     getDefaultDecaySettings,
     validateDecaySettings,
     projectDecayCurve,

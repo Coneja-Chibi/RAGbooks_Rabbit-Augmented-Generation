@@ -14,6 +14,8 @@ import { saveSettingsDebounced } from '../../../../../script.js';
 import { extension_settings } from '../../../../extensions.js';
 import { openVisualizer } from './chunk-visualizer.js';
 import { openDatabaseBrowser } from './database-browser.js';
+import { openContentVectorizer } from './content-vectorizer.js';
+import { openSearchDebugModal, getLastSearchDebug } from './search-debug.js';
 
 /**
  * Renders the VectHare settings UI
@@ -289,20 +291,6 @@ export function renderSettings(containerId, settings, callbacks) {
                             <input type="range" id="vecthare_score_threshold" class="vecthare-slider" min="0" max="1" step="0.05" />
                             <small class="vecthare_hint">Minimum relevance score for retrieval</small>
 
-                            <label class="checkbox_label" for="vecthare_temporal_decay_enabled">
-                                <input type="checkbox" id="vecthare_temporal_decay_enabled" />
-                                <span>Enable Temporal Decay</span>
-                            </label>
-                            <small class="vecthare_hint">Prioritizes recent messages over older ones in search results</small>
-
-                            <div id="vecthare_temporal_decay_settings" style="display: none;">
-                                <label for="vecthare_decay_halflife">
-                                    <small>Half-life: <span id="vecthare_halflife_value">50</span> messages</small>
-                                </label>
-                                <input type="range" id="vecthare_decay_halflife" class="vecthare-slider" min="10" max="200" step="10" value="50" />
-                                <small class="vecthare_hint">Number of messages until relevance drops to 50%</small>
-                            </div>
-
                         </div>
                     </div>
 
@@ -320,25 +308,29 @@ export function renderSettings(containerId, settings, callbacks) {
                         <div class="vecthare-card-body">
 
                             <div class="vecthare-actions-grid">
-                                <button id="vecthare_vectorize_all" class="vecthare-action-btn vecthare-btn-primary">
-                                    <i class="fa-solid fa-database"></i>
-                                    <span>Vectorize All</span>
+                                <button id="vecthare_vectorize_content" class="vecthare-action-btn vecthare-btn-primary vecthare-action-featured">
+                                    <i class="fa-solid fa-plus-circle"></i>
+                                    <span>Vectorize Content</span>
                                 </button>
-                                <button id="vecthare_purge" class="vecthare-action-btn vecthare-btn-danger">
-                                    <i class="fa-solid fa-trash"></i>
-                                    <span>Purge Index</span>
+                                <button id="vecthare_vectorize_all" class="vecthare-action-btn vecthare-btn-secondary">
+                                    <i class="fa-solid fa-sync"></i>
+                                    <span>Sync Chat</span>
                                 </button>
-                                <button id="vecthare_run_diagnostics" class="vecthare-action-btn vecthare-btn-secondary">
-                                    <i class="fa-solid fa-stethoscope"></i>
-                                    <span>Run Diagnostics</span>
-                                </button>
-                                <button id="vecthare_database_browser" class="vecthare-action-btn vecthare-btn-primary">
+                                <button id="vecthare_database_browser" class="vecthare-action-btn vecthare-btn-secondary">
                                     <i class="fa-solid fa-folder-open"></i>
                                     <span>Database Browser</span>
                                 </button>
+                                <button id="vecthare_run_diagnostics" class="vecthare-action-btn vecthare-btn-secondary">
+                                    <i class="fa-solid fa-stethoscope"></i>
+                                    <span>Diagnostics</span>
+                                </button>
                                 <button id="vecthare_view_results" class="vecthare-action-btn vecthare-btn-secondary">
-                                    <i class="fa-solid fa-eye"></i>
-                                    <span>View Last Search</span>
+                                    <i class="fa-solid fa-bug"></i>
+                                    <span>Debug Query</span>
+                                </button>
+                                <button id="vecthare_purge" class="vecthare-action-btn vecthare-btn-danger-outline">
+                                    <i class="fa-solid fa-trash"></i>
+                                    <span>Purge</span>
                                 </button>
                             </div>
 
@@ -358,18 +350,99 @@ export function renderSettings(containerId, settings, callbacks) {
         <!-- Diagnostics Modal -->
         <div id="vecthare_diagnostics_modal" class="vecthare-modal" style="display: none;">
             <div class="vecthare-modal-overlay"></div>
-            <div class="vecthare-modal-content">
+            <div class="vecthare-modal-content vecthare-diagnostics-modal">
                 <div class="vecthare-modal-header">
                     <h3>
                         <i class="fa-solid fa-stethoscope"></i>
-                        Diagnostics Results
+                        <span id="vecthare_diagnostics_title">Run Diagnostics</span>
                     </h3>
                     <button class="vecthare-modal-close" id="vecthare_diagnostics_close">
                         <i class="fa-solid fa-times"></i>
                     </button>
                 </div>
                 <div class="vecthare-modal-body">
-                    <div id="vecthare_diagnostics_content"></div>
+                    <!-- Phase 1: Category Selection -->
+                    <div id="vecthare_diagnostics_selection" class="vecthare-diagnostics-phase">
+                        <p class="vecthare-diagnostics-intro">Select which diagnostic categories to run:</p>
+
+                        <div class="vecthare-diagnostics-categories">
+                            <label class="vecthare-diagnostics-category-option">
+                                <input type="checkbox" id="vecthare_diag_infrastructure" checked>
+                                <div class="vecthare-diagnostics-category-card">
+                                    <i class="fa-solid fa-server"></i>
+                                    <div class="vecthare-diagnostics-category-info">
+                                        <strong>Infrastructure</strong>
+                                        <span>Backend connections, plugins, API endpoints</span>
+                                    </div>
+                                </div>
+                            </label>
+
+                            <label class="vecthare-diagnostics-category-option">
+                                <input type="checkbox" id="vecthare_diag_configuration" checked>
+                                <div class="vecthare-diagnostics-category-card">
+                                    <i class="fa-solid fa-sliders"></i>
+                                    <div class="vecthare-diagnostics-category-info">
+                                        <strong>Configuration</strong>
+                                        <span>Settings validation, chunk size, thresholds</span>
+                                    </div>
+                                </div>
+                            </label>
+
+                            <label class="vecthare-diagnostics-category-option">
+                                <input type="checkbox" id="vecthare_diag_visualizer" checked>
+                                <div class="vecthare-diagnostics-category-card">
+                                    <i class="fa-solid fa-eye"></i>
+                                    <div class="vecthare-diagnostics-category-info">
+                                        <strong>Visualizer</strong>
+                                        <span>Chunk editing, deletion, summary vectors</span>
+                                    </div>
+                                </div>
+                            </label>
+
+                            <label class="vecthare-diagnostics-category-option">
+                                <input type="checkbox" id="vecthare_diag_production">
+                                <div class="vecthare-diagnostics-category-card">
+                                    <i class="fa-solid fa-vial"></i>
+                                    <div class="vecthare-diagnostics-category-info">
+                                        <strong>Production Tests</strong>
+                                        <span>Live embedding, storage, retrieval tests</span>
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div class="vecthare-diagnostics-actions">
+                            <button class="vecthare-btn-secondary" id="vecthare_diag_cancel">Cancel</button>
+                            <button class="vecthare-btn-primary" id="vecthare_diag_run">
+                                <i class="fa-solid fa-play"></i> Run Diagnostics
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Phase 2: Running -->
+                    <div id="vecthare_diagnostics_running" class="vecthare-diagnostics-phase" style="display: none;">
+                        <div class="vecthare-diagnostics-spinner">
+                            <i class="fa-solid fa-spinner fa-spin"></i>
+                            <span>Running diagnostics...</span>
+                        </div>
+                    </div>
+
+                    <!-- Phase 3: Results -->
+                    <div id="vecthare_diagnostics_results" class="vecthare-diagnostics-phase" style="display: none;">
+                        <div id="vecthare_diagnostics_content"></div>
+                        <div class="vecthare-diagnostics-footer">
+                            <button class="vecthare-btn-secondary" id="vecthare_diag_back">
+                                <i class="fa-solid fa-arrow-left"></i> Run Again
+                            </button>
+                            <button class="vecthare-btn-secondary" id="vecthare_diag_copy">
+                                <i class="fa-solid fa-copy"></i> Copy Report
+                            </button>
+                            <button class="vecthare-btn-danger" id="vecthare_diag_fix_all" style="display: none;">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> Fix All Issues
+                            </button>
+                            <button class="vecthare-btn-primary" id="vecthare_diag_done">Done</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -380,8 +453,8 @@ export function renderSettings(containerId, settings, callbacks) {
             <div class="vecthare-modal-content vecthare-visualizer-content">
                 <div class="vecthare-modal-header">
                     <h3>
-                        <i class="fa-solid fa-cube"></i>
-                        Search Results
+                        <i class="fa-solid fa-cubes"></i>
+                        Chunk Visualizer
                     </h3>
                     <button class="vecthare-modal-close" id="vecthare_visualizer_close">
                         <i class="fa-solid fa-times"></i>
@@ -389,10 +462,11 @@ export function renderSettings(containerId, settings, callbacks) {
                 </div>
                 <div class="vecthare-visualizer-toolbar">
                     <input type="text" id="vecthare_visualizer_search"
-                           class="vecthare-search-input"
-                           placeholder="Search chunks...">
+                           class="vecthare-visualizer-search"
+                           placeholder="Search chunks by text, keywords, or name...">
                     <div class="vecthare-visualizer-stats">
                         <span id="vecthare_visualizer_count">0 chunks</span>
+                        <span id="vecthare_visualizer_tiers"></span>
                     </div>
                 </div>
                 <div class="vecthare-modal-body">
@@ -425,20 +499,204 @@ export function renderSettings(containerId, settings, callbacks) {
 function initializeDiagnosticsModal() {
     // Close button
     $('#vecthare_diagnostics_close').on('click', function() {
-        $('#vecthare_diagnostics_modal').fadeOut(200);
+        closeDiagnosticsModal();
     });
 
     // Click overlay to close
-    $('.vecthare-modal-overlay').on('click', function() {
-        $('#vecthare_diagnostics_modal').fadeOut(200);
+    $('#vecthare_diagnostics_modal .vecthare-modal-overlay').on('click', function() {
+        closeDiagnosticsModal();
     });
 
     // ESC key to close
     $(document).on('keydown', function(e) {
         if (e.key === 'Escape' && $('#vecthare_diagnostics_modal').is(':visible')) {
-            $('#vecthare_diagnostics_modal').fadeOut(200);
+            closeDiagnosticsModal();
         }
     });
+
+    // Cancel button
+    $('#vecthare_diag_cancel').on('click', function() {
+        closeDiagnosticsModal();
+    });
+
+    // Done button
+    $('#vecthare_diag_done').on('click', function() {
+        closeDiagnosticsModal();
+    });
+
+    // Back button - go back to selection
+    $('#vecthare_diag_back').on('click', function() {
+        showDiagnosticsPhase('selection');
+        $('#vecthare_diagnostics_title').text('Run Diagnostics');
+    });
+
+    // Run button - execute diagnostics
+    $('#vecthare_diag_run').on('click', async function() {
+        await executeDiagnostics();
+    });
+}
+
+/**
+ * Closes the diagnostics modal and resets to selection phase
+ */
+function closeDiagnosticsModal() {
+    $('#vecthare_diagnostics_modal').fadeOut(200, function() {
+        // Reset to selection phase for next open
+        showDiagnosticsPhase('selection');
+        $('#vecthare_diagnostics_title').text('Run Diagnostics');
+    });
+}
+
+/**
+ * Shows a specific phase of the diagnostics modal
+ * @param {string} phase - 'selection', 'running', or 'results'
+ */
+function showDiagnosticsPhase(phase) {
+    $('#vecthare_diagnostics_selection').hide();
+    $('#vecthare_diagnostics_running').hide();
+    $('#vecthare_diagnostics_results').hide();
+    $(`#vecthare_diagnostics_${phase}`).show();
+}
+
+// Console error capture for diagnostics
+let capturedConsoleLogs = [];
+let originalConsoleError = null;
+let originalConsoleWarn = null;
+
+/**
+ * Starts capturing console errors and warnings
+ */
+function startConsoleCapture() {
+    capturedConsoleLogs = [];
+
+    // Store originals
+    originalConsoleError = console.error;
+    originalConsoleWarn = console.warn;
+
+    // Override console.error
+    console.error = function(...args) {
+        capturedConsoleLogs.push({
+            type: 'error',
+            message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
+            timestamp: new Date().toISOString(),
+            stack: new Error().stack
+        });
+        originalConsoleError.apply(console, args);
+    };
+
+    // Override console.warn
+    console.warn = function(...args) {
+        capturedConsoleLogs.push({
+            type: 'warning',
+            message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
+            timestamp: new Date().toISOString()
+        });
+        originalConsoleWarn.apply(console, args);
+    };
+}
+
+/**
+ * Stops capturing console errors and returns captured logs
+ * @returns {Array} Captured console logs
+ */
+function stopConsoleCapture() {
+    // Restore originals
+    if (originalConsoleError) {
+        console.error = originalConsoleError;
+        originalConsoleError = null;
+    }
+    if (originalConsoleWarn) {
+        console.warn = originalConsoleWarn;
+        originalConsoleWarn = null;
+    }
+
+    return capturedConsoleLogs;
+}
+
+/**
+ * Executes diagnostics based on selected categories
+ */
+async function executeDiagnostics() {
+    const settings = extension_settings.vecthare;
+
+    // Get selected categories
+    const runInfrastructure = $('#vecthare_diag_infrastructure').prop('checked');
+    const runConfiguration = $('#vecthare_diag_configuration').prop('checked');
+    const runVisualizer = $('#vecthare_diag_visualizer').prop('checked');
+    const runProduction = $('#vecthare_diag_production').prop('checked');
+
+    if (!runInfrastructure && !runConfiguration && !runVisualizer && !runProduction) {
+        toastr.warning('Please select at least one category to run');
+        return;
+    }
+
+    // Show running phase
+    showDiagnosticsPhase('running');
+    $('#vecthare_diagnostics_title').text('Running Diagnostics...');
+
+    // Start capturing console errors
+    startConsoleCapture();
+
+    try {
+        // Import and run diagnostics
+        const { runDiagnostics } = await import('../diagnostics/index.js');
+        const results = await runDiagnostics(settings, runProduction);
+
+        // Stop capturing and get logs
+        const consoleLogs = stopConsoleCapture();
+
+        // Filter results based on selected categories
+        const filteredResults = {
+            categories: {},
+            checks: [],
+            overall: results.overall,
+            timestamp: results.timestamp,
+            consoleErrors: consoleLogs
+        };
+
+        if (runInfrastructure && results.categories.infrastructure) {
+            filteredResults.categories.infrastructure = results.categories.infrastructure;
+            filteredResults.checks.push(...results.categories.infrastructure);
+        }
+        if (runConfiguration && results.categories.configuration) {
+            filteredResults.categories.configuration = results.categories.configuration;
+            filteredResults.checks.push(...results.categories.configuration);
+        }
+        if (runVisualizer && results.categories.visualizer) {
+            filteredResults.categories.visualizer = results.categories.visualizer;
+            filteredResults.checks.push(...results.categories.visualizer);
+        }
+        if (runProduction && results.categories.production) {
+            filteredResults.categories.production = results.categories.production;
+            filteredResults.checks.push(...results.categories.production);
+        }
+
+        // Add console errors as a category if any were captured
+        if (consoleLogs.length > 0) {
+            filteredResults.categories.console = consoleLogs.map(log => ({
+                name: `Console ${log.type}`,
+                status: log.type === 'error' ? 'fail' : 'warning',
+                message: log.message.substring(0, 200) + (log.message.length > 200 ? '...' : ''),
+                category: 'console'
+            }));
+            filteredResults.checks.push(...filteredResults.categories.console);
+        }
+
+        // Recalculate overall status based on filtered results
+        const failCount = filteredResults.checks.filter(c => c.status === 'fail').length;
+        const warnCount = filteredResults.checks.filter(c => c.status === 'warning').length;
+        filteredResults.overall = failCount > 0 ? 'issues' : warnCount > 0 ? 'warnings' : 'healthy';
+
+        // Show results
+        showDiagnosticsResults(filteredResults);
+
+    } catch (error) {
+        stopConsoleCapture();
+        console.error('VectHare Diagnostics error:', error);
+        toastr.error('Failed to run diagnostics: ' + error.message);
+        showDiagnosticsPhase('selection');
+        $('#vecthare_diagnostics_title').text('Run Diagnostics');
+    }
 }
 
 /**
@@ -707,33 +965,10 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // Temporal decay toggle
-    $('#vecthare_temporal_decay_enabled')
-        .prop('checked', settings.temporal_decay.enabled)
-        .on('input', function() {
-            settings.temporal_decay.enabled = $(this).prop('checked');
-            Object.assign(extension_settings.vecthare, settings);
-            saveSettingsDebounced();
-
-            // Show/hide advanced settings
-            $('#vecthare_temporal_decay_settings').toggle(settings.temporal_decay.enabled);
-
-            console.log(`VectHare: Temporal decay ${settings.temporal_decay.enabled ? 'enabled' : 'disabled'}`);
-        });
-
-    // Temporal decay half-life
-    $('#vecthare_decay_halflife')
-        .val(settings.temporal_decay.halfLife)
-        .on('input', function() {
-            const value = parseInt($(this).val());
-            $('#vecthare_halflife_value').text(value);
-            settings.temporal_decay.halfLife = value;
-            Object.assign(extension_settings.vecthare, settings);
-            saveSettingsDebounced();
-        });
-    $('#vecthare_halflife_value').text(settings.temporal_decay.halfLife);
-
     // Action buttons
+    $('#vecthare_vectorize_content').on('click', () => {
+        openContentVectorizer();
+    });
     $('#vecthare_vectorize_all').on('click', callbacks.onVectorizeAll);
     $('#vecthare_purge').on('click', callbacks.onPurge);
     $('#vecthare_run_diagnostics').on('click', callbacks.onRunDiagnostics);
@@ -741,27 +976,38 @@ function bindSettingsEvents(settings, callbacks) {
         openDatabaseBrowser();
     });
     $('#vecthare_view_results').on('click', () => {
-        if (window.VectHare_LastSearch) {
-            openVisualizer(window.VectHare_LastSearch);
-        } else {
-            toastr.info('No search results yet. Send a message to trigger vector search.', 'VectHare');
-        }
+        openSearchDebugModal();
     });
-
-    // Show temporal decay settings if enabled
-    if (settings.temporal_decay.enabled) {
-        $('#vecthare_temporal_decay_settings').show();
-    }
 
     // Initialize provider-specific settings visibility
     toggleProviderSettings(settings.source);
 }
 
+// Store current diagnostic results for copy/filter functionality
+let currentDiagnosticResults = null;
+let currentDiagnosticFilter = 'all'; // 'all', 'pass', 'warning', 'fail'
+
 /**
- * Shows diagnostics results in a modal
+ * Shows diagnostics results in the results phase
  * @param {object} results - Diagnostics results object
  */
 export function showDiagnosticsResults(results) {
+    // Store results globally for copy/filter functionality
+    currentDiagnosticResults = results;
+    currentDiagnosticFilter = 'all';
+
+    renderDiagnosticsContent(results, 'all');
+
+    // Show results phase
+    showDiagnosticsPhase('results');
+}
+
+/**
+ * Renders diagnostic content with optional status filter
+ * @param {object} results - Diagnostics results object
+ * @param {string} filter - Filter: 'all', 'pass', 'warning', 'fail'
+ */
+function renderDiagnosticsContent(results, filter = 'all') {
     const output = $('#vecthare_diagnostics_content');
     output.empty();
 
@@ -775,66 +1021,378 @@ export function showDiagnosticsResults(results) {
     const categoryTitles = {
         infrastructure: '<i class="fa-solid fa-server"></i> Infrastructure',
         configuration: '<i class="fa-solid fa-sliders"></i> Configuration',
-        production: '<i class="fa-solid fa-vial"></i> Production Tests'
+        visualizer: '<i class="fa-solid fa-eye"></i> Visualizer',
+        production: '<i class="fa-solid fa-vial"></i> Production Tests',
+        console: '<i class="fa-solid fa-terminal"></i> Console Logs'
     };
 
-    const renderChecks = (checks) => checks.map(check => `
-        <div class="diagnostic-item ${check.status}">
-            <div class="diagnostic-main">
-                <span class="diagnostic-icon">${statusIcons[check.status]}</span>
-                <span class="diagnostic-label">${check.name}</span>
-                <span class="diagnostic-message">${check.message}</span>
+    // Count stats
+    const passCount = results.checks.filter(c => c.status === 'pass').length;
+    const warnCount = results.checks.filter(c => c.status === 'warning').length;
+    const failCount = results.checks.filter(c => c.status === 'fail').length;
+    const fixableCount = results.checks.filter(c => c.fixable && (c.status === 'fail' || c.status === 'warning')).length;
+
+    // Filter checks if needed
+    const filterCheck = (check) => {
+        if (filter === 'all') return true;
+        return check.status === filter;
+    };
+
+    const renderChecks = (checks) => {
+        const filteredChecks = checks.filter(filterCheck);
+        if (filteredChecks.length === 0) {
+            return '<div class="diagnostic-item-empty">No items match current filter</div>';
+        }
+        return filteredChecks.map(check => `
+            <div class="diagnostic-item ${check.status}" data-fix-action="${check.fixAction || ''}" data-status="${check.status}">
+                <div class="diagnostic-main">
+                    <span class="diagnostic-icon">${statusIcons[check.status]}</span>
+                    <span class="diagnostic-label">${check.name}</span>
+                    <span class="diagnostic-message">${check.message}</span>
+                </div>
+                ${check.fixable ? `
+                    <button class="diagnostic-fix-btn" data-fix-action="${check.fixAction}">
+                        <i class="fa-solid fa-wrench"></i>
+                        Fix
+                    </button>
+                ` : ''}
             </div>
-            ${check.fixable ? `
-                <button class="diagnostic-fix-btn" data-fix-action="${check.fixAction}">
-                    <i class="fa-solid fa-wrench"></i>
-                    Fix Now
-                </button>
-            ` : ''}
-        </div>
-    `).join('');
+        `).join('');
+    };
 
     const html = `
+        <!-- Summary Stats Bar (Clickable Filters) -->
+        <div class="vecthare-diagnostics-stats">
+            <div class="vecthare-diag-stat pass ${filter === 'pass' ? 'active' : ''}" data-filter="pass" title="Click to filter by passed">
+                ${statusIcons.pass}
+                <span class="vecthare-diag-stat-count">${passCount}</span>
+                <span class="vecthare-diag-stat-label">Passed</span>
+            </div>
+            <div class="vecthare-diag-stat warning ${filter === 'warning' ? 'active' : ''}" data-filter="warning" title="Click to filter by warnings">
+                ${statusIcons.warning}
+                <span class="vecthare-diag-stat-count">${warnCount}</span>
+                <span class="vecthare-diag-stat-label">Warnings</span>
+            </div>
+            <div class="vecthare-diag-stat fail ${filter === 'fail' ? 'active' : ''}" data-filter="fail" title="Click to filter by failed">
+                ${statusIcons.fail}
+                <span class="vecthare-diag-stat-count">${failCount}</span>
+                <span class="vecthare-diag-stat-label">Failed</span>
+            </div>
+        </div>
+
+        ${filter !== 'all' ? `
+            <div class="vecthare-diag-filter-notice">
+                <span>Showing only: <strong>${filter}</strong></span>
+                <button class="vecthare-diag-clear-filter" data-filter="all">
+                    <i class="fa-solid fa-times"></i> Show All
+                </button>
+            </div>
+        ` : ''}
+
         ${Object.entries(results.categories).map(([category, checks]) => {
             if (checks.length === 0) return '';
+
+            // Category-level stats
+            const catPass = checks.filter(c => c.status === 'pass').length;
+            const catWarn = checks.filter(c => c.status === 'warning').length;
+            const catFail = checks.filter(c => c.status === 'fail').length;
+            const catTotal = checks.length;
+            const filteredCount = checks.filter(filterCheck).length;
+
+            // Don't show category if all items filtered out
+            if (filter !== 'all' && filteredCount === 0) return '';
+
             return `
-                <div class="diagnostic-category">
-                    <h4 class="diagnostic-category-title">${categoryTitles[category]}</h4>
-                    <div class="vecthare-diagnostics">
-                        ${renderChecks(checks)}
+                <div class="diagnostic-category" data-category="${category}">
+                    <div class="diagnostic-category-header" data-collapsed="false">
+                        <h4 class="diagnostic-category-title">
+                            <span class="diagnostic-category-collapse-icon">
+                                <i class="fa-solid fa-chevron-down"></i>
+                            </span>
+                            ${categoryTitles[category] || `<i class="fa-solid fa-folder"></i> ${category}`}
+                        </h4>
+                        <div class="diagnostic-category-stats">
+                            <span class="diag-cat-stat pass" title="Passed">${catPass}</span>
+                            <span class="diag-cat-stat warning" title="Warnings">${catWarn}</span>
+                            <span class="diag-cat-stat fail" title="Failed">${catFail}</span>
+                        </div>
+                    </div>
+                    <div class="diagnostic-category-content">
+                        <div class="vecthare-diagnostics">
+                            ${renderChecks(checks)}
+                        </div>
                     </div>
                 </div>
             `;
         }).join('')}
-
-        <div class="vecthare-diagnostics-summary">
-            <strong>Overall Status:</strong> ${results.overall === 'healthy' ? statusIcons.pass + ' Healthy' : results.overall === 'warnings' ? statusIcons.warning + ' Has Warnings' : statusIcons.fail + ' Issues Found'}
-        </div>
     `;
 
     output.html(html);
 
-    // Bind fix button click handlers
-    $('.diagnostic-fix-btn').on('click', function() {
-        const action = $(this).data('fix-action');
-        handleDiagnosticFix(action);
+    // Update title based on results
+    const titleText = results.overall === 'healthy'
+        ? 'All Checks Passed!'
+        : results.overall === 'warnings'
+            ? 'Completed with Warnings'
+            : 'Issues Found';
+    $('#vecthare_diagnostics_title').text(titleText);
+
+    // Show/hide Fix All button based on fixable issues
+    if (fixableCount > 0) {
+        $('#vecthare_diag_fix_all')
+            .show()
+            .html(`<i class="fa-solid fa-wand-magic-sparkles"></i> Fix All (${fixableCount})`)
+            .off('click')
+            .on('click', function() {
+                handleFixAll(results.checks);
+            });
+    } else {
+        $('#vecthare_diag_fix_all').hide();
+    }
+
+    // Bind filter click handlers on stat boxes
+    $('.vecthare-diag-stat').off('click').on('click', function() {
+        const clickedFilter = $(this).data('filter');
+        // Toggle: if already active, show all; otherwise apply filter
+        if (currentDiagnosticFilter === clickedFilter) {
+            currentDiagnosticFilter = 'all';
+        } else {
+            currentDiagnosticFilter = clickedFilter;
+        }
+        renderDiagnosticsContent(currentDiagnosticResults, currentDiagnosticFilter);
     });
 
-    // Show modal with fade-in
+    // Bind clear filter button
+    $('.vecthare-diag-clear-filter').off('click').on('click', function() {
+        currentDiagnosticFilter = 'all';
+        renderDiagnosticsContent(currentDiagnosticResults, 'all');
+    });
+
+    // Bind category collapse handlers
+    $('.diagnostic-category-header').off('click').on('click', function() {
+        const $header = $(this);
+        const $content = $header.next('.diagnostic-category-content');
+        const isCollapsed = $header.attr('data-collapsed') === 'true';
+
+        if (isCollapsed) {
+            $content.slideDown(200);
+            $header.attr('data-collapsed', 'false');
+            $header.find('.diagnostic-category-collapse-icon i').removeClass('fa-chevron-right').addClass('fa-chevron-down');
+        } else {
+            $content.slideUp(200);
+            $header.attr('data-collapsed', 'true');
+            $header.find('.diagnostic-category-collapse-icon i').removeClass('fa-chevron-down').addClass('fa-chevron-right');
+        }
+    });
+
+    // Bind individual fix button click handlers
+    $('.diagnostic-fix-btn').off('click').on('click', function(e) {
+        e.stopPropagation();
+        const action = $(this).data('fix-action');
+        handleDiagnosticFix(action);
+        // Mark this item as fixed visually
+        $(this).closest('.diagnostic-item')
+            .removeClass('fail warning')
+            .addClass('pass')
+            .find('.diagnostic-icon').html(statusIcons.pass);
+        $(this).fadeOut(200);
+    });
+
+    // Bind copy button
+    $('#vecthare_diag_copy').off('click').on('click', function() {
+        copyDiagnosticsReport(currentDiagnosticResults);
+    });
+}
+
+/**
+ * Generates and copies a nicely formatted diagnostics report
+ * Respects the current filter selection
+ * @param {object} results - Diagnostics results object
+ */
+function copyDiagnosticsReport(results) {
+    if (!results) {
+        toastr.warning('No diagnostic results to copy');
+        return;
+    }
+
+    const filter = currentDiagnosticFilter;
+    const isFiltered = filter !== 'all';
+
+    // Filter checks if a specific filter is active
+    const filterCheck = (check) => {
+        if (!isFiltered) return true;
+        return check.status === filter;
+    };
+
+    const timestamp = new Date(results.timestamp).toLocaleString();
+
+    // Total counts (always show these for context)
+    const totalPass = results.checks.filter(c => c.status === 'pass').length;
+    const totalWarn = results.checks.filter(c => c.status === 'warning').length;
+    const totalFail = results.checks.filter(c => c.status === 'fail').length;
+    const totalCount = totalPass + totalWarn + totalFail;
+
+    // Filtered counts
+    const filteredChecks = results.checks.filter(filterCheck);
+    const filteredCount = filteredChecks.length;
+
+    const statusSymbols = {
+        'pass': '✓',
+        'warning': '⚠',
+        'fail': '✗',
+        'skipped': '○'
+    };
+
+    const filterNames = {
+        'pass': 'PASSED ONLY',
+        'warning': 'WARNINGS ONLY',
+        'fail': 'FAILURES ONLY'
+    };
+
+    let report = `╔══════════════════════════════════════════════════════════════╗
+║              VECTHARE DIAGNOSTICS REPORT                      ║
+╚══════════════════════════════════════════════════════════════╝
+
+📅 Generated: ${timestamp}
+${isFiltered ? `🔍 Filter: ${filterNames[filter]} (${filteredCount} of ${totalCount} checks)\n` : ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                         SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✓ Passed:   ${String(totalPass).padStart(3)}${filter === 'pass' ? ' ◀ showing' : ''}
+  ⚠ Warnings: ${String(totalWarn).padStart(3)}${filter === 'warning' ? ' ◀ showing' : ''}
+  ✗ Failed:   ${String(totalFail).padStart(3)}${filter === 'fail' ? ' ◀ showing' : ''}
+  ─────────────────
+  Total:      ${String(totalCount).padStart(3)}
+
+`;
+
+    const categoryNames = {
+        infrastructure: '🔧 INFRASTRUCTURE',
+        configuration: '⚙️  CONFIGURATION',
+        visualizer: '👁️  VISUALIZER',
+        production: '🧪 PRODUCTION TESTS',
+        console: '💻 CONSOLE LOGS'
+    };
+
+    for (const [category, checks] of Object.entries(results.categories)) {
+        // Filter checks for this category
+        const filteredCatChecks = checks.filter(filterCheck);
+        if (filteredCatChecks.length === 0) continue;
+
+        // Show filtered counts vs total for this category
+        const catTotal = checks.length;
+        const catFiltered = filteredCatChecks.length;
+        const catStats = isFiltered
+            ? `(${catFiltered} of ${catTotal})`
+            : `(✓${checks.filter(c => c.status === 'pass').length} ⚠${checks.filter(c => c.status === 'warning').length} ✗${checks.filter(c => c.status === 'fail').length})`;
+
+        report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${categoryNames[category] || category.toUpperCase()}  ${catStats}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+`;
+
+        for (const check of filteredCatChecks) {
+            const symbol = statusSymbols[check.status] || '?';
+            const name = check.name.padEnd(28);
+            report += `  ${symbol} ${name} ${check.message}\n`;
+        }
+
+        report += '\n';
+    }
+
+    // Add console errors if present (only when showing all or failures)
+    if (results.consoleErrors && results.consoleErrors.length > 0 && (!isFiltered || filter === 'fail')) {
+        report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💻 CONSOLE ERRORS CAPTURED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+`;
+        for (const error of results.consoleErrors) {
+            report += `  [${error.type.toUpperCase()}] ${error.message}\n`;
+            if (error.stack) {
+                report += `           ${error.stack.split('\n')[0]}\n`;
+            }
+        }
+        report += '\n';
+    }
+
+    report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                      END OF REPORT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+
+    // Copy to clipboard
+    const filterMsg = isFiltered ? ` (${filterNames[filter]})` : '';
+    navigator.clipboard.writeText(report).then(() => {
+        toastr.success(`Diagnostics report${filterMsg} copied to clipboard`, 'VectHare');
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        toastr.error('Failed to copy report');
+    });
+}
+
+/**
+ * Opens the diagnostics modal (starts at selection phase)
+ */
+export function openDiagnosticsModal() {
+    showDiagnosticsPhase('selection');
+    $('#vecthare_diagnostics_title').text('Run Diagnostics');
     $('#vecthare_diagnostics_modal').fadeIn(200);
+}
+
+/**
+ * Handles fixing all fixable issues
+ * @param {Array} checks - Array of diagnostic checks
+ */
+function handleFixAll(checks) {
+    const fixableChecks = checks.filter(c => c.fixable && (c.status === 'fail' || c.status === 'warning'));
+
+    if (fixableChecks.length === 0) {
+        toastr.info('No fixable issues found');
+        return;
+    }
+
+    let fixedCount = 0;
+    const statusIcons = {
+        'pass': '<i class="fa-solid fa-circle-check" style="color: var(--vecthare-success);"></i>'
+    };
+
+    fixableChecks.forEach(check => {
+        try {
+            handleDiagnosticFix(check.fixAction, true); // silent mode
+            fixedCount++;
+
+            // Update UI for this item
+            $(`.diagnostic-item[data-fix-action="${check.fixAction}"]`)
+                .removeClass('fail warning')
+                .addClass('pass')
+                .find('.diagnostic-icon').html(statusIcons.pass);
+            $(`.diagnostic-item[data-fix-action="${check.fixAction}"] .diagnostic-fix-btn`).fadeOut(200);
+        } catch (e) {
+            console.warn(`Failed to fix: ${check.fixAction}`, e);
+        }
+    });
+
+    // Hide Fix All button after use
+    $('#vecthare_diag_fix_all').fadeOut(200);
+
+    toastr.success(`Fixed ${fixedCount} issue${fixedCount !== 1 ? 's' : ''}`);
 }
 
 /**
  * Handles diagnostic fix actions
  * @param {string} action - The fix action to perform
+ * @param {boolean} silent - If true, suppress toast notifications and don't close modal
  */
-function handleDiagnosticFix(action) {
+function handleDiagnosticFix(action, silent = false) {
     const settings = extension_settings.vecthare;
 
     switch (action) {
         case 'enable_chats':
             $('#vecthare_enabled_chats').prop('checked', true).trigger('change');
-            toastr.success('Chat vectorization enabled');
+            if (!silent) toastr.success('Chat vectorization enabled');
             break;
 
         case 'vectorize_all':
@@ -843,28 +1401,28 @@ function handleDiagnosticFix(action) {
 
         case 'configure_provider':
             // Scroll to provider settings
-            $('#vecthare_provider_settings')[0].scrollIntoView({ behavior: 'smooth' });
-            toastr.info('Please select an embedding provider');
+            $('#vecthare_provider_settings')[0]?.scrollIntoView({ behavior: 'smooth' });
+            if (!silent) toastr.info('Please select an embedding provider');
             break;
 
         case 'configure_api_key':
-            toastr.info('Go to Settings > API Connections to add your API key');
+            if (!silent) toastr.info('Go to Settings > API Connections to add your API key');
             break;
 
         case 'configure_url':
             // Scroll to provider settings
-            $('#vecthare_provider_settings')[0].scrollIntoView({ behavior: 'smooth' });
-            toastr.info('Please configure your API URL in the provider settings');
+            $('#vecthare_provider_settings')[0]?.scrollIntoView({ behavior: 'smooth' });
+            if (!silent) toastr.info('Please configure your API URL in the provider settings');
             break;
 
         case 'fix_chunk_size':
             $('#vecthare_message_chunk_size').val(400).trigger('change');
-            toastr.success('Chunk size reset to 400');
+            if (!silent) toastr.success('Chunk size reset to 400');
             break;
 
         case 'fix_threshold':
             $('#vecthare_score_threshold').val(0.25).trigger('change');
-            toastr.success('Score threshold reset to 0.25');
+            if (!silent) toastr.success('Score threshold reset to 0.25');
             break;
 
         case 'fix_counts':
@@ -874,24 +1432,19 @@ function handleDiagnosticFix(action) {
             if (settings.query < 1) {
                 $('#vecthare_query').val(2).trigger('change');
             }
-            toastr.success('Insert/Query counts fixed');
+            if (!silent) toastr.success('Insert/Query counts fixed');
             break;
-
-        case 'fix_decay':
-            $('#vecthare_decay_rate').val(0.1).trigger('change');
-            $('#vecthare_decay_halflife').val(10).trigger('change');
-            toastr.success('Temporal decay settings reset to defaults');
-            break;
-
 
         default:
-            toastr.error(`Unknown fix action: ${action}`);
+            if (!silent) toastr.error(`Unknown fix action: ${action}`);
     }
 
-    // Close modal after fix
-    setTimeout(() => {
-        $('#vecthare_diagnostics_modal').fadeOut(200);
-    }, 500);
+    // Only close modal for individual fixes (not batch Fix All)
+    if (!silent) {
+        setTimeout(() => {
+            closeDiagnosticsModal();
+        }, 500);
+    }
 }
 
 /**

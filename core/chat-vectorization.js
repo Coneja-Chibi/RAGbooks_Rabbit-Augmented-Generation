@@ -9,7 +9,7 @@
  * ============================================================================
  */
 
-import { getCurrentChatId, is_send_press, setExtensionPrompt, substituteParams } from '../../../../../script.js';
+import { getCurrentChatId, is_send_press, setExtensionPrompt, substituteParams, chat_metadata } from '../../../../../script.js';
 import { getContext } from '../../../../extensions.js';
 import { getStringHash as calculateHash, waitUntilCondition, onlyUnique, splitRecursive } from '../../../../utils.js';
 import {
@@ -19,30 +19,143 @@ import {
     deleteVectorItems,
     purgeVectorIndex,
 } from './core-vector-api.js';
-import { applyDecayToResults } from './temporal-decay.js';
+import { isBackendAvailable } from '../backends/backend-manager.js';
+import { applyDecayToResults, applySceneAwareDecay } from './temporal-decay.js';
+import { isChunkDisabledByScene } from './scenes.js';
 import { registerCollection } from './collection-loader.js';
 import { progressTracker } from '../ui/progress-tracker.js';
+import { buildSearchContext, filterChunksByConditions } from './conditional-activation.js';
+import { getChunkMetadata } from './collection-metadata.js';
+import { createDebugData, setLastSearchDebug, addTrace, recordChunkFate } from '../ui/search-debug.js';
+import { Queue, LRUCache } from '../utils/data-structures.js';
 
 const EXTENSION_PROMPT_TAG = '3_vecthare';
 
-// Hash cache for performance
-const hashCache = new Map();
+// Hash cache for performance (LRU with 10k capacity)
+const hashCache = new LRUCache(10000);
 
 // Synchronization state
 let syncBlocked = false;
 
 /**
- * Gets the hash value for a string (with caching)
+ * VectHare Collection ID Format: vh:{type}:{uuid}
+ *
+ * Uses chat_metadata.integrity UUID for guaranteed uniqueness.
+ * Same character with multiple chats = different UUIDs = separate vector stores.
+ *
+ * Examples:
+ *   vh:chat:a1b2c3d4-e5f6-7890-abcd-ef1234567890
+ *   vh:lorebook:world_info_12345
+ *   vh:doc:character_card_67890
+ */
+
+const VH_PREFIX = 'vh';
+
+/**
+ * Builds a proper collection ID for multitenancy
+ * Format: vh:{type}:{sourceId}
+ * @param {string} type Collection type (chat, lorebook, doc, etc)
+ * @param {string} sourceId Source identifier (UUID, lorebook uid, etc)
+ * @returns {string} Properly formatted collection ID
+ */
+function buildCollectionId(type, sourceId) {
+    return `${VH_PREFIX}:${type}:${sourceId}`;
+}
+
+/**
+ * Gets the unique chat UUID from chat_metadata.integrity
+ * Falls back to chatId if integrity not available (shouldn't happen)
+ * @returns {string|null} Chat UUID or null if no chat
+ */
+export function getChatUUID() {
+    const integrity = chat_metadata?.integrity;
+    if (integrity) {
+        return integrity;
+    }
+    // Fallback: use chatId (less ideal but works)
+    const chatId = getCurrentChatId();
+    if (chatId) {
+        console.warn('VectHare: chat_metadata.integrity not found, falling back to chatId');
+        return chatId;
+    }
+    return null;
+}
+
+/**
+ * Builds chat collection ID using the chat's unique UUID
+ * @param {string} [chatUUID] Optional UUID override, otherwise uses current chat
+ * @returns {string|null} Collection ID or null if no chat
+ */
+export function getChatCollectionId(chatUUID) {
+    const uuid = chatUUID || getChatUUID();
+    if (!uuid) {
+        return null;
+    }
+    return buildCollectionId('chat', uuid);
+}
+
+/**
+ * Builds lorebook collection ID
+ * @param {string} lorebookUid Lorebook UID
+ * @returns {string} Properly formatted collection ID
+ */
+export function getLorebookCollectionId(lorebookUid) {
+    return buildCollectionId('lorebook', lorebookUid);
+}
+
+/**
+ * Builds document collection ID
+ * @param {string} documentId Document identifier
+ * @returns {string} Properly formatted collection ID
+ */
+export function getDocumentCollectionId(documentId) {
+    return buildCollectionId('doc', documentId);
+}
+
+/**
+ * Parses a VectHare collection ID
+ * @param {string} collectionId Collection ID to parse
+ * @returns {{prefix: string, type: string, sourceId: string}|null} Parsed parts or null if invalid
+ */
+export function parseCollectionId(collectionId) {
+    if (!collectionId || typeof collectionId !== 'string') {
+        return null;
+    }
+    const parts = collectionId.split(':');
+    if (parts.length >= 3 && parts[0] === VH_PREFIX) {
+        return {
+            prefix: parts[0],
+            type: parts[1],
+            sourceId: parts.slice(2).join(':') // Handle UUIDs with colons
+        };
+    }
+    return null;
+}
+
+/**
+ * Gets the hash value for a string (with LRU caching)
  * @param {string} str Input string
  * @returns {number} Hash value
  */
 function getStringHash(str) {
-    if (hashCache.has(str)) {
-        return hashCache.get(str);
+    const cached = hashCache.get(str);
+    if (cached !== undefined) {
+        return cached;
     }
     const hash = calculateHash(str);
     hashCache.set(str, hash);
     return hash;
+}
+
+/**
+ * Gets message text without file attachments
+ * Matches behavior of ST vectors extension for hash compatibility
+ * @param {object} message Chat message object
+ * @returns {string} Message text without attachment prefix
+ */
+function getTextWithoutAttachments(message) {
+    const fileLength = message?.extra?.fileLength || 0;
+    return String(message?.mes || '').substring(fileLength).trim();
 }
 
 /**
@@ -68,15 +181,19 @@ function splitByChunks(items, chunkSize) {
     for (const item of items) {
         const chunks = splitRecursive(item.text, chunkSize, getChunkDelimiters());
         for (let i = 0; i < chunks.length; i++) {
+            // Compute unique hash from chunk text for proper identification in visualizer
+            const chunkHash = getStringHash(chunks[i]);
             chunkedItems.push({
                 ...item,
+                hash: chunkHash,  // Unique hash for this chunk's text
                 text: chunks[i],
                 metadata: {
                     ...item.metadata,
                     source: 'chat',
                     messageId: item.index,
                     chunkIndex: i,
-                    totalChunks: chunks.length
+                    totalChunks: chunks.length,
+                    originalMessageHash: item.hash  // Track which message this came from
                 }
             });
         }
@@ -85,78 +202,184 @@ function splitByChunks(items, chunkSize) {
 }
 
 /**
- * Synchronizes chat with vector index
+ * Filters out chunks that have been disabled by scene vectorization
+ * @param {object[]} chunks Chunks to filter
+ * @returns {object[]} Chunks not disabled by scenes
+ */
+function filterSceneDisabledChunks(chunks) {
+    const filtered = chunks.filter(chunk => {
+        const isDisabled = isChunkDisabledByScene(chunk.hash);
+        if (isDisabled) {
+            console.debug(`VectHare: Chunk ${chunk.hash} is disabled by scene`);
+        }
+        return !isDisabled;
+    });
+
+    if (filtered.length !== chunks.length) {
+        console.log(`VectHare: Scene filtering: ${chunks.length} → ${filtered.length} chunks (${chunks.length - filtered.length} disabled by scenes)`);
+    }
+
+    return filtered;
+}
+
+/**
+ * Applies chunk-level conditions to filter results
+ * @param {object[]} chunks Chunks with metadata
+ * @param {object[]} chat Chat messages for context
  * @param {object} settings VectHare settings
- * @param {number} batchSize Number of items to process at once
- * @returns {Promise<number>} Number of remaining items (-1 if disabled/blocked)
+ * @returns {Promise<object[]>} Filtered chunks
+ */
+async function applyChunkConditions(chunks, chat, settings) {
+    // First filter out chunks disabled by scenes
+    let filtered = filterSceneDisabledChunks(chunks);
+
+    // Check if any chunks have conditions (from chunk metadata)
+    const chunksWithConditions = filtered.map(chunk => {
+        const chunkMeta = getChunkMetadata(chunk.hash);
+        if (chunkMeta?.conditions?.enabled) {
+            return { ...chunk, conditions: chunkMeta.conditions };
+        }
+        return chunk;
+    });
+
+    // If no chunks have conditions, return filtered
+    const hasAnyConditions = chunksWithConditions.some(c => c.conditions?.enabled);
+    if (!hasAnyConditions) {
+        return filtered;
+    }
+
+    // Build search context for condition evaluation
+    const context = buildSearchContext(chat, settings.query || 10, chunksWithConditions, {
+        generationType: settings.generationType || 'normal',
+        isGroupChat: settings.isGroupChat || false,
+        currentCharacter: settings.currentCharacter || null,
+        activeLorebookEntries: settings.activeLorebookEntries || [],
+        activationHistory: window.VectHare_ActivationHistory || {}
+    });
+
+    // Filter chunks by their conditions
+    const conditionFilteredChunks = filterChunksByConditions(chunksWithConditions, context);
+
+    // Track activation for frequency conditions
+    conditionFilteredChunks.forEach(chunk => {
+        if (chunk.conditions?.enabled) {
+            trackChunkActivation(chunk.hash, chat.length);
+        }
+    });
+
+    console.log(`VectHare: Chunk conditions filtered ${filtered.length} → ${conditionFilteredChunks.length}`);
+    return conditionFilteredChunks;
+}
+
+/**
+ * Tracks chunk activation for frequency/cooldown conditions
+ * @param {number} hash Chunk hash
+ * @param {number} messageCount Current message count
+ */
+function trackChunkActivation(hash, messageCount) {
+    if (!window.VectHare_ActivationHistory) {
+        window.VectHare_ActivationHistory = {};
+    }
+
+    const history = window.VectHare_ActivationHistory[hash] || { count: 0, lastActivation: null };
+    window.VectHare_ActivationHistory[hash] = {
+        count: history.count + 1,
+        lastActivation: messageCount
+    };
+}
+
+/**
+ * Synchronizes chat with vector index using simple FIFO queue
+ *
+ * How it works:
+ * 1. Get all messages, get all vectorized hashes from DB
+ * 2. Queue = messages not yet in DB (by hash)
+ * 3. Process batch: take message, chunk it, insert chunks, remove from queue
+ * 4. Repeat until queue empty
+ *
+ * @param {object} settings VectHare settings
+ * @param {number} batchSize Number of messages to process per call
+ * @returns {Promise<object>} Progress info
  */
 export async function synchronizeChat(settings, batchSize = 5) {
-    console.log(`VectHare: synchronizeChat called, enabled_chats=${settings.enabled_chats}`);
-
     if (!settings.enabled_chats) {
-        return -1;
+        return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
     }
 
     try {
         await waitUntilCondition(() => !syncBlocked && !is_send_press, 1000);
     } catch {
-        console.log('VectHare: Synchronization blocked by another process');
-        return -1;
+        return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
     }
 
     try {
         syncBlocked = true;
         const context = getContext();
-        const chatId = getCurrentChatId();
 
-        if (!chatId || !Array.isArray(context.chat)) {
-            console.debug('VectHare: No chat selected');
-            return -1;
+        if (!getCurrentChatId() || !Array.isArray(context.chat)) {
+            return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
         }
 
-        // Register this collection in the database browser
-        const collectionId = `vecthare_chat_${chatId}`;
+        // Build proper collection ID using chat UUID
+        const collectionId = getChatCollectionId();
+        if (!collectionId) {
+            console.error('VectHare: Could not get collection ID for chat');
+            return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
+        }
+
+        // Register collection
         registerCollection(collectionId);
 
-        // Build list of messages to vectorize
-        const hashedMessages = context.chat
-            .filter(x => !x.is_system)
-            .map(x => ({
-                text: String(substituteParams(x.mes)),
-                hash: getStringHash(substituteParams(x.mes)),
-                index: context.chat.indexOf(x)
-            }));
+        // Step 1: What's already vectorized? (source of truth = DB)
+        const existingHashes = new Set(await getSavedHashes(collectionId, settings));
 
-        // Get existing hashes
-        const hashesInCollection = await getSavedHashes(chatId, settings);
+        // Step 2: Build queue of messages NOT in DB
+        const queue = new Queue();
+        for (const msg of context.chat) {
+            if (msg.is_system) continue;
 
-        // Find new and deleted items
-        let newVectorItems = hashedMessages.filter(x => !hashesInCollection.includes(x.hash));
-        const deletedHashes = hashesInCollection.filter(x => !hashedMessages.some(y => y.hash === x));
+            const text = String(substituteParams(msg.mes));
+            const hash = getStringHash(substituteParams(getTextWithoutAttachments(msg)));
 
-        // Process new items
-        if (newVectorItems.length > 0) {
-            const itemsToProcess = newVectorItems.slice(0, batchSize);
-            const chunkedBatch = splitByChunks(itemsToProcess, settings.message_chunk_size);
-
-            console.log(`VectHare: Found ${newVectorItems.length} new messages. Processing ${itemsToProcess.length} messages (${chunkedBatch.length} chunks)...`);
-
-            await insertVectorItems(chatId, chunkedBatch, settings);
-
-            console.log(`VectHare: Successfully vectorized ${chunkedBatch.length} chunks from ${itemsToProcess.length} messages`);
+            if (!existingHashes.has(hash)) {
+                queue.enqueue({ text, hash, index: context.chat.indexOf(msg) });
+            }
         }
 
-        // Delete removed items
-        if (deletedHashes.length > 0) {
-            await deleteVectorItems(chatId, deletedHashes, settings);
-            console.log(`VectHare: Deleted ${deletedHashes.length} old hashes`);
+        if (queue.isEmpty()) {
+            return { remaining: 0, messagesProcessed: 0, chunksCreated: 0 };
         }
 
-        return newVectorItems.length - batchSize;
+        // Step 3: Process batch
+        let messagesProcessed = 0;
+        let chunksCreated = 0;
+
+        while (!queue.isEmpty() && messagesProcessed < batchSize) {
+            const msg = queue.dequeue();
+
+            // Chunk this message
+            const chunks = splitByChunks([msg], settings.message_chunk_size);
+
+            // Insert chunks (insertVectorItems handles duplicates at DB level)
+            if (chunks.length > 0) {
+                await insertVectorItems(collectionId, chunks, settings);
+                chunksCreated += chunks.length;
+            }
+
+            messagesProcessed++;
+            progressTracker.updateCurrentItem(`Message ${messagesProcessed}/${batchSize}`);
+        }
+
+        progressTracker.updateCurrentItem(null);
+
+        return {
+            remaining: queue.size,
+            messagesProcessed,
+            chunksCreated
+        };
     } catch (error) {
-        console.error('VectHare: Failed to synchronize chat', error);
-        toastr.error('Check console for details', 'VectHare: Vectorization failed', { preventDuplicates: true });
-        return -1;
+        console.error('VectHare: Sync failed', error);
+        throw error;
     } finally {
         syncBlocked = false;
     }
@@ -182,15 +405,20 @@ export async function rearrangeChat(chat, settings, type) {
             return;
         }
 
-        const chatId = getCurrentChatId();
-
-        if (!chatId || !Array.isArray(chat)) {
+        if (!getCurrentChatId() || !Array.isArray(chat)) {
             console.debug('VectHare: No chat selected');
             return;
         }
 
         if (chat.length < settings.protect) {
             console.debug(`VectHare: Not enough messages (${chat.length} < ${settings.protect})`);
+            return;
+        }
+
+        // Build proper collection ID using chat UUID
+        const collectionId = getChatCollectionId();
+        if (!collectionId) {
+            console.debug('VectHare: Could not get collection ID');
             return;
         }
 
@@ -208,67 +436,279 @@ export async function rearrangeChat(chat, settings, type) {
             return;
         }
 
+        // Initialize debug data for tracking pipeline stages
+        const debugData = createDebugData();
+        debugData.query = queryText;
+        debugData.collectionId = collectionId;
+        debugData.settings = {
+            threshold: settings.score_threshold,
+            topK: settings.insert,
+            temporal_decay: settings.temporal_decay,
+            protect: settings.protect,
+            chatLength: chat.length
+        };
+
+        // TRACE: Pipeline start
+        addTrace(debugData, 'init', 'Pipeline started', {
+            collectionId: collectionId,
+            queryLength: queryText.length,
+            threshold: settings.score_threshold,
+            topK: settings.insert,
+            protect: settings.protect
+        });
+
         // Query vector collection
-        let queryResults = await queryCollection(chatId, queryText, settings.insert, settings);
+        let queryResults = await queryCollection(collectionId, queryText, settings.insert, settings);
+
+        // TRACE: Vector query results
+        addTrace(debugData, 'vector_search', 'Vector query completed', {
+            hashesReturned: queryResults.hashes.length,
+            hashes: queryResults.hashes.slice(0, 10), // First 10 for debugging
+            scores: queryResults.metadata.slice(0, 10).map(m => m.score)
+        });
+
         console.log(`VectHare: Retrieved ${queryResults.hashes.length} relevant chunks`);
 
         // Build chunks with text for visualizer
+        // Text is stored in metadata from the vector DB, use that first
+        // Fall back to looking up from chat if not present (legacy data)
         let chunksForVisualizer = queryResults.metadata.map((meta, idx) => {
-            // Find the chat message by hash to get the text
             const hash = queryResults.hashes[idx];
-            const chatMessage = chat.find(msg =>
-                msg.mes && getStringHash(substituteParams(msg.mes)) === hash
-            );
+
+            // Prefer text from metadata (stored in vector DB)
+            let text = meta.text;
+            let textSource = 'metadata';
+
+            // Fallback: try to find in chat messages if not in metadata
+            if (!text) {
+                const chatMessage = chat.find(msg =>
+                    msg.mes && getStringHash(substituteParams(getTextWithoutAttachments(msg))) === hash
+                );
+                text = chatMessage ? substituteParams(chatMessage.mes) : '(text not found)';
+                textSource = chatMessage ? 'chat_lookup' : 'not_found';
+            }
+
+            // TRACE: Record initial chunk state
+            recordChunkFate(debugData, hash, 'vector_search', 'passed', null, {
+                score: meta.score || 1.0,
+                textSource,
+                textLength: text?.length || 0
+            });
 
             return {
                 hash: hash,
                 metadata: meta,
                 score: meta.score || 1.0,
                 similarity: meta.score || 1.0,
-                text: chatMessage ? substituteParams(chatMessage.mes) : '(text not found)',
-                index: meta.messageId || 0,
-                collectionId: chatId,
+                text: text,
+                index: meta.messageId || meta.index || 0,
+                collectionId: collectionId,
                 decayApplied: false
             };
         });
 
+        // Store initial stage (raw vector search results)
+        debugData.stages.initial = [...chunksForVisualizer];
+        debugData.stats.retrievedFromVector = chunksForVisualizer.length;
+
+        // TRACE: Apply threshold filter
+        const threshold = settings.score_threshold || 0;
+        const beforeThreshold = chunksForVisualizer.length;
+        chunksForVisualizer = chunksForVisualizer.filter(chunk => {
+            const passes = chunk.score >= threshold;
+            if (!passes) {
+                recordChunkFate(debugData, chunk.hash, 'threshold', 'dropped',
+                    `Score ${chunk.score.toFixed(3)} < threshold ${threshold}`,
+                    { score: chunk.score, threshold }
+                );
+            } else {
+                recordChunkFate(debugData, chunk.hash, 'threshold', 'passed', null,
+                    { score: chunk.score, threshold }
+                );
+            }
+            return passes;
+        });
+
+        debugData.stages.afterThreshold = [...chunksForVisualizer];
+        addTrace(debugData, 'threshold', 'Threshold filter applied', {
+            threshold,
+            before: beforeThreshold,
+            after: chunksForVisualizer.length,
+            dropped: beforeThreshold - chunksForVisualizer.length
+        });
+
         // Apply temporal decay if enabled
+        const beforeDecay = chunksForVisualizer.length;
         if (settings.temporal_decay && settings.temporal_decay.enabled) {
+            addTrace(debugData, 'decay', 'Starting temporal decay', {
+                enabled: true,
+                sceneAware: settings.temporal_decay.sceneAware,
+                halfLife: settings.temporal_decay.halfLife || settings.temporal_decay.half_life,
+                strength: settings.temporal_decay.strength || settings.temporal_decay.rate
+            });
+
             const currentMessageId = chat.length - 1;
-            const chunksWithScores = queryResults.metadata.map((meta, idx) => ({
-                hash: queryResults.hashes[idx],
-                metadata: meta,
-                score: meta.score || 1.0
+            const chunksWithScores = chunksForVisualizer.map(chunk => ({
+                hash: chunk.hash,
+                metadata: chunk.metadata,
+                score: chunk.score
             }));
 
-            const decayedChunks = applyDecayToResults(chunksWithScores, currentMessageId, settings.temporal_decay);
+            let decayedChunks;
+            let decayType = 'standard';
+
+            // Use scene-aware decay if enabled and scenes exist
+            if (settings.temporal_decay.sceneAware) {
+                // Extract scene info from chunks that have isScene:true
+                const sceneChunks = chunksForVisualizer.filter(c => c.metadata?.isScene === true);
+                const scenes = sceneChunks.map(c => ({
+                    start: c.metadata.sceneStart,
+                    end: c.metadata.sceneEnd,
+                    hash: c.hash,
+                }));
+
+                if (scenes.length > 0) {
+                    decayedChunks = applySceneAwareDecay(chunksWithScores, currentMessageId, scenes, settings.temporal_decay);
+                    decayType = 'scene_aware';
+                    console.log('VectHare: Applied scene-aware temporal decay to search results');
+                } else {
+                    decayedChunks = applyDecayToResults(chunksWithScores, currentMessageId, settings.temporal_decay);
+                    decayType = 'standard_no_scenes';
+                    console.log('VectHare: Applied temporal decay to search results (no scenes marked)');
+                }
+            } else {
+                decayedChunks = applyDecayToResults(chunksWithScores, currentMessageId, settings.temporal_decay);
+                console.log('VectHare: Applied temporal decay to search results');
+            }
+
             decayedChunks.sort((a, b) => b.score - a.score);
 
-            // Update visualizer chunks with decay info
+            // TRACE: Record decay effects per chunk
             chunksForVisualizer = chunksForVisualizer.map(chunk => {
                 const decayedChunk = decayedChunks.find(dc => dc.hash === chunk.hash);
-                if (decayedChunk && decayedChunk.decayApplied) {
+                if (decayedChunk && (decayedChunk.decayApplied || decayedChunk.sceneAwareDecay)) {
+                    const decayMultiplier = decayedChunk.score / (decayedChunk.originalScore || 1);
+                    const newScore = decayedChunk.score;
+                    const stillAboveThreshold = newScore >= threshold;
+
+                    // TRACE: Record decay effect on this chunk
+                    if (stillAboveThreshold) {
+                        recordChunkFate(debugData, chunk.hash, 'decay', 'passed', null, {
+                            originalScore: decayedChunk.originalScore,
+                            decayedScore: newScore,
+                            decayMultiplier,
+                            messageAge: decayedChunk.messageAge || decayedChunk.effectiveAge,
+                            decayType
+                        });
+                    } else {
+                        recordChunkFate(debugData, chunk.hash, 'decay', 'dropped',
+                            `Decayed score ${newScore.toFixed(3)} < threshold ${threshold}`,
+                            {
+                                originalScore: decayedChunk.originalScore,
+                                decayedScore: newScore,
+                                decayMultiplier,
+                                messageAge: decayedChunk.messageAge || decayedChunk.effectiveAge,
+                                decayType
+                            }
+                        );
+                    }
+
                     return {
                         ...chunk,
-                        score: decayedChunk.score,
+                        score: newScore,
                         originalScore: decayedChunk.originalScore,
-                        messageAge: decayedChunk.messageAge,
+                        messageAge: decayedChunk.messageAge || decayedChunk.effectiveAge,
                         decayApplied: true,
-                        decayMultiplier: decayedChunk.score / (decayedChunk.originalScore || 1)
+                        sceneAwareDecay: decayedChunk.sceneAwareDecay || false,
+                        decayMultiplier
                     };
                 }
+                // No decay applied to this chunk
+                recordChunkFate(debugData, chunk.hash, 'decay', 'passed', 'No decay applied', {
+                    score: chunk.score
+                });
                 return chunk;
             });
 
+            // Re-filter by threshold after decay
+            chunksForVisualizer = chunksForVisualizer.filter(c => c.score >= threshold);
+
             queryResults = {
-                hashes: decayedChunks.map(c => c.hash),
-                metadata: decayedChunks.map(c => c.metadata)
+                hashes: chunksForVisualizer.map(c => c.hash),
+                metadata: chunksForVisualizer.map(c => c.metadata)
             };
 
-            console.log('VectHare: Applied temporal decay to search results');
+            addTrace(debugData, 'decay', 'Temporal decay completed', {
+                decayType,
+                before: beforeDecay,
+                after: chunksForVisualizer.length,
+                dropped: beforeDecay - chunksForVisualizer.length
+            });
+        } else {
+            addTrace(debugData, 'decay', 'Temporal decay skipped (disabled)', {
+                enabled: false
+            });
+            // Mark all chunks as passing decay stage
+            chunksForVisualizer.forEach(chunk => {
+                recordChunkFate(debugData, chunk.hash, 'decay', 'passed', 'Decay disabled', {
+                    score: chunk.score
+                });
+            });
         }
 
-        // Store results for visualizer
+        // Store after decay stage
+        debugData.stages.afterDecay = [...chunksForVisualizer];
+        debugData.stats.afterDecay = chunksForVisualizer.length;
+
+        // Apply chunk-level conditions if any chunks have them
+        const beforeConditions = chunksForVisualizer.length;
+        const chunksBeforeConditions = [...chunksForVisualizer]; // Keep copy for tracing
+
+        addTrace(debugData, 'conditions', 'Starting condition filtering', {
+            chunksToFilter: beforeConditions,
+            hasConditions: chunksForVisualizer.some(c => c.metadata?.conditions)
+        });
+
+        chunksForVisualizer = await applyChunkConditions(chunksForVisualizer, chat, settings);
+
+        // TRACE: Record which chunks were dropped by conditions
+        const afterConditionsHashes = new Set(chunksForVisualizer.map(c => c.hash));
+        chunksBeforeConditions.forEach(chunk => {
+            if (afterConditionsHashes.has(chunk.hash)) {
+                recordChunkFate(debugData, chunk.hash, 'conditions', 'passed', null, {
+                    score: chunk.score,
+                    hadConditions: !!chunk.metadata?.conditions
+                });
+            } else {
+                recordChunkFate(debugData, chunk.hash, 'conditions', 'dropped',
+                    chunk.metadata?.conditions
+                        ? `Failed condition: ${JSON.stringify(chunk.metadata.conditions)}`
+                        : 'Filtered by condition system',
+                    {
+                        score: chunk.score,
+                        conditions: chunk.metadata?.conditions
+                    }
+                );
+            }
+        });
+
+        // Store after conditions stage
+        debugData.stages.afterConditions = [...chunksForVisualizer];
+        debugData.stats.afterConditions = chunksForVisualizer.length;
+
+        addTrace(debugData, 'conditions', 'Condition filtering completed', {
+            before: beforeConditions,
+            after: chunksForVisualizer.length,
+            dropped: beforeConditions - chunksForVisualizer.length
+        });
+
+        // Update queryResults to match filtered chunks
+        queryResults = {
+            hashes: chunksForVisualizer.map(c => c.hash),
+            metadata: chunksForVisualizer.map(c => c.metadata)
+        };
+
+        // Store results for legacy visualizer (keep for compatibility)
         window.VectHare_LastSearch = {
             chunks: chunksForVisualizer,
             query: queryText,
@@ -281,27 +721,108 @@ export async function rearrangeChat(chat, settings, type) {
         };
         console.log(`VectHare: Stored ${chunksForVisualizer.length} chunks for visualizer`);
 
+        // TRACE: Start injection phase
+        addTrace(debugData, 'injection', 'Starting message lookup and injection', {
+            hashesToFind: queryResults.hashes.length,
+            protectRange: settings.protect,
+            chatLength: chat.length
+        });
+
         const queryHashes = queryResults.hashes.filter(onlyUnique);
         const queriedMessages = [];
         const insertedHashes = new Set();
         const retainMessages = chat.slice(-settings.protect);
 
+        // TRACE: Build hash map of all chat messages for debugging
+        const chatHashMap = {};
+        chat.forEach((msg, idx) => {
+            if (msg.mes) {
+                const hash = getStringHash(substituteParams(getTextWithoutAttachments(msg)));
+                chatHashMap[hash] = { index: idx, preview: msg.mes.substring(0, 50) };
+            }
+        });
+        addTrace(debugData, 'injection', 'Chat hashes computed', {
+            totalMessages: chat.length,
+            hashesComputed: Object.keys(chatHashMap).length,
+            lookingFor: queryHashes.map(h => String(h)),
+            existingHashes: Object.keys(chatHashMap).slice(0, 20)
+        });
+
+        // Track injection failures for debug
+        const injectionFailures = [];
+
         // Find original messages by hash
         for (const message of chat) {
-            if (retainMessages.includes(message) || !message.mes) {
+            if (!message.mes) {
                 continue;
             }
-            const hash = getStringHash(substituteParams(message.mes));
-            if (queryHashes.includes(hash) && !insertedHashes.has(hash)) {
+            const hash = getStringHash(substituteParams(getTextWithoutAttachments(message)));
+
+            // Check if this hash is one we're looking for
+            if (queryHashes.includes(hash)) {
+                // Check if it's in protected range
+                if (retainMessages.includes(message)) {
+                    const msgIndex = chat.indexOf(message);
+                    injectionFailures.push({
+                        hash: hash,
+                        reason: 'protected',
+                        detail: `Message #${msgIndex} is within protected range (last ${settings.protect} of ${chat.length} messages)`,
+                        messageIndex: msgIndex
+                    });
+                    // TRACE: Record protected message
+                    recordChunkFate(debugData, hash, 'injection', 'dropped',
+                        `Protected: message #${msgIndex} is in last ${settings.protect} messages`,
+                        { messageIndex: msgIndex, protectRange: settings.protect }
+                    );
+                    continue;
+                }
+
+                // Check if already inserted (duplicate)
+                if (insertedHashes.has(hash)) {
+                    continue; // Already handled, not a failure
+                }
+
                 queriedMessages.push(message);
                 insertedHashes.add(hash);
+
+                // TRACE: Record successful message lookup
+                recordChunkFate(debugData, hash, 'injection', 'passed', 'Message found in chat', {
+                    messageIndex: chat.indexOf(message)
+                });
             }
         }
 
+        // Check for hashes that weren't found in chat at all
+        for (const hash of queryHashes) {
+            if (!insertedHashes.has(hash) && !injectionFailures.some(f => f.hash === hash)) {
+                const hashStr = String(hash);
+                injectionFailures.push({
+                    hash: hash,
+                    reason: 'not_found',
+                    detail: `Hash ${hashStr.substring(0, 8)}... not found in any of ${chat.length} chat messages`
+                });
+                // TRACE: Record hash mismatch
+                recordChunkFate(debugData, hash, 'injection', 'dropped',
+                    `Hash not found in chat - message edited/deleted after vectorization`,
+                    { searchedMessages: chat.length }
+                );
+            }
+        }
+
+        // Store injection failures in debug data
+        debugData.injectionFailures = injectionFailures;
+
+        addTrace(debugData, 'injection', 'Message lookup completed', {
+            hashesSearched: queryHashes.length,
+            messagesFound: queriedMessages.length,
+            protected: injectionFailures.filter(f => f.reason === 'protected').length,
+            notFound: injectionFailures.filter(f => f.reason === 'not_found').length
+        });
+
         // Sort by relevance
         queriedMessages.sort((a, b) =>
-            queryHashes.indexOf(getStringHash(substituteParams(b.mes))) -
-            queryHashes.indexOf(getStringHash(substituteParams(a.mes)))
+            queryHashes.indexOf(getStringHash(substituteParams(getTextWithoutAttachments(b)))) -
+            queryHashes.indexOf(getStringHash(substituteParams(getTextWithoutAttachments(a))))
         );
 
         // Remove queried messages from original array
@@ -314,6 +835,18 @@ export async function rearrangeChat(chat, settings, type) {
 
         if (queriedMessages.length === 0) {
             console.debug('VectHare: No relevant messages found');
+            // Still save debug data even if nothing was injected
+            debugData.stages.injected = [];
+            debugData.stats.actuallyInjected = 0;
+
+            addTrace(debugData, 'injection', 'PIPELINE COMPLETE - NO INJECTION', {
+                reason: 'No messages passed all filters',
+                failures: injectionFailures.length,
+                protectedCount: injectionFailures.filter(f => f.reason === 'protected').length,
+                notFoundCount: injectionFailures.filter(f => f.reason === 'not_found').length
+            });
+
+            setLastSearchDebug(debugData);
             return;
         }
 
@@ -324,6 +857,40 @@ export async function rearrangeChat(chat, settings, type) {
 
         const insertedText = settings.template.replace('{{text}}', queriedText);
         setExtensionPrompt(EXTENSION_PROMPT_TAG, insertedText, settings.position, settings.depth, false);
+
+        // Store injected stage - map messages back to chunk data
+        const injectedChunks = queriedMessages.map(msg => {
+            const hash = getStringHash(substituteParams(getTextWithoutAttachments(msg)));
+            const matchingChunk = chunksForVisualizer.find(c => c.hash === hash);
+
+            // TRACE: Mark chunk as successfully injected
+            recordChunkFate(debugData, hash, 'final', 'injected', null, {
+                messageIndex: chat.indexOf(msg),
+                score: matchingChunk?.score
+            });
+
+            return matchingChunk || {
+                hash: hash,
+                text: msg.mes,
+                score: 0,
+                index: chat.indexOf(msg)
+            };
+        }).filter(Boolean);
+
+        debugData.stages.injected = injectedChunks;
+        debugData.stats.actuallyInjected = injectedChunks.length;
+
+        // TRACE: Pipeline complete with successful injection
+        addTrace(debugData, 'final', 'PIPELINE COMPLETE - SUCCESS', {
+            injectedCount: injectedChunks.length,
+            injectedHashes: injectedChunks.map(c => c.hash),
+            totalTokens: insertedText.length, // Rough estimate
+            position: settings.position,
+            depth: settings.depth
+        });
+
+        // Save debug data for the Search Debug modal
+        setLastSearchDebug(debugData);
 
         console.log(`VectHare: ✅ Injected ${queriedMessages.length} relevant past messages`);
 
@@ -350,16 +917,29 @@ export async function vectorizeAll(settings, batchSize) {
             return;
         }
 
+        // Pre-flight check: verify backend is available before starting
+        const backendName = settings.vector_backend || 'standard';
+        const backendAvailable = await isBackendAvailable(backendName, settings);
+        if (!backendAvailable) {
+            toastr.error(
+                `Backend "${backendName}" is not available. Check your settings or start the backend service.`,
+                'Vectorization aborted'
+            );
+            console.error(`VectHare: Backend ${backendName} failed health check before vectorization`);
+            return;
+        }
+
         // Calculate total messages to vectorize
         const context = getContext();
         const totalMessages = context.chat ? context.chat.filter(x => !x.is_system).length : 0;
 
         // Show progress panel
-        progressTracker.show('Vectorizing Chat', totalMessages);
+        progressTracker.show('Vectorizing Chat', totalMessages, 'Messages');
 
         let finished = false;
         let iteration = 0;
         let processedCount = 0;
+        let totalChunks = 0;
 
         while (!finished) {
             if (is_send_press) {
@@ -368,19 +948,29 @@ export async function vectorizeAll(settings, batchSize) {
                 throw new Error('Message generation in progress');
             }
 
-            const remaining = await synchronizeChat(settings, batchSize);
-            finished = remaining <= 0;
+            const result = await synchronizeChat(settings, batchSize);
+
+            // Handle disabled/blocked state
+            if (result.remaining === -1) {
+                console.log('VectHare: Vectorization blocked or disabled');
+                progressTracker.complete(false, 'Blocked or disabled');
+                return;
+            }
+
+            finished = result.remaining <= 0;
             iteration++;
 
-            // Update progress (estimate processed based on batch size)
-            processedCount = Math.min(totalMessages, processedCount + batchSize);
+            // Update progress with actual counts
+            processedCount += result.messagesProcessed;
+            totalChunks += result.chunksCreated;
+
             progressTracker.updateProgress(
                 processedCount,
-                remaining > 0 ? `Processing... ${remaining} items remaining` : 'Finalizing...'
+                result.remaining > 0 ? `Processing... ${result.remaining} messages remaining` : 'Finalizing...'
             );
-            progressTracker.updateBatch(iteration, Math.ceil(totalMessages / batchSize));
+            progressTracker.updateChunks(totalChunks);
 
-            console.log(`VectHare: Vectorization iteration ${iteration}, ${remaining > 0 ? remaining + ' remaining' : 'complete'}`);
+            console.log(`VectHare: Vectorization iteration ${iteration}, ${result.remaining > 0 ? result.remaining + ' remaining' : 'complete'} (${result.chunksCreated} chunks this batch)`);
 
             if (chatId !== getCurrentChatId()) {
                 progressTracker.complete(false, 'Chat changed during vectorization');
@@ -388,7 +978,7 @@ export async function vectorizeAll(settings, batchSize) {
             }
         }
 
-        progressTracker.complete(true, `Vectorized ${totalMessages} messages successfully`);
+        progressTracker.complete(true, `Vectorized ${processedCount} messages (${totalChunks} chunks)`);
         toastr.success('Chat vectorized successfully', 'VectHare');
         console.log(`VectHare: ✅ Vectorization complete after ${iteration} iterations`);
     } catch (error) {
@@ -404,13 +994,18 @@ export async function vectorizeAll(settings, batchSize) {
  * @param {object} settings VectHare settings
  */
 export async function purgeChatIndex(settings) {
-    const chatId = getCurrentChatId();
-    if (!chatId) {
+    if (!getCurrentChatId()) {
         toastr.info('No chat selected', 'Purge aborted');
         return;
     }
 
-    if (await purgeVectorIndex(chatId, settings)) {
+    const collectionId = getChatCollectionId();
+    if (!collectionId) {
+        toastr.error('Could not get collection ID', 'Purge aborted');
+        return;
+    }
+
+    if (await purgeVectorIndex(collectionId, settings)) {
         toastr.success('Vector index purged', 'VectHare');
         console.log('VectHare: Index purged successfully');
     } else {

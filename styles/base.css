@@ -1,0 +1,71 @@
+/* ============================================================================
+ * VECTHARE BASE STYLES
+ * ============================================================================
+ * CSS variables, icons, main container
+ *
+ * @author Coneja Chibi
+ * @version 2.0.0-alpha
+ * ============================================================================ */
+
+:root {
+    --vecthare-primary: #6366f1;
+    --vecthare-primary-bright: #818cf8;
+    --vecthare-secondary: #8b5cf6;
+    --vecthare-success: #10b981;
+    --vecthare-warning: #f59e0b;
+    --vecthare-danger: #ef4444;
+}
+
+/* ============================================================================
+ * BASE ICON STYLES (SVG icons from icons.js)
+ * ============================================================================ */
+
+.vecthare-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+/* Icons in buttons */
+button .vecthare-icon,
+.vecthare-btn .vecthare-icon,
+.vecthare-btn-sm .vecthare-icon {
+    margin-right: 4px;
+}
+
+/* Icons in badges */
+.vecthare-badge .vecthare-icon {
+    margin-right: 3px;
+}
+
+/* Icons in headers */
+h3 .vecthare-icon,
+h4 .vecthare-icon {
+    margin-right: 8px;
+}
+
+/* Icons in tabs */
+.vecthare-tab-btn .vecthare-icon {
+    margin-right: 6px;
+    opacity: 0.85;
+}
+
+.vecthare-tab-btn.active .vecthare-icon {
+    opacity: 1;
+}
+
+/* Icons in filter labels */
+.vecthare-type-filters label .vecthare-icon {
+    margin-right: 4px;
+    opacity: 0.8;
+}
+
+/* ============================================================================
+ * MAIN CONTAINER
+ * ============================================================================ */
+
+#vecthare_settings {
+    line-height: 1.6;
+}

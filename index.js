@@ -32,6 +32,17 @@ export async function init(router) {
     // BACKEND HANDLER - Routes requests to appropriate backend
     // ========================================================================
 
+    /**
+     * Ensures LanceDB is initialized before use
+     * @param {object} directories - User directories containing vectors path
+     */
+    async function ensureLanceDBInitialized(directories) {
+        if (!lancedbBackend.basePath) {
+            console.log(`[${pluginName}] Auto-initializing LanceDB backend...`);
+            await lancedbBackend.initialize(directories.vectors);
+        }
+    }
+
     function getBackendHandler(backend) {
         switch (backend) {
             case 'vectra':
@@ -229,7 +240,10 @@ export async function init(router) {
                         try {
                             const stat = await fs.stat(indexPath);
                             storageSize = stat.size;
-                        } catch (e) { /* ignore */ }
+                        } catch (e) {
+                            // File may not exist yet, which is fine
+                            console.debug(`[${pluginName}] Could not stat index file (may not exist): ${indexPath}`);
+                        }
 
                         return {
                             chunkCount: items.length,
@@ -603,8 +617,8 @@ export async function init(router) {
             }
 
             // Auto-init LanceDB if needed
-            if (backend === 'lancedb' && !lancedbBackend.basePath) {
-                await lancedbBackend.initialize(req.user.directories.vectors);
+            if (backend === 'lancedb') {
+                await ensureLanceDBInitialized(req.user.directories);
             }
 
             const handler = getBackendHandler(backend);
@@ -651,8 +665,8 @@ export async function init(router) {
                 return res.status(400).json({ error: 'collectionId is required' });
             }
 
-            if (backend === 'lancedb' && !lancedbBackend.basePath) {
-                await lancedbBackend.initialize(req.user.directories.vectors);
+            if (backend === 'lancedb') {
+                await ensureLanceDBInitialized(req.user.directories);
             }
 
             const handler = getBackendHandler(backend);
@@ -693,8 +707,8 @@ export async function init(router) {
                 return res.status(400).json({ error: 'items array is required' });
             }
 
-            if (backend === 'lancedb' && !lancedbBackend.basePath) {
-                await lancedbBackend.initialize(req.user.directories.vectors);
+            if (backend === 'lancedb') {
+                await ensureLanceDBInitialized(req.user.directories);
             }
 
             const handler = getBackendHandler(backend);
@@ -734,8 +748,8 @@ export async function init(router) {
                 return res.status(400).json({ error: 'collectionId and text are required' });
             }
 
-            if (backend === 'lancedb' && !lancedbBackend.basePath) {
-                await lancedbBackend.initialize(req.user.directories.vectors);
+            if (backend === 'lancedb') {
+                await ensureLanceDBInitialized(req.user.directories);
             }
 
             const handler = getBackendHandler(backend);
@@ -774,8 +788,8 @@ export async function init(router) {
                 return res.status(400).json({ error: 'collectionId and metadata are required' });
             }
 
-            if (backend === 'lancedb' && !lancedbBackend.basePath) {
-                await lancedbBackend.initialize(req.user.directories.vectors);
+            if (backend === 'lancedb') {
+                await ensureLanceDBInitialized(req.user.directories);
             }
 
             const handler = getBackendHandler(backend);
@@ -816,8 +830,8 @@ export async function init(router) {
                 return res.status(400).json({ error: 'hashes array is required' });
             }
 
-            if (backend === 'lancedb' && !lancedbBackend.basePath) {
-                await lancedbBackend.initialize(req.user.directories.vectors);
+            if (backend === 'lancedb') {
+                await ensureLanceDBInitialized(req.user.directories);
             }
 
             const handler = getBackendHandler(backend);
@@ -863,8 +877,8 @@ export async function init(router) {
                 return res.status(400).json({ error: 'queryVector or searchText is required' });
             }
 
-            if (backend === 'lancedb' && !lancedbBackend.basePath) {
-                await lancedbBackend.initialize(req.user.directories.vectors);
+            if (backend === 'lancedb') {
+                await ensureLanceDBInitialized(req.user.directories);
             }
 
             // Get query vector if not provided
@@ -912,8 +926,8 @@ export async function init(router) {
                 return res.status(400).json({ error: 'collectionId is required' });
             }
 
-            if (backend === 'lancedb' && !lancedbBackend.basePath) {
-                await lancedbBackend.initialize(req.user.directories.vectors);
+            if (backend === 'lancedb') {
+                await ensureLanceDBInitialized(req.user.directories);
             }
 
             const handler = getBackendHandler(backend);
@@ -1012,8 +1026,8 @@ export async function init(router) {
                 return res.status(400).json({ error: 'collectionId is required' });
             }
 
-            if (backend === 'lancedb' && !lancedbBackend.basePath) {
-                await lancedbBackend.initialize(req.user.directories.vectors);
+            if (backend === 'lancedb') {
+                await ensureLanceDBInitialized(req.user.directories);
             }
 
             const handler = getBackendHandler(backend);
@@ -1230,11 +1244,18 @@ async function scanAllSourcesForCollections(vectorsPath) {
                                 chunkCount: count,
                                 modelCount: 1
                             });
-                        } catch (e) { /* ignore */ }
+                        } catch (e) {
+                            console.warn(`[${pluginName}] LanceDB: Failed to open table '${tableName}' in source '${source}':`, e.message);
+                        }
                     }
-                } catch (e) { /* ignore */ }
+                } catch (e) {
+                    console.warn(`[${pluginName}] LanceDB: Failed to scan source '${source}':`, e.message);
+                }
             }
-        } catch (e) { /* no lancedb folder */ }
+        } catch (e) {
+            // LanceDB folder doesn't exist - this is normal if LanceDB hasn't been used
+            console.debug(`[${pluginName}] LanceDB folder not found or not accessible:`, e.message);
+        }
 
         // Scan Qdrant (uses REST API, so check if initialized via baseUrl)
         try {
@@ -1254,7 +1275,9 @@ async function scanAllSourcesForCollections(vectorsPath) {
                     }
                 }
             }
-        } catch (e) { /* qdrant not available */ }
+        } catch (e) {
+            console.warn(`[${pluginName}] Qdrant: Failed to scan collections:`, e.message);
+        }
 
     } catch (error) {
         console.error(`[${pluginName}] Error scanning collections:`, error);
@@ -1292,7 +1315,12 @@ async function findAllIndexes(dir, relativePath = '') {
                 }
             }
         }
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+        // Directory may not exist or not be readable - log at debug level since this is recursive
+        if (relativePath === '') {
+            console.warn(`[${pluginName}] Vectra: Failed to scan vectors directory:`, e.message);
+        }
+    }
 
     return results;
 }
@@ -1312,6 +1340,7 @@ async function getChunkCountFromIndex(indexPath) {
         const items = await store.listItems();
         return items.length;
     } catch (e) {
+        console.warn(`[${pluginName}] Vectra: Failed to get chunk count from ${indexPath}:`, e.message);
         return 0;
     }
 }

@@ -274,8 +274,49 @@ class QdrantBackend {
         // MULTITENANCY: Always use vecthare_main collection
         const mainCollection = 'vecthare_main';
 
+        // Validate all items have vectors
+        const missingVectors = items.filter(item => !item.vector || !Array.isArray(item.vector));
+        if (missingVectors.length > 0) {
+            throw new Error(`[Qdrant] ${missingVectors.length} items are missing vectors. Hashes: ${missingVectors.slice(0, 5).map(i => i.hash).join(', ')}${missingVectors.length > 5 ? '...' : ''}`);
+        }
+
+        // Get expected dimension from first vector
+        const expectedDimension = items[0].vector.length;
+        if (expectedDimension === 0) {
+            throw new Error('[Qdrant] First item has empty vector (dimension 0)');
+        }
+
+        // Validate all vectors have the same dimension
+        const mismatchedItems = items.filter(item => item.vector.length !== expectedDimension);
+        if (mismatchedItems.length > 0) {
+            const examples = mismatchedItems.slice(0, 3).map(i => `hash ${i.hash}: ${i.vector.length}`).join(', ');
+            throw new Error(`[Qdrant] Vector dimension mismatch. Expected ${expectedDimension}, but found: ${examples}${mismatchedItems.length > 3 ? '...' : ''} (${mismatchedItems.length} total mismatches)`);
+        }
+
+        // Check if collection exists and validate dimension matches
+        try {
+            const collections = await this._request('GET', '/collections');
+            const exists = collections.result?.collections?.some(c => c.name === mainCollection);
+
+            if (exists) {
+                const collectionInfo = await this._request('GET', `/collections/${mainCollection}`);
+                const existingDimension = collectionInfo.result?.config?.params?.vectors?.size;
+
+                if (existingDimension && existingDimension !== expectedDimension) {
+                    throw new Error(`[Qdrant] Vector dimension mismatch with existing collection. Collection has ${existingDimension} dimensions, but trying to insert ${expectedDimension}. This usually means you're using a different embedding model. Either purge the collection or switch to the same model.`);
+                }
+            }
+        } catch (error) {
+            // If it's our dimension error, re-throw it
+            if (error.message?.includes('Vector dimension mismatch with existing collection')) {
+                throw error;
+            }
+            // Otherwise log and continue - ensureCollection will handle creation
+            console.debug('[Qdrant] Could not check existing collection dimension:', error.message);
+        }
+
         // Ensure collection exists (use first vector's size)
-        const vectorSize = items[0].vector.length;
+        const vectorSize = expectedDimension;
         await this.ensureCollection(mainCollection, vectorSize);
 
         // Format points for Qdrant with multitenancy payload

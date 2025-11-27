@@ -157,12 +157,19 @@ class LanceDBBackend {
         });
 
         if (validItems.length === 0) {
-            console.warn('[LanceDB] No valid items to insert (all had invalid vectors)');
-            return;
+            throw new Error('[LanceDB] No valid items to insert - all items had missing or empty vectors');
         }
 
         if (validItems.length < items.length) {
             console.warn(`[LanceDB] Filtered out ${items.length - validItems.length} items with invalid vectors`);
+        }
+
+        // Validate all vectors have the same dimension
+        const expectedDimension = validItems[0].vector.length;
+        const mismatchedItems = validItems.filter(item => item.vector.length !== expectedDimension);
+        if (mismatchedItems.length > 0) {
+            const examples = mismatchedItems.slice(0, 3).map(i => `hash ${i.hash}: ${i.vector.length}`).join(', ');
+            throw new Error(`[LanceDB] Vector dimension mismatch. Expected ${expectedDimension}, but found: ${examples}${mismatchedItems.length > 3 ? '...' : ''} (${mismatchedItems.length} total mismatches)`);
         }
 
         // Format items for LanceDB

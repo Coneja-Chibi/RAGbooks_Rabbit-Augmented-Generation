@@ -294,6 +294,28 @@ export function renderSettings(containerId, settings, callbacks) {
 
                         </div>
 
+                            <!-- API Rate Limiting -->
+                            <div class="vecthare-setting-group" style="margin-top: 16px; margin-bottom: 16px; padding-top: 16px; border-top: 1px solid var(--grey30);">
+                                <label>
+                                    <small>API Rate Limiting (0 to disable)</small>
+                                </label>
+                                <div style="display: flex; gap: 10px;">
+                                    <div style="flex: 1;">
+                                        <label for="vecthare_rate_limit_calls" style="display: block; margin-bottom: 4px;">
+                                            <small>Max Calls</small>
+                                        </label>
+                                        <input type="number" id="vecthare_rate_limit_calls" class="vecthare-input" min="0" placeholder="5" />
+                                    </div>
+                                    <div style="flex: 1;">
+                                        <label for="vecthare_rate_limit_interval" style="display: block; margin-bottom: 4px;">
+                                            <small>Interval (sec)</small>
+                                        </label>
+                                        <input type="number" id="vecthare_rate_limit_interval" class="vecthare-input" min="1" placeholder="60" />
+                                    </div>
+                                </div>
+                                <small class="vecthare_hint">Limit the number of API requests per time interval</small>
+                            </div>
+
                             <label for="vecthare_score_threshold">
                                 <small>Similarity Threshold: <span id="vecthare_threshold_value">0.25</span></small>
                             </label>
@@ -1141,6 +1163,25 @@ function bindSettingsEvents(settings, callbacks) {
                 $(this).val(''); // Clear input
                 updateOpenRouterKeyDisplay(); // Show masked key in placeholder
             }
+        });
+
+    // Rate Limiting
+    $('#vecthare_rate_limit_calls')
+        .val(settings.rate_limit_calls || 0)
+        .on('input', function() {
+            const value = parseInt($(this).val());
+            settings.rate_limit_calls = isNaN(value) ? 0 : value;
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#vecthare_rate_limit_interval')
+        .val(settings.rate_limit_interval || 60)
+        .on('input', function() {
+            const value = parseInt($(this).val());
+            settings.rate_limit_interval = isNaN(value) ? 60 : value;
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
         });
 
     // Action buttons

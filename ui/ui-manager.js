@@ -52,11 +52,6 @@ export function renderSettings(containerId, settings, callbacks) {
                         </div>
                         <div class="vecthare-card-body">
 
-                            <label class="checkbox_label" for="vecthare_enabled_chats">
-                                <input type="checkbox" id="vecthare_enabled_chats" />
-                                <span>Enable Chat Vectorization</span>
-                            </label>
-
                             <label for="vecthare_vector_backend">
                                 <small>Vector Backend</small>
                             </label>
@@ -298,17 +293,64 @@ export function renderSettings(containerId, settings, callbacks) {
 
                         </div>
 
-                        <label for="vecthare_message_chunk_size">
-                            <small>Message Chunk Size: <span id="vecthare_chunk_size_value">400</span> characters</small>
-                        </label>
-                        <input type="range" id="vecthare_message_chunk_size" class="vecthare-slider" min="100" max="2000" step="50" />
-                        <small class="vecthare_hint">Characters per chunk (100-2000)</small>
-
                             <label for="vecthare_score_threshold">
                                 <small>Similarity Threshold: <span id="vecthare_threshold_value">0.25</span></small>
                             </label>
                             <input type="range" id="vecthare_score_threshold" class="vecthare-slider" min="0" max="1" step="0.05" />
                             <small class="vecthare_hint">Minimum relevance score for retrieval</small>
+
+                        </div>
+                    </div>
+
+                    <!-- Chat Auto-Sync Card -->
+                    <div class="vecthare-card">
+                        <div class="vecthare-card-header">
+                            <h3 class="vecthare-card-title">
+                                <span class="vecthare-icon">
+                                    <i class="fa-solid fa-comments"></i>
+                                </span>
+                                Chat Auto-Sync
+                            </h3>
+                            <p class="vecthare-card-subtitle">Configure how chat messages are vectorized</p>
+                        </div>
+                        <div class="vecthare-card-body">
+
+                            <label class="checkbox_label" for="vecthare_autosync_enabled">
+                                <input type="checkbox" id="vecthare_autosync_enabled" />
+                                <span>Enable Auto-Sync</span>
+                            </label>
+                            <small class="vecthare_hint">Automatically vectorize new chat messages</small>
+
+                            <label for="vecthare_chunking_strategy" style="margin-top: 12px;">
+                                <small>Chunking Strategy</small>
+                            </label>
+                            <select id="vecthare_chunking_strategy" class="vecthare-select">
+                                <option value="per_message">Per Message</option>
+                                <option value="conversation_turns">Conversation Turns</option>
+                                <option value="message_batch">Message Batches</option>
+                            </select>
+
+                            <!-- Strategy descriptions -->
+                            <div id="vecthare_strategy_info" class="vecthare_hint" style="margin-top: 4px; margin-bottom: 12px;">
+                                <span id="vecthare_strategy_desc_per_message">Each message is chunked individually</span>
+                                <span id="vecthare_strategy_desc_conversation_turns" style="display:none;">Groups user + AI message pairs before chunking</span>
+                                <span id="vecthare_strategy_desc_message_batch" style="display:none;">Groups N messages together before chunking</span>
+                            </div>
+
+                            <!-- Message Batch settings (only shown for message_batch strategy) -->
+                            <div id="vecthare_batch_settings" style="display: none;">
+                                <label for="vecthare_batch_size">
+                                    <small>Messages per Batch: <span id="vecthare_batch_size_value">4</span></small>
+                                </label>
+                                <input type="range" id="vecthare_batch_size" class="vecthare-slider" min="2" max="10" step="1" />
+                                <small class="vecthare_hint">How many messages to group together</small>
+                            </div>
+
+                            <label for="vecthare_message_chunk_size" style="margin-top: 12px;">
+                                <small>Chunk Size: <span id="vecthare_chunk_size_value">400</span> characters</small>
+                            </label>
+                            <input type="range" id="vecthare_message_chunk_size" class="vecthare-slider" min="100" max="2000" step="50" />
+                            <small class="vecthare_hint">Max characters per chunk</small>
 
                         </div>
                     </div>
@@ -754,15 +796,47 @@ function toggleProviderSettings(selectedProvider) {
  * @param {object} callbacks - Callback functions
  */
 function bindSettingsEvents(settings, callbacks) {
-    // Enable/disable chat vectorization
-    $('#vecthare_enabled_chats')
+    // Auto-sync enable/disable
+    $('#vecthare_autosync_enabled')
         .prop('checked', settings.enabled_chats)
         .on('input', function() {
             settings.enabled_chats = $(this).prop('checked');
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
-            console.log(`VectHare: Chat vectorization ${settings.enabled_chats ? 'enabled' : 'disabled'}`);
+            console.log(`VectHare: Chat auto-sync ${settings.enabled_chats ? 'enabled' : 'disabled'}`);
         });
+
+    // Chunking strategy
+    function updateStrategyUI(strategy) {
+        // Hide all descriptions
+        $('#vecthare_strategy_desc_per_message, #vecthare_strategy_desc_conversation_turns, #vecthare_strategy_desc_message_batch').hide();
+        // Show selected description
+        $(`#vecthare_strategy_desc_${strategy}`).show();
+        // Show/hide batch settings
+        $('#vecthare_batch_settings').toggle(strategy === 'message_batch');
+    }
+
+    $('#vecthare_chunking_strategy')
+        .val(settings.chunking_strategy || 'per_message')
+        .on('change', function() {
+            settings.chunking_strategy = String($(this).val());
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+            updateStrategyUI(settings.chunking_strategy);
+        });
+    updateStrategyUI(settings.chunking_strategy || 'per_message');
+
+    // Batch size (for message_batch strategy)
+    $('#vecthare_batch_size')
+        .val(settings.batch_size || 4)
+        .on('input', function() {
+            const value = Number($(this).val());
+            $('#vecthare_batch_size_value').text(value);
+            settings.batch_size = value;
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+    $('#vecthare_batch_size_value').text(settings.batch_size || 4);
 
     // Vector backend selection
     $('#vecthare_vector_backend')
@@ -1444,8 +1518,8 @@ function handleDiagnosticFix(action, silent = false) {
 
     switch (action) {
         case 'enable_chats':
-            $('#vecthare_enabled_chats').prop('checked', true).trigger('change');
-            if (!silent) toastr.success('Chat vectorization enabled');
+            $('#vecthare_autosync_enabled').prop('checked', true).trigger('change');
+            if (!silent) toastr.success('Chat auto-sync enabled');
             break;
 
         case 'vectorize_all':

@@ -64,6 +64,8 @@ const defaultSettings = {
 
     // Chat vectorization
     enabled_chats: false,
+    chunking_strategy: 'per_message',
+    batch_size: 4,
     template: 'Past events:\n{{text}}',
     depth: 2,
     position: extension_prompt_types.IN_PROMPT,

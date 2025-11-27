@@ -203,6 +203,92 @@ function splitByChunks(items, chunkSize) {
 }
 
 /**
+ * Groups messages according to chunking strategy
+ * @param {object[]} messages Messages to group
+ * @param {string} strategy Chunking strategy: 'per_message', 'conversation_turns', 'message_batch'
+ * @param {number} batchSize Number of messages per batch (for message_batch strategy)
+ * @returns {object[]} Grouped message items ready for chunking
+ */
+function groupMessagesByStrategy(messages, strategy, batchSize = 4) {
+    if (!messages.length) return [];
+
+    switch (strategy) {
+        case 'conversation_turns': {
+            // Group user + AI message pairs
+            const grouped = [];
+            for (let i = 0; i < messages.length; i += 2) {
+                const pair = [messages[i]];
+                if (i + 1 < messages.length) {
+                    pair.push(messages[i + 1]);
+                }
+                // Combine texts with speaker labels
+                const combinedText = pair.map(m => {
+                    const role = m.is_user ? 'User' : 'Character';
+                    return `[${role}]: ${m.text}`;
+                }).join('\n\n');
+
+                grouped.push({
+                    text: combinedText,
+                    hash: getStringHash(combinedText),
+                    index: messages[i].index,
+                    metadata: {
+                        strategy: 'conversation_turns',
+                        messageIds: pair.map(m => m.index),
+                        messageHashes: pair.map(m => m.hash), // Store individual hashes for injection lookup
+                        startIndex: messages[i].index,
+                        endIndex: pair[pair.length - 1].index
+                    }
+                });
+            }
+            return grouped;
+        }
+
+        case 'message_batch': {
+            // Group N messages together
+            const grouped = [];
+            for (let i = 0; i < messages.length; i += batchSize) {
+                const batch = messages.slice(i, i + batchSize);
+                // Combine texts with speaker labels
+                const combinedText = batch.map(m => {
+                    const role = m.is_user ? 'User' : 'Character';
+                    return `[${role}]: ${m.text}`;
+                }).join('\n\n');
+
+                grouped.push({
+                    text: combinedText,
+                    hash: getStringHash(combinedText),
+                    index: batch[0].index,
+                    metadata: {
+                        strategy: 'message_batch',
+                        batchSize: batch.length,
+                        messageIds: batch.map(m => m.index),
+                        messageHashes: batch.map(m => m.hash), // Store individual hashes for injection lookup
+                        startIndex: batch[0].index,
+                        endIndex: batch[batch.length - 1].index
+                    }
+                });
+            }
+            return grouped;
+        }
+
+        case 'per_message':
+        default:
+            // Current behavior - each message is its own item
+            return messages.map(m => ({
+                text: m.text,
+                hash: m.hash,
+                index: m.index,
+                is_user: m.is_user,
+                metadata: {
+                    strategy: 'per_message',
+                    messageId: m.index,
+                    messageHashes: [m.hash] // Consistent with grouped strategies
+                }
+            }));
+    }
+}
+
+/**
  * Filters out chunks that have been disabled by scene vectorization
  * @param {object[]} chunks Chunks to filter
  * @returns {object[]} Chunks not disabled by scenes
@@ -387,16 +473,31 @@ export async function synchronizeChat(settings, batchSize = 5) {
         // Step 1: What's already vectorized? (source of truth = DB)
         const existingHashes = new Set(await getSavedHashes(collectionId, settings));
 
-        // Step 2: Build queue of messages NOT in DB
-        const queue = new Queue();
+        // Step 2: Build list of messages NOT in DB
+        const strategy = settings.chunking_strategy || 'per_message';
+        const strategyBatchSize = settings.batch_size || 4;
+
+        // Collect all non-system messages with their data
+        const allMessages = [];
         for (const msg of context.chat) {
             if (msg.is_system) continue;
-
             const text = String(substituteParams(msg.mes));
-            const hash = getStringHash(substituteParams(getTextWithoutAttachments(msg)));
+            allMessages.push({
+                text,
+                hash: getStringHash(substituteParams(getTextWithoutAttachments(msg))),
+                index: context.chat.indexOf(msg),
+                is_user: msg.is_user
+            });
+        }
 
-            if (!existingHashes.has(hash)) {
-                queue.enqueue({ text, hash, index: context.chat.indexOf(msg) });
+        // Group messages according to strategy
+        const groupedItems = groupMessagesByStrategy(allMessages, strategy, strategyBatchSize);
+
+        // Filter out already vectorized items (by their grouped hash)
+        const queue = new Queue();
+        for (const item of groupedItems) {
+            if (!existingHashes.has(item.hash)) {
+                queue.enqueue(item);
             }
         }
 
@@ -405,14 +506,14 @@ export async function synchronizeChat(settings, batchSize = 5) {
         }
 
         // Step 3: Process batch
-        let messagesProcessed = 0;
+        let itemsProcessed = 0;
         let chunksCreated = 0;
 
-        while (!queue.isEmpty() && messagesProcessed < batchSize) {
-            const msg = queue.dequeue();
+        while (!queue.isEmpty() && itemsProcessed < batchSize) {
+            const item = queue.dequeue();
 
-            // Chunk this message
-            const chunks = splitByChunks([msg], settings.message_chunk_size);
+            // Chunk this item (which may be 1 message, a turn pair, or a batch)
+            const chunks = splitByChunks([item], settings.message_chunk_size);
 
             // Insert chunks (insertVectorItems handles duplicates at DB level)
             if (chunks.length > 0) {
@@ -420,15 +521,16 @@ export async function synchronizeChat(settings, batchSize = 5) {
                 chunksCreated += chunks.length;
             }
 
-            messagesProcessed++;
-            progressTracker.updateCurrentItem(`Message ${messagesProcessed}/${batchSize}`);
+            itemsProcessed++;
+            const label = strategy === 'per_message' ? 'Message' : 'Group';
+            progressTracker.updateCurrentItem(`${label} ${itemsProcessed}/${batchSize}`);
         }
 
         progressTracker.updateCurrentItem(null);
 
         return {
             remaining: queue.size,
-            messagesProcessed,
+            messagesProcessed: itemsProcessed,
             chunksCreated
         };
     } catch (error) {
@@ -798,7 +900,21 @@ export async function rearrangeChat(chat, settings, type) {
             chatLength: chat.length
         });
 
-        const queryHashes = queryResults.hashes.filter(onlyUnique);
+        // For grouped strategies, extract individual message hashes from metadata
+        // For per_message strategy, use chunk hashes directly
+        const queryHashes = [];
+        for (const chunk of chunksForVisualizer) {
+            const messageHashes = chunk.metadata?.messageHashes;
+            if (messageHashes && Array.isArray(messageHashes)) {
+                // Grouped strategy - use stored individual message hashes
+                queryHashes.push(...messageHashes);
+            } else {
+                // Fallback - use chunk hash (works for per_message or legacy data)
+                queryHashes.push(chunk.hash);
+            }
+        }
+        const uniqueQueryHashes = queryHashes.filter(onlyUnique);
+
         const queriedMessages = [];
         const insertedHashes = new Set();
         const retainMessages = chat.slice(-settings.protect);
@@ -814,7 +930,7 @@ export async function rearrangeChat(chat, settings, type) {
         addTrace(debugData, 'injection', 'Chat hashes computed', {
             totalMessages: chat.length,
             hashesComputed: Object.keys(chatHashMap).length,
-            lookingFor: queryHashes.map(h => String(h)),
+            lookingFor: uniqueQueryHashes.map(h => String(h)),
             existingHashes: Object.keys(chatHashMap).slice(0, 20)
         });
 
@@ -829,7 +945,7 @@ export async function rearrangeChat(chat, settings, type) {
             const hash = getStringHash(substituteParams(getTextWithoutAttachments(message)));
 
             // Check if this hash is one we're looking for
-            if (queryHashes.includes(hash)) {
+            if (uniqueQueryHashes.includes(hash)) {
                 // Check if it's in protected range
                 if (retainMessages.includes(message)) {
                     const msgIndex = chat.indexOf(message);
@@ -863,7 +979,7 @@ export async function rearrangeChat(chat, settings, type) {
         }
 
         // Check for hashes that weren't found in chat at all
-        for (const hash of queryHashes) {
+        for (const hash of uniqueQueryHashes) {
             if (!insertedHashes.has(hash) && !injectionFailures.some(f => f.hash === hash)) {
                 const hashStr = String(hash);
                 injectionFailures.push({
@@ -883,7 +999,7 @@ export async function rearrangeChat(chat, settings, type) {
         debugData.injectionFailures = injectionFailures;
 
         addTrace(debugData, 'injection', 'Message lookup completed', {
-            hashesSearched: queryHashes.length,
+            hashesSearched: uniqueQueryHashes.length,
             messagesFound: queriedMessages.length,
             protected: injectionFailures.filter(f => f.reason === 'protected').length,
             notFound: injectionFailures.filter(f => f.reason === 'not_found').length
@@ -891,8 +1007,8 @@ export async function rearrangeChat(chat, settings, type) {
 
         // Sort by relevance
         queriedMessages.sort((a, b) =>
-            queryHashes.indexOf(getStringHash(substituteParams(getTextWithoutAttachments(b)))) -
-            queryHashes.indexOf(getStringHash(substituteParams(getTextWithoutAttachments(a))))
+            uniqueQueryHashes.indexOf(getStringHash(substituteParams(getTextWithoutAttachments(b)))) -
+            uniqueQueryHashes.indexOf(getStringHash(substituteParams(getTextWithoutAttachments(a))))
         );
 
         // Remove queried messages from original array

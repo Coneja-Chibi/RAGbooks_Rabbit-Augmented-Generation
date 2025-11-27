@@ -87,6 +87,11 @@ const defaultSettings = {
     // Advanced features
     temporal_decay: getDefaultDecaySettings(),
 
+    // RAG Prompt Context (Global level)
+    // Wraps ALL injected content with context prompts and/or XML tags
+    rag_context: '',      // Natural language context shown before all RAG content
+    rag_xml_tag: '',      // XML tag to wrap all RAG content (e.g., "retrieved_context")
+
     // Collection-level metadata (managed by collection-metadata.js)
     collections: {},
 

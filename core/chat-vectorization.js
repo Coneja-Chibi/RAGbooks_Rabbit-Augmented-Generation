@@ -1274,6 +1274,93 @@ function deduplicateChunks(chunks, chat, debugData) {
 }
 
 /**
+ * Builds the nested prompt structure with context and XML tags at each level.
+ * Groups chunks by collection and applies wrapping in this order:
+ * 1. Global wrapper (outermost)
+ * 2. Collection wrapper (groups chunks from same collection)
+ * 3. Chunk wrapper (innermost, per-chunk)
+ *
+ * @param {object[]} chunks Chunks to inject
+ * @param {object} settings VectHare settings
+ * @returns {string} Formatted injection text
+ */
+function buildNestedInjectionText(chunks, settings) {
+    // Group chunks by collection
+    const byCollection = new Map();
+    for (const chunk of chunks) {
+        const collId = chunk.collectionId || 'unknown';
+        if (!byCollection.has(collId)) {
+            byCollection.set(collId, []);
+        }
+        byCollection.get(collId).push(chunk);
+    }
+
+    // Build collection blocks
+    const collectionBlocks = [];
+
+    for (const [collectionId, collChunks] of byCollection) {
+        // Get collection metadata for context/xmlTag
+        const collMeta = getCollectionMeta(collectionId) || {};
+        const collContext = collMeta.context ? substituteParams(collMeta.context) : '';
+        const collXmlTag = collMeta.xmlTag || '';
+
+        // Build chunk texts with per-chunk wrapping
+        const chunkTexts = collChunks.map(chunk => {
+            const chunkMeta = getChunkMetadata(chunk.hash) || {};
+            const chunkContext = chunkMeta.context ? substituteParams(chunkMeta.context) : '';
+            const chunkXmlTag = chunkMeta.xmlTag || '';
+            const text = chunk.text || '(text not available)';
+
+            // Build chunk with optional wrapping
+            let chunkBlock = '';
+
+            if (chunkContext) {
+                chunkBlock += chunkContext + '\n';
+            }
+
+            if (chunkXmlTag) {
+                chunkBlock += `<${chunkXmlTag}>\n${text}\n</${chunkXmlTag}>`;
+            } else {
+                chunkBlock += text;
+            }
+
+            return chunkBlock;
+        });
+
+        // Join chunks within this collection
+        let collectionBlock = chunkTexts.join('\n\n');
+
+        // Apply collection-level wrapping
+        if (collContext) {
+            collectionBlock = collContext + '\n\n' + collectionBlock;
+        }
+
+        if (collXmlTag) {
+            collectionBlock = `<${collXmlTag}>\n${collectionBlock}\n</${collXmlTag}>`;
+        }
+
+        collectionBlocks.push(collectionBlock);
+    }
+
+    // Join all collection blocks
+    let fullText = collectionBlocks.join('\n\n');
+
+    // Apply global-level wrapping
+    const globalContext = settings.rag_context ? substituteParams(settings.rag_context) : '';
+    const globalXmlTag = settings.rag_xml_tag || '';
+
+    if (globalContext) {
+        fullText = globalContext + '\n\n' + fullText;
+    }
+
+    if (globalXmlTag) {
+        fullText = `<${globalXmlTag}>\n${fullText}\n</${globalXmlTag}>`;
+    }
+
+    return fullText;
+}
+
+/**
  * Stage 8: Format and inject chunks into prompt
  * @param {object[]} chunksToInject Chunks to inject
  * @param {object} settings VectHare settings
@@ -1281,9 +1368,8 @@ function deduplicateChunks(chunks, chat, debugData) {
  * @returns {{verified: boolean, text: string}} Injection result
  */
 function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
-    const injectionText = chunksToInject
-        .map(chunk => chunk.text || '(text not available)')
-        .join('\n\n');
+    // Build nested structure with context/XML wrapping
+    const injectionText = buildNestedInjectionText(chunksToInject, settings);
 
     const insertedText = settings.template.replace('{{text}}', injectionText);
     setExtensionPrompt(EXTENSION_PROMPT_TAG, insertedText, settings.position, settings.depth, false);

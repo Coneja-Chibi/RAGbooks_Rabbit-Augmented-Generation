@@ -40,7 +40,8 @@ import {
     checkCollectionRegistryStatus,
     checkChunkGroupsModule,
     checkChunkGroupsValidity,
-    checkChunkGroupMemberIntegrity
+    checkChunkGroupMemberIntegrity,
+    checkPromptContextConfig
 } from './configuration.js';
 
 import {
@@ -139,6 +140,9 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
     categories.configuration.push(await checkChunkGroupsModule());
     categories.configuration.push(await checkChunkGroupsValidity(settings));
     categories.configuration.push(await checkChunkGroupMemberIntegrity(settings));
+
+    // Prompt context configuration
+    categories.configuration.push(await checkPromptContextConfig(settings));
 
     // ========== VISUALIZER CHECKS ==========
     // Fast checks always run, slow (API) checks only with production tests

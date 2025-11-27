@@ -939,3 +939,65 @@ export async function checkChunkGroupMemberIntegrity(settings) {
         };
     }
 }
+
+/**
+ * Check: Prompt Context Configuration
+ * Summarizes prompt context settings (global, collection, chunk levels).
+ */
+export async function checkPromptContextConfig(settings) {
+    try {
+        const { getCollectionMeta } = await import('../core/collection-metadata.js');
+        const registry = getCollectionRegistry();
+
+        // Check global settings
+        const hasGlobalContext = !!(settings.rag_context && settings.rag_context.trim());
+        const hasGlobalXmlTag = !!(settings.rag_xml_tag && settings.rag_xml_tag.trim());
+
+        // Count collections with context
+        let collectionsWithContext = 0;
+        let collectionsWithXmlTag = 0;
+
+        for (const registryKey of registry) {
+            let collectionId = registryKey;
+            if (registryKey.includes(':')) {
+                collectionId = registryKey.substring(registryKey.indexOf(':') + 1);
+            }
+
+            const meta = getCollectionMeta(collectionId);
+            if (meta?.context && meta.context.trim()) collectionsWithContext++;
+            if (meta?.xmlTag && meta.xmlTag.trim()) collectionsWithXmlTag++;
+        }
+
+        // Build status message
+        const parts = [];
+        if (hasGlobalContext || hasGlobalXmlTag) {
+            parts.push(`Global: ${hasGlobalContext ? 'context' : ''}${hasGlobalContext && hasGlobalXmlTag ? '+' : ''}${hasGlobalXmlTag ? 'xml' : ''}`);
+        }
+        if (collectionsWithContext > 0 || collectionsWithXmlTag > 0) {
+            parts.push(`${collectionsWithContext} collection(s) with context`);
+        }
+
+        if (parts.length === 0) {
+            return {
+                name: 'Prompt Context',
+                status: 'pass',
+                message: 'No prompt context configured (chunks inject as plain text)',
+                category: 'configuration'
+            };
+        }
+
+        return {
+            name: 'Prompt Context',
+            status: 'pass',
+            message: parts.join(' | '),
+            category: 'configuration'
+        };
+    } catch (error) {
+        return {
+            name: 'Prompt Context',
+            status: 'warning',
+            message: `Could not check: ${error.message}`,
+            category: 'configuration'
+        };
+    }
+}

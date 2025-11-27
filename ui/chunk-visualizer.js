@@ -1371,6 +1371,25 @@ function renderDetailPanel() {
                 </div>
             </div>
 
+            <!-- Prompt Context Section -->
+            <div class="vecthare-detail-section">
+                <div class="vecthare-detail-section-title">
+                    <i class="fa-solid fa-quote-left"></i> Prompt Context
+                    <span class="vecthare-section-hint">(help AI understand this chunk)</span>
+                </div>
+                <div class="vecthare-detail-context">
+                    <textarea class="vecthare-chunk-context-input" id="vecthare_chunk_context"
+                              placeholder="e.g., A secret {{char}} keeps hidden from {{user}}"
+                              rows="2">${escapeHtml(data.context || '')}</textarea>
+                    <div class="vecthare-context-xmltag-row">
+                        <label>XML tag:</label>
+                        <input type="text" class="vecthare-chunk-xmltag-input" id="vecthare_chunk_xmltag"
+                               placeholder="e.g., secret" value="${escapeHtml(data.xmlTag || '')}">
+                    </div>
+                    <div class="vecthare-context-hint">Supports {{user}} and {{char}}. XML tag wraps just this chunk.</div>
+                </div>
+            </div>
+
             <!-- Keywords Section -->
             <div class="vecthare-detail-section">
                 <div class="vecthare-detail-section-header">
@@ -1671,6 +1690,21 @@ function bindDetailEvents() {
         chunk.data.temporallyBlind = blind;
         renderChunkList();
     });
+
+    // Prompt context input
+    $('#vecthare_chunk_context').on('input', debounce(function() {
+        const context = $(this).val();
+        chunk.data.context = context || '';
+        updateChunkData(chunk.hash, { context: chunk.data.context });
+    }, 300));
+
+    // XML tag input (sanitize to alphanumeric + underscore/hyphen)
+    $('#vecthare_chunk_xmltag').on('input', debounce(function() {
+        const sanitized = $(this).val().replace(/[^a-zA-Z0-9_-]/g, '');
+        $(this).val(sanitized);
+        chunk.data.xmlTag = sanitized || '';
+        updateChunkData(chunk.hash, { xmlTag: chunk.data.xmlTag });
+    }, 300));
 
     // Delete chunk
     $('#vecthare_delete_chunk').on('click', () => deleteChunk(chunk));

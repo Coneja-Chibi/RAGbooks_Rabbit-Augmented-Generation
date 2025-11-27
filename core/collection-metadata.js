@@ -82,6 +82,15 @@ const defaultCollectionMeta = {
     // - Exclusive mode: Only highest-scoring member passes through
     //   - Mandatory: At least one member MUST be included
     groups: [],  // Array of ChunkGroup objects (see core/chunk-groups.js)
+
+    // =========================================================================
+    // PROMPT CONTEXT (Per-Collection)
+    // =========================================================================
+    // Wraps all chunks from this collection with context/guidance for the AI.
+    // Supports {{user}} and {{char}} variables.
+    // Example: "Things {{char}} remembers about {{user}}:"
+    context: '',      // Natural language context shown before this collection's chunks
+    xmlTag: '',       // XML tag to wrap this collection's chunks (e.g., "memories")
 };
 
 /**
@@ -274,6 +283,16 @@ export function isCollectionEnabled(collectionId) {
 
 // ============================================================================
 // CHUNK METADATA (per-chunk settings, stored separately)
+// ============================================================================
+// Chunk metadata is stored per-hash and can include:
+// - conditions: { ... }     - Conditional activation rules
+// - sceneId: string         - Scene boundary marker
+// - links: []               - Soft/hard links to other chunks
+// - disabled: boolean       - Exclude from results
+// - isSummary: boolean      - Dual-vector summary chunk
+// - parentHash: string      - Parent chunk for summaries
+// - context: string         - Prompt context text (supports {{user}}/{{char}})
+// - xmlTag: string          - XML tag to wrap this chunk
 // ============================================================================
 
 /**

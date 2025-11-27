@@ -762,6 +762,7 @@ async function getVectorsForSource(source, texts, model, directories, req) {
     if (source === 'bananabread') {
         // BananaBread llama.cpp-compatible endpoint
         let apiUrl = req.body.apiUrl || 'http://localhost:8008';
+        let apiKey = req.body.apiKey || '';
 
         if (!apiUrl || typeof apiUrl !== 'string' || apiUrl.trim() === '') {
             throw new Error('BananaBread: apiUrl is missing or invalid. Configure the embedding URL in VectHare settings.');
@@ -776,37 +777,58 @@ async function getVectorsForSource(source, texts, model, directories, req) {
             throw new Error(`BananaBread: Invalid URL format "${apiUrl}" - ${e.message}`);
         }
 
+        const headers = { 'Content-Type': 'application/json' };
+        if (apiKey) {
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+
+        const BATCH_SIZE = 20;
+        const allEmbeddings = [];
+
         try {
-            const response = await fetch(url.toString(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                // Backend accepts array of documents
-                body: JSON.stringify({ content: texts }),
-            });
+            for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+                const batchTexts = texts.slice(i, i + BATCH_SIZE);
+                // console.log(`[BananaBread] Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(texts.length / BATCH_SIZE)} (${batchTexts.length} items)`);
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`BananaBread: ${response.statusText} ${errorText}`);
+                const response = await fetch(url.toString(), {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({ content: batchTexts }),
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`BananaBread: ${response.statusText} ${errorText}`);
+                }
+
+                const data = await response.json();
+                const embeddings = data.embedding;
+
+                if (!embeddings) {
+                    throw new Error('BananaBread: Invalid response format (missing embedding)');
+                }
+
+                if (Array.isArray(embeddings)) {
+                    // Check for single item flattened response
+                    if (batchTexts.length === 1 && typeof embeddings[0] === 'number') {
+                        allEmbeddings.push(embeddings);
+                    } else if (Array.isArray(embeddings[0])) {
+                        allEmbeddings.push(...embeddings);
+                    } else {
+                         // Some providers might return a single vector for batch of 1 as a flat array even if asked in batch mode
+                         if (batchTexts.length === 1 && Array.isArray(embeddings)) {
+                             allEmbeddings.push(embeddings);
+                         } else {
+                            throw new Error('BananaBread: Unexpected embedding format');
+                         }
+                    }
+                } else {
+                    throw new Error('BananaBread: Unexpected embedding format (not array)');
+                }
             }
 
-            const data = await response.json();
-            const embeddings = data.embedding;
+            return allEmbeddings;
 
-            if (!embeddings) {
-                throw new Error('BananaBread: Invalid response format (missing embedding)');
-            }
-
-            // Standard: array of arrays (one vector per text)
-            if (Array.isArray(embeddings) && Array.isArray(embeddings[0])) {
-                return embeddings;
-            } 
-            // Single item fallback (if only 1 text sent, might be flattened)
-            else if (texts.length === 1 && Array.isArray(embeddings)) {
-                return [embeddings];
-            }
-            else {
-                throw new Error('BananaBread: Unexpected embedding format');
-            }
         } catch (e) {
             console.error(`[BananaBread] Batch embedding error:`, e);
             throw e;

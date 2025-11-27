@@ -300,6 +300,12 @@ export function renderSettings(containerId, settings, callbacks) {
                             <input type="range" id="vecthare_score_threshold" class="vecthare-slider" min="0" max="1" step="0.05" />
                             <small class="vecthare_hint">Minimum relevance score for retrieval</small>
 
+                            <label for="vecthare_query_depth" style="margin-top: 12px;">
+                                <small>Query Depth: <span id="vecthare_query_depth_value">2</span> messages</small>
+                            </label>
+                            <input type="range" id="vecthare_query_depth" class="vecthare-slider" min="1" max="20" step="1" />
+                            <small class="vecthare_hint">How many recent messages to include in search query</small>
+
                         </div>
                     </div>
 
@@ -955,6 +961,19 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
     $('#vecthare_threshold_value').text(settings.score_threshold.toFixed(2));
+
+    // Query depth (how many recent messages to include in search query)
+    $('#vecthare_query_depth')
+        .val(settings.query || 2)
+        .on('input', function() {
+            const value = parseInt($(this).val());
+            const safeValue = isNaN(value) ? 2 : value;
+            $('#vecthare_query_depth_value').text(safeValue);
+            settings.query = safeValue;
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+    $('#vecthare_query_depth_value').text(settings.query || 2);
 
     // Provider-specific settings
 

@@ -16,15 +16,22 @@
 .vecthare-search-debug-content {
     max-width: 900px;
     width: 95%;
-    max-height: 90vh;
+    max-height: 85vh;
+    margin: auto;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .vecthare-search-debug-body {
     display: flex;
     flex-direction: column;
     gap: 16px;
-    padding: 20px;
+    padding: 16px 20px 20px 20px;
     overflow-y: auto;
+    flex: 1;
+    min-height: 0;
 }
 
 /* ============================================================================
@@ -35,7 +42,7 @@
     background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, transparent);
     border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 15%, transparent);
     border-radius: 12px;
-    /* No overflow:hidden - let content flow naturally */
+    flex-shrink: 0;
 }
 
 .vecthare-debug-card-header {
@@ -123,9 +130,9 @@
         color-mix(in srgb, var(--vecthare-secondary) 5%, transparent) 100%);
     border: 1px solid color-mix(in srgb, var(--vecthare-primary) 25%, transparent);
     border-radius: 12px;
-    padding: 16px;
+    padding: 16px 16px 20px 16px;
     overflow: visible;
-    min-height: fit-content;
+    flex-shrink: 0;
 }
 
 .vecthare-debug-pipeline-title {
@@ -133,8 +140,10 @@
     align-items: center;
     gap: 8px;
     font-weight: 600;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
+    padding-top: 2px;
     color: var(--vecthare-primary-bright);
+    font-size: 0.95em;
 }
 
 .vecthare-debug-pipeline-stages {
@@ -143,7 +152,8 @@
     justify-content: space-between;
     gap: 8px;
     overflow-x: auto;
-    padding-bottom: 8px;
+    overflow-y: visible;
+    padding: 10px 4px 4px 4px;
 }
 
 .vecthare-debug-pipeline-arrow {
@@ -197,6 +207,34 @@
 .vecthare-debug-stage-success .vecthare-debug-stage-icon {
     background: color-mix(in srgb, var(--vecthare-success) 25%, transparent);
     color: var(--vecthare-success);
+}
+
+.vecthare-debug-stage-keyword .vecthare-debug-stage-icon {
+    background: color-mix(in srgb, #10b981 25%, transparent);
+    color: #10b981;
+}
+
+.vecthare-debug-stage-boost {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: #10b981;
+    color: white;
+    font-size: 0.7em;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 10px;
+}
+
+/* Disabled/inactive stage (e.g., Decay when temporal_decay is off) */
+.vecthare-debug-stage-disabled {
+    opacity: 0.4;
+    filter: grayscale(0.8);
+}
+
+.vecthare-debug-stage-disabled .vecthare-debug-stage-icon {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 15%, transparent) !important;
+    color: var(--SmartThemeBodyColor) !important;
 }
 
 .vecthare-debug-stage-count {
@@ -911,6 +949,235 @@
     font-size: 0.9em;
     color: #10b981;
     opacity: 0.9;
+}
+
+/* ============================================================================
+ * MOBILE RESPONSIVE
+ * ============================================================================ */
+
+/* ============================================================================
+ * HISTORY TABS
+ * ============================================================================ */
+
+.vecthare-debug-history-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 10px 16px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 15%, transparent);
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+}
+
+.vecthare-debug-history-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 10px;
+    min-width: 44px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 15%, transparent);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.vecthare-debug-history-tab:hover {
+    background: color-mix(in srgb, var(--vecthare-primary) 15%, transparent);
+    border-color: color-mix(in srgb, var(--vecthare-primary) 30%, transparent);
+}
+
+.vecthare-debug-history-tab.active {
+    background: var(--vecthare-primary);
+    border-color: var(--vecthare-primary);
+    color: white;
+}
+
+.vecthare-debug-history-tab .tab-num {
+    font-size: 0.7em;
+    opacity: 0.7;
+}
+
+.vecthare-debug-history-tab .tab-injected {
+    font-size: 1em;
+    font-weight: 700;
+}
+
+.vecthare-debug-history-tab.tab-success .tab-injected {
+    color: var(--vecthare-success);
+}
+
+.vecthare-debug-history-tab.tab-empty .tab-injected {
+    color: var(--vecthare-danger);
+}
+
+.vecthare-debug-history-tab.active .tab-injected {
+    color: white;
+}
+
+/* ============================================================================
+ * CLICKABLE/EXPANDABLE ELEMENTS
+ * ============================================================================ */
+
+.vecthare-debug-clickable {
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.vecthare-debug-clickable:hover {
+    background: color-mix(in srgb, var(--vecthare-primary) 15%, transparent);
+}
+
+.vecthare-debug-expand-icon {
+    margin-left: auto;
+    opacity: 0.5;
+    transition: transform 0.2s, opacity 0.2s;
+}
+
+.vecthare-debug-clickable:hover .vecthare-debug-expand-icon {
+    opacity: 1;
+}
+
+.vecthare-debug-expand-icon.fa-chevron-up {
+    transform: rotate(180deg);
+}
+
+/* Query card specific */
+.vecthare-debug-query-preview {
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    font-size: 0.9em;
+    line-height: 1.4;
+    padding: 10px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
+    border-radius: 6px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.vecthare-debug-query-full {
+    margin-top: 10px;
+}
+
+.vecthare-debug-query-full pre {
+    margin: 0;
+    padding: 12px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
+    border-radius: 6px;
+    font-size: 0.85em;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* ============================================================================
+ * EXPANDABLE CHUNKS
+ * ============================================================================ */
+
+.vecthare-debug-chunk-expandable {
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.vecthare-debug-chunk-expandable:hover {
+    background: color-mix(in srgb, var(--vecthare-primary) 8%, transparent);
+    border-color: color-mix(in srgb, var(--vecthare-primary) 30%, transparent);
+}
+
+.vecthare-debug-chunk-expand-icon {
+    margin-left: auto;
+    opacity: 0.4;
+    font-size: 0.8em;
+    transition: transform 0.2s, opacity 0.2s;
+}
+
+.vecthare-debug-chunk-expandable:hover .vecthare-debug-chunk-expand-icon {
+    opacity: 0.8;
+}
+
+.vecthare-debug-chunk-expandable.expanded .vecthare-debug-chunk-expand-icon {
+    transform: rotate(180deg);
+}
+
+.vecthare-debug-chunk-text-preview {
+    font-size: 0.9em;
+    line-height: 1.4;
+    color: color-mix(in srgb, var(--SmartThemeBodyColor) 85%, transparent);
+    margin-bottom: 8px;
+}
+
+.vecthare-debug-chunk-expanded {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 15%, transparent);
+}
+
+.vecthare-debug-chunk-fulltext {
+    margin-bottom: 12px;
+}
+
+.vecthare-debug-chunk-fulltext-label {
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.6;
+    margin-bottom: 6px;
+}
+
+.vecthare-debug-chunk-fulltext pre {
+    margin: 0;
+    padding: 10px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
+    border-radius: 6px;
+    font-size: 0.85em;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.vecthare-debug-meta-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.vecthare-debug-meta-item {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 10px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 12%, transparent);
+    border-radius: 6px;
+    max-width: 100%;
+}
+
+.vecthare-debug-meta-item .meta-label {
+    font-size: 0.65em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.5;
+    white-space: nowrap;
+}
+
+.vecthare-debug-meta-item .meta-value {
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    font-size: 0.8em;
+    word-break: break-word;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vecthare-debug-click-hint {
+    color: var(--vecthare-primary);
+    font-style: italic;
+    opacity: 0.7;
 }
 
 /* ============================================================================

@@ -19,6 +19,8 @@
 // ============================================================================
 
 let lastDebugData = null;
+const queryHistory = []; // Store last N queries
+const MAX_QUERY_HISTORY = 13;
 
 // ============================================================================
 // DATA STRUCTURE
@@ -134,6 +136,15 @@ export function recordChunkFate(debugData, hash, stage, fate, reason = null, dat
  */
 export function setLastSearchDebug(data) {
     lastDebugData = data;
+
+    // Add to history (most recent first)
+    queryHistory.unshift(data);
+
+    // Keep only last N queries
+    if (queryHistory.length > MAX_QUERY_HISTORY) {
+        queryHistory.pop();
+    }
+
     console.log('VectHare Debug: Stored search debug data', {
         query: data.query?.substring(0, 50) + '...',
         stages: {
@@ -141,8 +152,17 @@ export function setLastSearchDebug(data) {
             afterDecay: data.stages.afterDecay.length,
             afterConditions: data.stages.afterConditions.length,
             injected: data.stages.injected.length
-        }
+        },
+        historyCount: queryHistory.length
     });
+}
+
+/**
+ * Gets the query history
+ * @returns {Array<SearchDebugData>}
+ */
+export function getQueryHistory() {
+    return queryHistory;
 }
 
 /**
@@ -188,16 +208,39 @@ export function closeSearchDebugModal() {
 /**
  * Creates the modal HTML
  * @param {SearchDebugData} data
+ * @param {number} historyIndex - Which history entry to show (0 = most recent)
  * @returns {string}
  */
-function createModalHtml(data) {
+function createModalHtml(data, historyIndex = 0) {
     const timeAgo = getTimeAgo(data.timestamp);
-    const queryPreview = data.query.length > 200
-        ? data.query.substring(0, 200) + '...'
+    const queryPreview = data.query.length > 100
+        ? data.query.substring(0, 100) + '...'
         : data.query;
+
+    // Build history tabs
+    const historyTabs = queryHistory.length > 1 ? `
+        <div class="vecthare-debug-history-tabs">
+            ${queryHistory.map((q, idx) => {
+                const isActive = idx === historyIndex;
+                const tabTime = getTimeAgo(q.timestamp);
+                const tabQuery = q.query.substring(0, 20) + (q.query.length > 20 ? '...' : '');
+                const injectedCount = q.stages.injected?.length || 0;
+                const statusClass = injectedCount > 0 ? 'tab-success' : 'tab-empty';
+                return `
+                    <button class="vecthare-debug-history-tab ${isActive ? 'active' : ''} ${statusClass}"
+                            data-history-index="${idx}"
+                            title="${escapeHtml(q.query.substring(0, 100))}">
+                        <span class="tab-num">#${idx + 1}</span>
+                        <span class="tab-injected">${injectedCount}</span>
+                    </button>
+                `;
+            }).join('')}
+        </div>
+    ` : '';
 
     return `
         <div id="vecthare_search_debug_modal" class="vecthare-modal" style="display: none;">
+            <div class="vecthare-modal-overlay"></div>
             <div class="vecthare-modal-content vecthare-search-debug-content">
                 <!-- Header -->
                 <div class="vecthare-modal-header">
@@ -208,26 +251,25 @@ function createModalHtml(data) {
                     <button class="vecthare-modal-close" id="vecthare_search_debug_close">✕</button>
                 </div>
 
+                <!-- History Tabs -->
+                ${historyTabs}
+
                 <!-- Body -->
                 <div class="vecthare-modal-body vecthare-search-debug-body">
 
-                    <!-- Query Info Card -->
-                    <div class="vecthare-debug-card">
-                        <div class="vecthare-debug-card-header">
+                    <!-- Query Info Card (Clickable to expand) -->
+                    <div class="vecthare-debug-card vecthare-debug-query-card" id="vecthare_query_card">
+                        <div class="vecthare-debug-card-header vecthare-debug-clickable" id="vecthare_query_header">
                             <i class="fa-solid fa-magnifying-glass"></i>
                             <span>Query</span>
                             <span class="vecthare-debug-timestamp">${timeAgo}</span>
+                            <i class="fa-solid fa-chevron-down vecthare-debug-expand-icon"></i>
                         </div>
                         <div class="vecthare-debug-card-body">
-                            <div class="vecthare-debug-query-text">${escapeHtml(queryPreview)}</div>
-                            ${data.query.length > 200 ? `
-                                <button class="vecthare-debug-expand-btn" data-target="query">
-                                    Show full query (${data.query.length} chars)
-                                </button>
-                                <div class="vecthare-debug-expanded" id="vecthare_debug_query_full" style="display: none;">
-                                    <pre>${escapeHtml(data.query)}</pre>
-                                </div>
-                            ` : ''}
+                            <div class="vecthare-debug-query-preview">${escapeHtml(queryPreview)}</div>
+                            <div class="vecthare-debug-query-full" style="display: none;">
+                                <pre>${escapeHtml(data.query)}</pre>
+                            </div>
                         </div>
                     </div>
 
@@ -238,15 +280,17 @@ function createModalHtml(data) {
                             RAG Pipeline
                         </div>
                         <div class="vecthare-debug-pipeline-stages">
-                            ${createPipelineStage('Vector Search', data.stages.initial.length, data.stats.retrievedFromVector, 'fa-database', 'primary')}
+                            ${createPipelineStage('Vector Search', data.stages.initial.length, data.stages.initial.length, 'fa-database', 'primary', false)}
                             <div class="vecthare-debug-pipeline-arrow">→</div>
-                            ${createPipelineStage('Threshold', data.stages.initial.filter(c => c.score >= (data.settings.threshold || 0)).length, data.stages.initial.length, 'fa-filter', 'info')}
+                            ${createKeywordBoostStage(data)}
                             <div class="vecthare-debug-pipeline-arrow">→</div>
-                            ${createPipelineStage('Decay', data.stages.afterDecay.length, data.stages.initial.length, 'fa-clock', 'warning')}
+                            ${createPipelineStage('Threshold', data.stages.afterThreshold?.length ?? data.stages.initial.filter(c => c.score >= (data.settings.threshold || 0)).length, data.stages.initial.length, 'fa-filter', 'info', false)}
                             <div class="vecthare-debug-pipeline-arrow">→</div>
-                            ${createPipelineStage('Conditions', data.stages.afterConditions.length, data.stages.afterDecay.length, 'fa-code-branch', 'secondary')}
+                            ${createPipelineStage('Decay', data.stages.afterDecay.length, data.stages.afterThreshold?.length ?? 0, 'fa-clock', 'warning', !data.settings.temporal_decay?.enabled)}
                             <div class="vecthare-debug-pipeline-arrow">→</div>
-                            ${createPipelineStage('Injected', data.stages.injected.length, data.stages.afterConditions.length, 'fa-syringe', 'success')}
+                            ${createPipelineStage('Conditions', data.stages.afterConditions.length, data.stages.afterDecay.length, 'fa-code-branch', 'secondary', false)}
+                            <div class="vecthare-debug-pipeline-arrow">→</div>
+                            ${createPipelineStage('Injected', data.stages.injected.length, data.stages.afterConditions.length, 'fa-syringe', 'success', false)}
                         </div>
                     </div>
 
@@ -328,19 +372,54 @@ function createModalHtml(data) {
 
 /**
  * Creates a pipeline stage box
+ * @param {string} label - Stage name
+ * @param {number} count - Chunks remaining after this stage
+ * @param {number} fromCount - Chunks that entered this stage
+ * @param {string} icon - FontAwesome icon class
+ * @param {string} colorClass - CSS color class
+ * @param {boolean} disabled - Whether this stage is disabled/inactive
  */
-function createPipelineStage(label, count, fromCount, icon, colorClass) {
-    const percentage = fromCount > 0 ? Math.round((count / fromCount) * 100) : 0;
-    const lost = fromCount - count;
+function createPipelineStage(label, count, fromCount, icon, colorClass, disabled = false) {
+    // Only show loss if this stage actually received chunks AND lost some
+    const lost = (fromCount > 0 && count < fromCount) ? fromCount - count : 0;
+    const disabledClass = disabled ? 'vecthare-debug-stage-disabled' : '';
 
     return `
-        <div class="vecthare-debug-pipeline-stage vecthare-debug-stage-${colorClass}">
+        <div class="vecthare-debug-pipeline-stage vecthare-debug-stage-${colorClass} ${disabledClass}">
             <div class="vecthare-debug-stage-icon">
                 <i class="fa-solid ${icon}"></i>
             </div>
             <div class="vecthare-debug-stage-count">${count}</div>
-            <div class="vecthare-debug-stage-label">${label}</div>
+            <div class="vecthare-debug-stage-label">${label}${disabled ? ' (off)' : ''}</div>
             ${lost > 0 ? `<div class="vecthare-debug-stage-lost">-${lost}</div>` : ''}
+        </div>
+    `;
+}
+
+/**
+ * Creates the keyword boost pipeline stage
+ * Shows how many chunks had keywords matched
+ */
+function createKeywordBoostStage(data) {
+    const chunks = data.stages.initial || [];
+    const boostedCount = chunks.filter(c => c.keywordBoosted || (c.keywordBoost && c.keywordBoost > 1)).length;
+    const totalKeywordsMatched = chunks.reduce((sum, c) => {
+        return sum + (c.matchedKeywords?.length || c.matchedKeywordsWithWeights?.length || 0);
+    }, 0);
+
+    // Show boost count as the badge if any were boosted
+    const badge = boostedCount > 0
+        ? `<div class="vecthare-debug-stage-boost">+${boostedCount}</div>`
+        : '';
+
+    return `
+        <div class="vecthare-debug-pipeline-stage vecthare-debug-stage-keyword">
+            <div class="vecthare-debug-stage-icon">
+                <i class="fa-solid fa-tags"></i>
+            </div>
+            <div class="vecthare-debug-stage-count">${boostedCount}</div>
+            <div class="vecthare-debug-stage-label">Keywords</div>
+            ${badge}
         </div>
     `;
 }
@@ -362,8 +441,10 @@ function renderStageChunks(chunks, stageName, data) {
 
     chunks.forEach((chunk, idx) => {
         const textPreview = chunk.text
-            ? (chunk.text.length > 100 ? chunk.text.substring(0, 100) + '...' : chunk.text)
+            ? (chunk.text.length > 80 ? chunk.text.substring(0, 80) + '...' : chunk.text)
             : '(text not found)';
+
+        const hasMoreText = chunk.text && chunk.text.length > 80;
 
         const scoreClass = getScoreClass(chunk.score);
         const decayInfo = chunk.decayApplied
@@ -378,20 +459,73 @@ function renderStageChunks(chunks, stageName, data) {
         // Check if this chunk was excluded in later stages
         const wasExcluded = getExclusionStatus(chunk, stageName, data);
 
+        // Build full metadata for expanded view
+        const fullMeta = {
+            hash: chunk.hash,
+            index: chunk.index,
+            messageAge: chunk.messageAge,
+            score: chunk.score,
+            originalScore: chunk.originalScore,
+            keywordBoost: chunk.keywordBoost,
+            decayMultiplier: chunk.decayMultiplier,
+            keywords: chunk.matchedKeywordsWithWeights || chunk.matchedKeywords || [],
+            collection: chunk.collection || chunk.collectionId,
+            metadata: chunk.metadata
+        };
+
         html += `
-            <div class="vecthare-debug-chunk ${wasExcluded ? 'vecthare-debug-chunk-excluded' : ''}">
+            <div class="vecthare-debug-chunk vecthare-debug-chunk-expandable ${wasExcluded ? 'vecthare-debug-chunk-excluded' : ''}" data-chunk-idx="${idx}">
                 <div class="vecthare-debug-chunk-header">
                     <span class="vecthare-debug-chunk-rank">#${idx + 1}</span>
                     <span class="vecthare-debug-chunk-score ${scoreClass}">${chunk.score?.toFixed(3) || 'N/A'}</span>
                     ${decayInfo}
                     ${wasExcluded ? `<span class="vecthare-debug-excluded-badge">${wasExcluded}</span>` : ''}
+                    <i class="fa-solid fa-chevron-down vecthare-debug-chunk-expand-icon"></i>
                 </div>
                 ${scoreBreakdown}
-                <div class="vecthare-debug-chunk-text">${escapeHtml(textPreview)}</div>
+                <div class="vecthare-debug-chunk-text-preview">${escapeHtml(textPreview)}</div>
+
+                <!-- Expanded content (hidden by default) -->
+                <div class="vecthare-debug-chunk-expanded" style="display: none;">
+                    <div class="vecthare-debug-chunk-fulltext">
+                        <div class="vecthare-debug-chunk-fulltext-label">Full Text:</div>
+                        <pre>${escapeHtml(chunk.text || '(no text)')}</pre>
+                    </div>
+                    <div class="vecthare-debug-chunk-meta-full">
+                        <div class="vecthare-debug-meta-grid">
+                            <div class="vecthare-debug-meta-item">
+                                <span class="meta-label">Hash</span>
+                                <span class="meta-value">${chunk.hash}</span>
+                            </div>
+                            ${chunk.index !== undefined ? `
+                            <div class="vecthare-debug-meta-item">
+                                <span class="meta-label">Message #</span>
+                                <span class="meta-value">${chunk.index}</span>
+                            </div>` : ''}
+                            ${chunk.messageAge !== undefined ? `
+                            <div class="vecthare-debug-meta-item">
+                                <span class="meta-label">Age</span>
+                                <span class="meta-value">${chunk.messageAge} messages</span>
+                            </div>` : ''}
+                            ${chunk.collection || chunk.collectionId ? `
+                            <div class="vecthare-debug-meta-item">
+                                <span class="meta-label">Collection</span>
+                                <span class="meta-value">${chunk.collection || chunk.collectionId}</span>
+                            </div>` : ''}
+                            ${chunk.metadata?.keywords?.length ? `
+                            <div class="vecthare-debug-meta-item">
+                                <span class="meta-label">Keywords</span>
+                                <span class="meta-value">${chunk.metadata.keywords.map(k => typeof k === 'object' ? `${k.text}(${k.weight}x)` : k).join(', ')}</span>
+                            </div>` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Collapsed meta (shown when collapsed) -->
                 <div class="vecthare-debug-chunk-meta">
-                    <span>Hash: ${chunk.hash}</span>
+                    <span>Hash: ${String(chunk.hash).substring(0, 12)}...</span>
                     ${chunk.index !== undefined ? `<span>Msg #${chunk.index}</span>` : ''}
-                    ${chunk.messageAge !== undefined ? `<span>Age: ${chunk.messageAge} msgs</span>` : ''}
+                    ${hasMoreText ? `<span class="vecthare-debug-click-hint">Click to expand</span>` : ''}
                 </div>
             </div>
         `;
@@ -405,20 +539,58 @@ function renderStageChunks(chunks, stageName, data) {
  * Determines why a chunk was excluded
  */
 function getExclusionStatus(chunk, currentStage, data) {
-    const stages = ['initial', 'afterDecay', 'afterConditions', 'injected'];
-    const currentIdx = stages.indexOf(currentStage);
+    // Check each stage in order to find where it was dropped
+    const threshold = data.settings.threshold || 0;
 
-    // Check if chunk exists in later stages
-    for (let i = currentIdx + 1; i < stages.length; i++) {
-        const stageChunks = data.stages[stages[i]];
-        const existsInStage = stageChunks.some(c => c.hash === chunk.hash);
+    // If we're looking at initial chunks, check what happened to them
+    if (currentStage === 'initial') {
+        // First check: did it pass threshold?
+        const passedThreshold = (chunk.score || 0) >= threshold;
+        if (!passedThreshold) {
+            return 'Below threshold';
+        }
 
-        if (!existsInStage) {
-            switch(stages[i]) {
-                case 'afterDecay': return 'Lost to decay';
-                case 'afterConditions': return 'Failed conditions';
-                case 'injected': return 'Not injected';
-            }
+        // Check if in afterThreshold stage
+        const inAfterThreshold = data.stages.afterThreshold?.some(c => c.hash === chunk.hash);
+        if (data.stages.afterThreshold && !inAfterThreshold) {
+            return 'Below threshold';
+        }
+
+        // Check if in afterDecay
+        const inAfterDecay = data.stages.afterDecay?.some(c => c.hash === chunk.hash);
+        if (!inAfterDecay) {
+            return 'Lost to decay';
+        }
+
+        // Check if in afterConditions
+        const inAfterConditions = data.stages.afterConditions?.some(c => c.hash === chunk.hash);
+        if (!inAfterConditions) {
+            return 'Failed conditions';
+        }
+
+        // Check if injected
+        const inInjected = data.stages.injected?.some(c => c.hash === chunk.hash);
+        if (!inInjected) {
+            return 'Not injected';
+        }
+    }
+
+    // For other stages, check forward
+    if (currentStage === 'afterThreshold' || currentStage === 'afterDecay') {
+        const inAfterConditions = data.stages.afterConditions?.some(c => c.hash === chunk.hash);
+        if (!inAfterConditions) {
+            return 'Failed conditions';
+        }
+        const inInjected = data.stages.injected?.some(c => c.hash === chunk.hash);
+        if (!inInjected) {
+            return 'Not injected';
+        }
+    }
+
+    if (currentStage === 'afterConditions') {
+        const inInjected = data.stages.injected?.some(c => c.hash === chunk.hash);
+        if (!inInjected) {
+            return 'Not injected';
         }
     }
 
@@ -1211,6 +1383,9 @@ async function copyDiagnosticDump() {
 // EVENT BINDING
 // ============================================================================
 
+// Track current history index for refreshing modal
+let currentHistoryIndex = 0;
+
 function bindEvents() {
     // Close button
     $('#vecthare_search_debug_close').on('click', closeSearchDebugModal);
@@ -1225,6 +1400,50 @@ function bindEvents() {
         }
     });
 
+    // History tabs - switch between past queries
+    $('.vecthare-debug-history-tab').on('click', function() {
+        const historyIndex = parseInt($(this).data('history-index'));
+        if (queryHistory[historyIndex]) {
+            currentHistoryIndex = historyIndex;
+            lastDebugData = queryHistory[historyIndex];
+            // Refresh the modal content
+            const newHtml = createModalHtml(lastDebugData, historyIndex);
+            $('#vecthare_search_debug_modal').replaceWith(newHtml);
+            $('#vecthare_search_debug_modal').show();
+            bindEvents();
+        }
+    });
+
+    // Query card expand/collapse
+    $('#vecthare_query_header').on('click', function() {
+        const $card = $(this).closest('.vecthare-debug-query-card');
+        const $preview = $card.find('.vecthare-debug-query-preview');
+        const $full = $card.find('.vecthare-debug-query-full');
+        const $icon = $(this).find('.vecthare-debug-expand-icon');
+
+        $preview.slideToggle(200);
+        $full.slideToggle(200);
+        $icon.toggleClass('fa-chevron-down fa-chevron-up');
+    });
+
+    // Expandable chunks
+    $(document).off('click.chunkExpand').on('click.chunkExpand', '.vecthare-debug-chunk-expandable', function(e) {
+        // Don't trigger if clicking on a link or button inside
+        if ($(e.target).is('a, button')) return;
+
+        const $chunk = $(this);
+        const $expanded = $chunk.find('.vecthare-debug-chunk-expanded');
+        const $preview = $chunk.find('.vecthare-debug-chunk-text-preview');
+        const $meta = $chunk.find('.vecthare-debug-chunk-meta');
+        const $icon = $chunk.find('.vecthare-debug-chunk-expand-icon');
+
+        $expanded.slideToggle(200);
+        $preview.slideToggle(200);
+        $meta.slideToggle(200);
+        $icon.toggleClass('fa-chevron-down fa-chevron-up');
+        $chunk.toggleClass('expanded');
+    });
+
     // Stage tabs
     $('.vecthare-debug-stage-tab').on('click', function() {
         const stage = $(this).data('stage');
@@ -1237,13 +1456,6 @@ function bindEvents() {
                 renderStageChunks(data.stages[stage], stage, data)
             );
         }
-    });
-
-    // Expand query button
-    $('.vecthare-debug-expand-btn').on('click', function() {
-        const target = $(this).data('target');
-        $(`#vecthare_debug_${target}_full`).slideToggle();
-        $(this).text($(this).text().includes('Show') ? 'Hide full query' : `Show full query (${lastDebugData.query.length} chars)`);
     });
 
     // Toggle trace log

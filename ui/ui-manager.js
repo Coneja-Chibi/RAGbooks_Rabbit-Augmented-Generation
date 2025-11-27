@@ -196,6 +196,10 @@ export function renderSettings(containerId, settings, callbacks) {
                                     <span>Enable Reranking</span>
                                 </label>
                                 <small class="vecthare_hint">Re-score results using BananaBread's reranker for better relevance</small>
+                                <label for="vecthare_bananabread_apikey" style="margin-top: 8px;">
+                                    <small>BananaBread API Key:</small>
+                                </label>
+                                <input type="password" id="vecthare_bananabread_apikey" class="vecthare-input" placeholder="Paste key here to save..." autocomplete="off" />
                             </div>
 
                             <!-- WebLLM Model -->
@@ -1180,6 +1184,30 @@ function bindSettingsEvents(settings, callbacks) {
             settings.bananabread_rerank = $(this).prop('checked');
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
+        });
+
+    // BananaBread API key
+    const updateBananaBreadKeyDisplay = () => {
+        const secrets = secret_state['bananabread_api_key'];
+        if (Array.isArray(secrets) && secrets.length > 0) {
+            const activeSecret = secrets.find(s => s.active) || secrets[0];
+            if (activeSecret?.value) {
+                $('#vecthare_bananabread_apikey').attr('placeholder', activeSecret.value);
+            }
+        }
+    };
+    updateBananaBreadKeyDisplay();
+
+    $('#vecthare_bananabread_apikey')
+        .on('change', async function() {
+            const value = String($(this).val()).trim();
+            if (value) {
+                await writeSecret('bananabread_api_key', value);
+                await readSecretState();
+                toastr.success('BananaBread API key saved');
+                $(this).val('');
+                updateBananaBreadKeyDisplay();
+            }
         });
 
     // OpenAI model

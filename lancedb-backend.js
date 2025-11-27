@@ -415,6 +415,126 @@ class LanceDBBackend {
     }
 
     /**
+     * Query vectors with threshold filtering (alias for queryCollection)
+     * @param {string} collectionId - Collection ID
+     * @param {number[]} queryVector - Query vector
+     * @param {number} topK - Number of results
+     * @param {number} threshold - Minimum score threshold
+     * @param {string} source - Embedding source
+     * @returns {Promise<Array>} Results above threshold
+     */
+    async queryVectors(collectionId, queryVector, topK, threshold, source = 'transformers') {
+        const results = await this.queryCollection(collectionId, queryVector, topK, source);
+        // Filter by threshold
+        return results.filter(r => r.score >= threshold);
+    }
+
+    /**
+     * Get a single item by hash
+     * @param {string} collectionId - Collection ID
+     * @param {number} hash - Item hash to find
+     * @param {string} source - Embedding source
+     * @returns {Promise<object|null>} Item or null if not found
+     */
+    async getItem(collectionId, hash, source = 'transformers') {
+        if (!this.basePath) throw new Error('LanceDB not initialized');
+
+        const tableName = sanitizeTableName(collectionId);
+        const db = await this.getDatabase(source);
+
+        const tableNames = await db.tableNames();
+        if (!tableNames.includes(tableName)) {
+            return null;
+        }
+
+        const collection = await this.getCollection(collectionId, source);
+
+        // Query for specific hash
+        const results = await collection
+            .query()
+            .where(`hash = ${hash}`)
+            .select(['hash', 'text', 'vector', 'metadata'])
+            .toArray();
+
+        if (results.length === 0) {
+            return null;
+        }
+
+        const r = results[0];
+        return {
+            hash: Number(r.hash),
+            text: r.text,
+            vector: r.vector,
+            metadata: JSON.parse(r.metadata || '{}'),
+        };
+    }
+
+    /**
+     * Update an item (delete and re-insert with new data)
+     * @param {string} collectionId - Collection ID
+     * @param {number} hash - Item hash to update
+     * @param {object} updates - Updated fields {text?, hash?, vector?, ...metadata}
+     * @param {string} source - Embedding source
+     * @returns {Promise<void>}
+     */
+    async updateItem(collectionId, hash, updates, source = 'transformers') {
+        // Get existing item
+        const existing = await this.getItem(collectionId, hash, source);
+        if (!existing) {
+            throw new Error(`Item with hash ${hash} not found`);
+        }
+
+        // Delete old item
+        await this.deleteVectors(collectionId, [hash], source);
+
+        // Merge updates with existing data
+        const newHash = updates.hash || hash;
+        const newItem = {
+            hash: newHash,
+            text: updates.text || existing.text,
+            vector: updates.vector || existing.vector,
+            metadata: { ...existing.metadata, ...updates },
+        };
+
+        // Insert updated item
+        await this.insertVectors(collectionId, [newItem], source);
+
+        console.log(`[LanceDB] Updated item ${hash} -> ${newHash}`);
+    }
+
+    /**
+     * Update item metadata only (no re-embedding needed)
+     * @param {string} collectionId - Collection ID
+     * @param {number} hash - Item hash to update
+     * @param {object} metadata - New metadata fields to merge
+     * @param {string} source - Embedding source
+     * @returns {Promise<void>}
+     */
+    async updateItemMetadata(collectionId, hash, metadata, source = 'transformers') {
+        // Get existing item (need the vector)
+        const existing = await this.getItem(collectionId, hash, source);
+        if (!existing) {
+            throw new Error(`Item with hash ${hash} not found`);
+        }
+
+        // Delete old item
+        await this.deleteVectors(collectionId, [hash], source);
+
+        // Create updated item with same text/vector but new metadata
+        const updatedItem = {
+            hash: hash,
+            text: existing.text,
+            vector: existing.vector,
+            metadata: { ...existing.metadata, ...metadata },
+        };
+
+        // Insert updated item
+        await this.insertVectors(collectionId, [updatedItem], source);
+
+        console.log(`[LanceDB] Updated metadata for item ${hash}`);
+    }
+
+    /**
      * Get collection statistics
      * @param {string} collectionId - Collection ID
      * @param {string} source - Embedding source (transformers, openai, palm, etc.)

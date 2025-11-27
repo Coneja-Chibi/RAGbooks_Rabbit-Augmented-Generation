@@ -787,3 +787,102 @@ export async function testTemporallyBlindChunks(settings) {
         };
     }
 }
+
+/**
+ * Test: Does the plugin backend correctly generate embeddings during insert?
+ * This specifically tests the Similharity plugin's LanceDB/Qdrant handlers.
+ * These handlers MUST generate embeddings - they cannot rely on pre-provided vectors.
+ */
+export async function testPluginEmbeddingGeneration(settings) {
+    const backend = settings.vector_backend || 'standard';
+
+    // Only test for backends that go through the plugin
+    if (backend === 'standard') {
+        return {
+            name: '[PROD] Plugin Embedding Gen',
+            status: 'skipped',
+            message: 'Standard backend uses native ST vectors',
+            category: 'production'
+        };
+    }
+
+    try {
+        const testCollectionId = `__vecthare_embed_test_${Date.now()}__`;
+        const testHash = Math.floor(Math.random() * 1000000);
+        const testText = 'Plugin embedding generation test';
+
+        // Try to insert WITHOUT providing a vector - the plugin must generate it
+        const insertResponse = await fetch('/api/plugins/similharity/chunks/insert', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                backend: backend,
+                collectionId: testCollectionId,
+                items: [{
+                    hash: testHash,
+                    text: testText,
+                    index: 0
+                    // NOTE: No vector provided - plugin must generate it
+                }],
+                source: settings.source || 'transformers',
+                model: settings[getModelField(settings.source)] || null,
+            }),
+        });
+
+        if (!insertResponse.ok) {
+            const errorText = await insertResponse.text();
+            return {
+                name: '[PROD] Plugin Embedding Gen',
+                status: 'fail',
+                message: `Plugin failed to generate embedding: ${insertResponse.status} - ${errorText}`,
+                category: 'production'
+            };
+        }
+
+        // Verify the vector was stored by querying
+        const queryResponse = await fetch('/api/plugins/similharity/chunks/query', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                backend: backend,
+                collectionId: testCollectionId,
+                searchText: testText,
+                topK: 1,
+                source: settings.source || 'transformers',
+                model: settings[getModelField(settings.source)] || null,
+            }),
+        });
+
+        let querySuccess = false;
+        if (queryResponse.ok) {
+            const results = await queryResponse.json();
+            querySuccess = results.results?.length > 0 || results.hashes?.length > 0;
+        }
+
+        // Cleanup test collection
+        await cleanupTestCollection(testCollectionId, settings);
+
+        if (!querySuccess) {
+            return {
+                name: '[PROD] Plugin Embedding Gen',
+                status: 'warning',
+                message: 'Insert succeeded but could not verify vector retrieval',
+                category: 'production'
+            };
+        }
+
+        return {
+            name: '[PROD] Plugin Embedding Gen',
+            status: 'pass',
+            message: `${backend} backend correctly generates embeddings`,
+            category: 'production'
+        };
+    } catch (error) {
+        return {
+            name: '[PROD] Plugin Embedding Gen',
+            status: 'fail',
+            message: `Test error: ${error.message}`,
+            category: 'production'
+        };
+    }
+}

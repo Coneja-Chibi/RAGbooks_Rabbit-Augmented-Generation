@@ -10,7 +10,7 @@
  * ============================================================================
  */
 
-import { saveSettingsDebounced } from '../../../../../script.js';
+import { saveSettingsDebounced, getCurrentChatId } from '../../../../../script.js';
 import { extension_settings } from '../../../../extensions.js';
 import { writeSecret, SECRET_KEYS, secret_state, readSecretState } from '../../../../secrets.js';
 import { openVisualizer } from './chunk-visualizer.js';
@@ -18,6 +18,8 @@ import { openDatabaseBrowser } from './database-browser.js';
 import { openContentVectorizer } from './content-vectorizer.js';
 import { openSearchDebugModal, getLastSearchDebug } from './search-debug.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
+import { getChatCollectionId } from '../core/chat-vectorization.js';
+import { getSavedHashes } from '../core/core-vector-api.js';
 
 /**
  * Renders the VectHare settings UI
@@ -335,13 +337,15 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <option value="per_message">Per Message</option>
                                 <option value="conversation_turns">Conversation Turns</option>
                                 <option value="message_batch">Message Batches</option>
+                                <option value="per_scene">Per Scene</option>
                             </select>
 
                             <!-- Strategy descriptions -->
                             <div id="vecthare_strategy_info" class="vecthare_hint" style="margin-top: 4px; margin-bottom: 12px;">
-                                <span id="vecthare_strategy_desc_per_message">Each message is chunked individually</span>
-                                <span id="vecthare_strategy_desc_conversation_turns" style="display:none;">Groups user + AI message pairs before chunking</span>
-                                <span id="vecthare_strategy_desc_message_batch" style="display:none;">Groups N messages together before chunking</span>
+                                <span id="vecthare_strategy_desc_per_message">Each message becomes one chunk</span>
+                                <span id="vecthare_strategy_desc_conversation_turns" style="display:none;">Each user + AI pair becomes one chunk</span>
+                                <span id="vecthare_strategy_desc_message_batch" style="display:none;">Every N messages becomes one chunk</span>
+                                <span id="vecthare_strategy_desc_per_scene" style="display:none;">Each scene becomes one chunk (vectorized on scene completion)</span>
                             </div>
 
                             <!-- Message Batch settings (only shown for message_batch strategy) -->
@@ -352,12 +356,6 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <input type="range" id="vecthare_batch_size" class="vecthare-slider" min="2" max="10" step="1" />
                                 <small class="vecthare_hint">How many messages to group together</small>
                             </div>
-
-                            <label for="vecthare_message_chunk_size" style="margin-top: 12px;">
-                                <small>Chunk Size: <span id="vecthare_chunk_size_value">400</span> characters</small>
-                            </label>
-                            <input type="range" id="vecthare_message_chunk_size" class="vecthare-slider" min="100" max="2000" step="50" />
-                            <small class="vecthare_hint">Max characters per chunk</small>
 
                         </div>
                     </div>
@@ -806,8 +804,43 @@ function bindSettingsEvents(settings, callbacks) {
     // Auto-sync enable/disable
     $('#vecthare_autosync_enabled')
         .prop('checked', settings.enabled_chats)
-        .on('input', function() {
-            settings.enabled_chats = $(this).prop('checked');
+        .on('input', async function() {
+            const enabling = $(this).prop('checked');
+
+            // If enabling, check if we need to set up the collection first
+            if (enabling) {
+                const chatId = getCurrentChatId();
+
+                if (!chatId) {
+                    // No chat open - warn and don't enable
+                    toastr.warning('Open a chat first before enabling auto-sync');
+                    $(this).prop('checked', false);
+                    return;
+                }
+
+                // Check if collection exists
+                const collectionId = getChatCollectionId();
+                if (collectionId) {
+                    try {
+                        const existingHashes = await getSavedHashes(collectionId, settings);
+                        if (existingHashes.length === 0) {
+                            // No vectors yet - open vectorizer panel
+                            $(this).prop('checked', false); // Don't enable yet
+                            toastr.info('Set up your chat vectorization first');
+                            openContentVectorizer('chat');
+                            return;
+                        }
+                    } catch (e) {
+                        // Collection doesn't exist - open vectorizer panel
+                        $(this).prop('checked', false);
+                        toastr.info('Set up your chat vectorization first');
+                        openContentVectorizer('chat');
+                        return;
+                    }
+                }
+            }
+
+            settings.enabled_chats = enabling;
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
             console.log(`VectHare: Chat auto-sync ${settings.enabled_chats ? 'enabled' : 'disabled'}`);
@@ -816,7 +849,7 @@ function bindSettingsEvents(settings, callbacks) {
     // Chunking strategy
     function updateStrategyUI(strategy) {
         // Hide all descriptions
-        $('#vecthare_strategy_desc_per_message, #vecthare_strategy_desc_conversation_turns, #vecthare_strategy_desc_message_batch').hide();
+        $('#vecthare_strategy_desc_per_message, #vecthare_strategy_desc_conversation_turns, #vecthare_strategy_desc_message_batch, #vecthare_strategy_desc_per_scene').hide();
         // Show selected description
         $(`#vecthare_strategy_desc_${strategy}`).show();
         // Show/hide batch settings
@@ -935,19 +968,6 @@ function bindSettingsEvents(settings, callbacks) {
             // Reset health cache since provider change may affect backend connectivity
             resetBackendHealth();
         });
-
-    // Message chunk size
-    $('#vecthare_message_chunk_size')
-        .val(settings.message_chunk_size)
-        .on('input', function() {
-            const value = parseInt($(this).val());
-            const safeValue = isNaN(value) ? 400 : value;
-            $('#vecthare_chunk_size_value').text(safeValue);
-            settings.message_chunk_size = safeValue;
-            Object.assign(extension_settings.vecthare, settings);
-            saveSettingsDebounced();
-        });
-    $('#vecthare_chunk_size_value').text(settings.message_chunk_size);
 
     // Score threshold
     $('#vecthare_score_threshold')
@@ -1569,11 +1589,6 @@ function handleDiagnosticFix(action, silent = false) {
             if (!silent) toastr.info('Please configure your API URL in the provider settings');
             break;
 
-        case 'fix_chunk_size':
-            $('#vecthare_message_chunk_size').val(400).trigger('change');
-            if (!silent) toastr.success('Chunk size reset to 400');
-            break;
-
         case 'fix_threshold':
             $('#vecthare_score_threshold').val(0.25).trigger('change');
             if (!silent) toastr.success('Score threshold reset to 0.25');
@@ -1589,6 +1604,13 @@ function handleDiagnosticFix(action, silent = false) {
             if (!silent) toastr.success('Insert/Query counts fixed');
             break;
 
+        case 'fix_qdrant_dimension':
+            // This needs a dialog - don't auto-fix, show options
+            if (!silent) {
+                showQdrantDimensionFixDialog();
+            }
+            return; // Don't close modal
+
         default:
             if (!silent) toastr.error(`Unknown fix action: ${action}`);
     }
@@ -1599,6 +1621,128 @@ function handleDiagnosticFix(action, silent = false) {
             closeDiagnosticsModal();
         }, 500);
     }
+}
+
+/**
+ * Shows a dialog with options to fix Qdrant dimension mismatch
+ */
+async function showQdrantDimensionFixDialog() {
+    // Get the check data from the current diagnostics results
+    const check = currentDiagnosticResults?.checks?.find(c => c.fixAction === 'fix_qdrant_dimension');
+    const data = check?.data || {};
+
+    const collectionDim = data.collectionDimension || '?';
+    const currentDim = data.currentDimension || '?';
+    const sources = data.collectionSources?.join(', ') || 'unknown';
+    const models = data.collectionModels?.length > 0 ? data.collectionModels.join(', ') : '(not recorded)';
+    const pointsCount = data.pointsCount || 0;
+
+    const dialogHtml = `
+        <div class="vecthare-dimension-fix-dialog">
+            <h3 style="margin-top: 0; color: var(--vecthare-danger);">
+                <i class="fa-solid fa-triangle-exclamation"></i> Vector Dimension Mismatch
+            </h3>
+
+            <div class="vecthare-dimension-info" style="background: var(--SmartThemeBlurTintColor); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+                <p style="margin: 0 0 8px 0;"><strong>Your Qdrant collection:</strong></p>
+                <ul style="margin: 0; padding-left: 20px;">
+                    <li><strong>${collectionDim}</strong> dimensions</li>
+                    <li>Source: <strong>${sources}</strong></li>
+                    <li>Model: <strong>${models}</strong></li>
+                    <li><strong>${pointsCount.toLocaleString()}</strong> vectors stored</li>
+                </ul>
+
+                <p style="margin: 12px 0 8px 0;"><strong>Your current embedding model:</strong></p>
+                <ul style="margin: 0; padding-left: 20px;">
+                    <li><strong>${currentDim}</strong> dimensions</li>
+                </ul>
+            </div>
+
+            <p style="margin-bottom: 16px;">These dimensions don't match. You have two options:</p>
+
+            <div class="vecthare-dimension-options" style="display: flex; flex-direction: column; gap: 12px;">
+                <button id="vecthare_dim_fix_purge" class="vecthare-btn-danger" style="padding: 12px; text-align: left;">
+                    <i class="fa-solid fa-trash"></i>
+                    <strong>Purge collection and start fresh</strong>
+                    <br><small style="opacity: 0.8;">Delete all ${pointsCount.toLocaleString()} vectors and re-vectorize with your current model</small>
+                </button>
+
+                <button id="vecthare_dim_fix_switch" class="vecthare-btn-secondary" style="padding: 12px; text-align: left;">
+                    <i class="fa-solid fa-rotate-left"></i>
+                    <strong>I'll switch my embedding model back</strong>
+                    <br><small style="opacity: 0.8;">Keep your vectors; change your embedding settings to match (${sources}${models !== '(not recorded)' ? ': ' + models : ''})</small>
+                </button>
+
+                <button id="vecthare_dim_fix_cancel" class="vecthare-btn-secondary" style="padding: 12px; text-align: left;">
+                    <i class="fa-solid fa-clock"></i>
+                    <strong>Hold off for now</strong>
+                    <br><small style="opacity: 0.8;">I'll figure it out later</small>
+                </button>
+            </div>
+        </div>
+    `;
+
+    // Use callGenericPopup for the dialog
+    const { callGenericPopup, POPUP_TYPE } = await import('../../../../popup.js');
+
+    callGenericPopup(dialogHtml, POPUP_TYPE.TEXT, '', {
+        okButton: false,
+        cancelButton: false,
+        wide: false,
+        allowVerticalScrolling: true,
+    });
+
+    // Bind button handlers
+    $('#vecthare_dim_fix_purge').off('click').on('click', async () => {
+        // Close popup
+        $('.popup-button-close').click();
+
+        // Show confirmation
+        const confirmHtml = `
+            <p><strong>Are you sure you want to purge the Qdrant collection?</strong></p>
+            <p>This will delete all <strong>${pointsCount.toLocaleString()}</strong> vectors permanently.</p>
+            <p>You'll need to re-vectorize all your chats, lorebooks, and documents.</p>
+        `;
+
+        const confirmed = await callGenericPopup(confirmHtml, POPUP_TYPE.CONFIRM, '', {
+            okButton: 'Yes, purge it',
+            cancelButton: 'Cancel',
+        });
+
+        if (confirmed) {
+            toastr.info('Purging Qdrant collection...');
+            try {
+                const { getRequestHeaders } = await import('../../../../../script.js');
+                const response = await fetch('/api/plugins/similharity/backend/qdrant/purge-collection', {
+                    method: 'POST',
+                    headers: getRequestHeaders(),
+                    body: JSON.stringify({ collectionName: 'vecthare_main' })
+                });
+
+                if (response.ok) {
+                    toastr.success('Qdrant collection purged! You can now re-vectorize your content.');
+                    closeDiagnosticsModal();
+                } else {
+                    const error = await response.text();
+                    toastr.error(`Failed to purge: ${error}`);
+                }
+            } catch (e) {
+                toastr.error(`Purge failed: ${e.message}`);
+            }
+        }
+    });
+
+    $('#vecthare_dim_fix_switch').off('click').on('click', () => {
+        $('.popup-button-close').click();
+        toastr.info(`Switch your embedding provider to "${sources}"${models !== '(not recorded)' ? ` with model "${models}"` : ''} to match your stored vectors.`);
+        closeDiagnosticsModal();
+        // Scroll to provider settings
+        $('#vecthare_provider_settings')[0]?.scrollIntoView({ behavior: 'smooth' });
+    });
+
+    $('#vecthare_dim_fix_cancel').off('click').on('click', () => {
+        $('.popup-button-close').click();
+    });
 }
 
 /**

@@ -456,6 +456,12 @@ export async function synchronizeChat(settings, batchSize = 5) {
         return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
     }
 
+    // Per Scene strategy: don't auto-vectorize on message events
+    // Scenes are vectorized when user marks scene end (via createSceneChunk)
+    if (settings.chunking_strategy === 'per_scene') {
+        return { remaining: 0, messagesProcessed: 0, chunksCreated: 0 };
+    }
+
     try {
         await waitUntilCondition(() => !syncBlocked && !is_send_press, 1000);
     } catch {

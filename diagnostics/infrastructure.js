@@ -478,6 +478,131 @@ export async function checkQdrantBackend(settings) {
 }
 
 /**
+ * Check: Qdrant vector dimension matches current embedding model
+ * This catches the common "Internal Server Error" when switching embedding models
+ */
+export async function checkQdrantDimensionMatch(settings) {
+    if (settings.vector_backend !== 'qdrant') {
+        return {
+            name: 'Qdrant Dimensions',
+            status: 'skipped',
+            message: 'Not using Qdrant backend',
+            category: 'infrastructure'
+        };
+    }
+
+    try {
+        // Get collection info from Qdrant
+        const infoResponse = await fetch('/api/plugins/similharity/backend/qdrant/collection-info', {
+            method: 'GET',
+            headers: getRequestHeaders()
+        });
+
+        if (!infoResponse.ok) {
+            // Qdrant not initialized - that's checked elsewhere
+            return {
+                name: 'Qdrant Dimensions',
+                status: 'skipped',
+                message: 'Qdrant not initialized',
+                category: 'infrastructure'
+            };
+        }
+
+        const info = await infoResponse.json();
+
+        if (!info.exists) {
+            return {
+                name: 'Qdrant Dimensions',
+                status: 'pass',
+                message: 'No collection yet - will be created on first vectorization',
+                category: 'infrastructure'
+            };
+        }
+
+        // Get current embedding dimension by generating a test embedding
+        const testResponse = await fetch('/api/plugins/similharity/get-embedding', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                text: 'test',
+                source: settings.source || 'transformers',
+                model: getModelFromSettings(settings),
+            })
+        });
+
+        if (!testResponse.ok) {
+            return {
+                name: 'Qdrant Dimensions',
+                status: 'warning',
+                message: 'Could not test embedding dimension - check embedding provider',
+                category: 'infrastructure'
+            };
+        }
+
+        const testData = await testResponse.json();
+        const currentDimension = testData.embedding?.length || 0;
+
+        if (currentDimension === 0) {
+            return {
+                name: 'Qdrant Dimensions',
+                status: 'warning',
+                message: 'Could not determine current embedding dimension',
+                category: 'infrastructure'
+            };
+        }
+
+        // Compare dimensions
+        if (info.dimension !== currentDimension) {
+            const sourceInfo = info.embeddingSources?.length > 0
+                ? info.embeddingSources.join(', ')
+                : 'unknown';
+            const modelInfo = info.embeddingModels?.length > 0
+                ? info.embeddingModels.join(', ')
+                : '(not recorded)';
+
+            return {
+                name: 'Qdrant Dimensions',
+                status: 'fail',
+                message: `Dimension mismatch! Collection: ${info.dimension}-dim (source: ${sourceInfo}, model: ${modelInfo}). Current model: ${currentDimension}-dim.`,
+                fixable: true,
+                fixAction: 'fix_qdrant_dimension',
+                category: 'infrastructure',
+                data: {
+                    collectionDimension: info.dimension,
+                    currentDimension: currentDimension,
+                    collectionSources: info.embeddingSources,
+                    collectionModels: info.embeddingModels,
+                    pointsCount: info.pointsCount,
+                }
+            };
+        }
+
+        return {
+            name: 'Qdrant Dimensions',
+            status: 'pass',
+            message: `Dimensions match (${info.dimension}-dim, ${info.pointsCount} vectors)`,
+            category: 'infrastructure'
+        };
+
+    } catch (error) {
+        return {
+            name: 'Qdrant Dimensions',
+            status: 'warning',
+            message: `Could not check dimensions: ${error.message}`,
+            category: 'infrastructure'
+        };
+    }
+}
+
+/**
+ * Helper to get model from settings based on source
+ */
+function getModelFromSettings(settings) {
+    const modelField = getModelField(settings.source);
+    return modelField ? settings[modelField] || '' : '';
+}
+
+/**
  * Check: Embedding provider is configured properly
  */
 export async function checkEmbeddingProvider(settings) {

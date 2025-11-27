@@ -17,6 +17,7 @@ import {
     checkPluginEndpoints,
     checkLanceDBBackend,
     checkQdrantBackend,
+    checkQdrantDimensionMatch,
     checkEmbeddingProvider,
     checkApiKeys,
     checkApiUrls,
@@ -45,6 +46,7 @@ import {
     testTemporallyBlindChunks,
     testChunkServerSync,
     testDuplicateHashes,
+    testPluginEmbeddingGeneration,
     fixOrphanedMetadata,
     fixDuplicateHashes
 } from './production-tests.js';
@@ -83,6 +85,7 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
     categories.infrastructure.push(await checkPluginEndpoints());
     categories.infrastructure.push(await checkLanceDBBackend(settings));
     categories.infrastructure.push(await checkQdrantBackend(settings));
+    categories.infrastructure.push(await checkQdrantDimensionMatch(settings));
     categories.infrastructure.push(await checkEmbeddingProvider(settings));
 
     const apiKeyCheck = checkApiKeys(settings);
@@ -132,6 +135,8 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
         categories.production.push(await testTemporallyBlindChunks(settings));
         categories.production.push(await testChunkServerSync(settings));
         categories.production.push(await testDuplicateHashes(settings));
+        // Plugin-specific embedding generation test (LanceDB/Qdrant)
+        categories.production.push(await testPluginEmbeddingGeneration(settings));
         // Conditional activation returns an array of individual test results
         const activationResults = await testConditionalActivation();
         categories.production.push(...activationResults);

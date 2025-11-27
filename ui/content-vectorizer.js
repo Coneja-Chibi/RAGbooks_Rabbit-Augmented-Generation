@@ -26,6 +26,7 @@ import {
 } from '../core/content-types.js';
 import { extension_settings, getContext } from '../../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../../script.js';
+import { getChatUUID } from '../core/chat-vectorization.js';
 
 // ============================================================================
 // STATE
@@ -344,6 +345,9 @@ function renderChatSource(type) {
                                 <span class="vecthare-cv-stat-label">Character</span>
                             </div>
                         </div>
+                        <div class="vecthare-cv-chat-uuid" style="text-align: center; margin-top: 8px;">
+                            <code style="font-size: 0.7em; opacity: 0.6; user-select: all;">${getChatUUID() || 'unknown'}</code>
+                        </div>
                         <div class="vecthare-cv-chat-note">
                             <i class="fa-solid fa-info-circle"></i>
                             Will vectorize all messages in the current chat
@@ -418,6 +422,9 @@ function renderCurrentChatSource(type) {
                     <span class="vecthare-cv-stat-value">${context?.name2 || 'Unknown'}</span>
                     <span class="vecthare-cv-stat-label">Character</span>
                 </div>
+            </div>
+            <div class="vecthare-cv-chat-uuid" style="text-align: center; margin-top: 8px;">
+                <code style="font-size: 0.7em; opacity: 0.6; user-select: all;">${getChatUUID() || 'unknown'}</code>
             </div>
             <div class="vecthare-cv-chat-note">
                 <i class="fa-solid fa-info-circle"></i>

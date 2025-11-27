@@ -94,7 +94,7 @@ class MilvusBackend {
         try {
             // Check if collection exists
             const { data: collections } = await this.client.listCollections();
-            const exists = collections.find(c => c.name === collectionName);
+            let exists = collections.find(c => c.name === collectionName);
             
             if (exists) {
                 // Verify schema has 'vector' field and correct dimension

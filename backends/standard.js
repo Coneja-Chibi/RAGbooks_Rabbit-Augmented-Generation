@@ -153,19 +153,27 @@ export class StandardBackend extends VectorBackend {
         }
     }
 
-    async queryCollection(collectionId, searchText, topK, settings) {
+    async queryCollection(collectionId, searchText, topK, settings, queryVector = null) {
+        // Build request body - use queryVector if provided, otherwise searchText
+        const requestBody = {
+            backend: BACKEND_TYPE,
+            collectionId: collectionId,
+            topK: topK,
+            threshold: 0.0,
+            source: settings.source || 'transformers',
+            model: getModelFromSettings(settings),
+        };
+
+        if (queryVector) {
+            requestBody.queryVector = queryVector;
+        } else {
+            requestBody.searchText = searchText;
+        }
+
         const response = await fetch('/api/plugins/similharity/chunks/query', {
             method: 'POST',
             headers: getRequestHeaders(),
-            body: JSON.stringify({
-                backend: BACKEND_TYPE,
-                collectionId: collectionId,
-                searchText: searchText,
-                topK: topK,
-                threshold: 0.0,
-                source: settings.source || 'transformers',
-                model: getModelFromSettings(settings),
-            }),
+            body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
@@ -187,24 +195,32 @@ export class StandardBackend extends VectorBackend {
         return { hashes, metadata };
     }
 
-    async queryMultipleCollections(collectionIds, searchText, topK, threshold, settings) {
+    async queryMultipleCollections(collectionIds, searchText, topK, threshold, settings, queryVector = null) {
         // Query each collection separately (unified API handles one at a time)
         const results = {};
 
         for (const collectionId of collectionIds) {
             try {
+                // Build request body - use queryVector if provided
+                const requestBody = {
+                    backend: BACKEND_TYPE,
+                    collectionId: collectionId,
+                    topK: topK,
+                    threshold: threshold,
+                    source: settings.source || 'transformers',
+                    model: getModelFromSettings(settings),
+                };
+
+                if (queryVector) {
+                    requestBody.queryVector = queryVector;
+                } else {
+                    requestBody.searchText = searchText;
+                }
+
                 const response = await fetch('/api/plugins/similharity/chunks/query', {
                     method: 'POST',
                     headers: getRequestHeaders(),
-                    body: JSON.stringify({
-                        backend: BACKEND_TYPE,
-                        collectionId: collectionId,
-                        searchText: searchText,
-                        topK: topK,
-                        threshold: threshold,
-                        source: settings.source || 'transformers',
-                        model: getModelFromSettings(settings),
-                    }),
+                    body: JSON.stringify(requestBody),
                 });
 
                 if (response.ok) {

@@ -557,6 +557,7 @@ export async function getSavedHashes(collectionId, settings, includeMetadata = f
 /**
  * Inserts vector items into a collection
  * Handles batching and rate limiting.
+ * For client-side embedding sources (webllm, koboldcpp, bananabread), generates embeddings first.
  * @param {string} collectionId - The collection to insert into
  * @param {{ hash: number, text: string }[]} items - The items to insert
  * @param {object} settings VectHare settings object
@@ -564,6 +565,25 @@ export async function getSavedHashes(collectionId, settings, includeMetadata = f
  */
 export async function insertVectorItems(collectionId, items, settings) {
     const backend = await getBackend(settings);
+
+    // Sources that require client-side embedding generation
+    const clientSideEmbeddingSources = ['webllm', 'koboldcpp', 'bananabread'];
+
+    // If source requires client-side embeddings, generate them and attach to items
+    if (clientSideEmbeddingSources.includes(settings.source)) {
+        console.log(`VectHare: Generating client-side embeddings for ${settings.source}...`);
+        const additionalArgs = await getAdditionalArgs(items, settings);
+
+        if (additionalArgs.embeddings && additionalArgs.embeddings.length === items.length) {
+            // Attach embeddings to items as .vector property
+            for (let i = 0; i < items.length; i++) {
+                items[i].vector = additionalArgs.embeddings[i];
+            }
+            console.log(`VectHare: Attached ${items.length} embeddings to items`);
+        } else {
+            throw new Error(`VectHare: Failed to generate embeddings for ${settings.source} - got ${additionalArgs.embeddings?.length || 0} embeddings for ${items.length} items`);
+        }
+    }
 
     // If rate limiting is enabled, batch execution
     if (settings.rate_limit_calls > 0) {
@@ -604,6 +624,7 @@ export async function deleteVectorItems(collectionId, hashes, settings) {
 /**
  * Queries a single collection for similar vectors
  * Applies keyword boost system: overfetch → boost → trim
+ * For client-side embedding sources (webllm, koboldcpp, bananabread), generates query embedding first.
  * @param {string} collectionId - The collection to query
  * @param {string} searchText - The text to query
  * @param {number} topK - The number of results to return
@@ -613,9 +634,24 @@ export async function deleteVectorItems(collectionId, hashes, settings) {
 export async function queryCollection(collectionId, searchText, topK, settings) {
     const backend = await getBackend(settings);
 
+    // Sources that require client-side embedding generation
+    const clientSideEmbeddingSources = ['webllm', 'koboldcpp', 'bananabread'];
+    let queryVector = null;
+
+    // If source requires client-side embeddings, generate query vector
+    if (clientSideEmbeddingSources.includes(settings.source)) {
+        const queryItem = [{ text: searchText, hash: 0 }];
+        const additionalArgs = await getAdditionalArgs(queryItem, settings);
+        if (additionalArgs.embeddings && additionalArgs.embeddings.length > 0) {
+            queryVector = additionalArgs.embeddings[0];
+        } else {
+            throw new Error(`VectHare: Failed to generate query embedding for ${settings.source}`);
+        }
+    }
+
     // Overfetch to allow keyword-boosted chunks to surface
     const overfetchAmount = getOverfetchAmount(topK);
-    const rawResults = await backend.queryCollection(collectionId, searchText, overfetchAmount, settings);
+    const rawResults = await backend.queryCollection(collectionId, searchText, overfetchAmount, settings, queryVector);
 
     // Convert to format expected by keyword boost
     const resultsForBoost = rawResults.metadata.map((meta, idx) => ({
@@ -645,6 +681,7 @@ export async function queryCollection(collectionId, searchText, topK, settings) 
 
 /**
  * Queries multiple collections for a given text.
+ * For client-side embedding sources, generates query embedding once and reuses for all collections.
  * @param {string[]} collectionIds - Collection IDs to query
  * @param {string} searchText - Text to query
  * @param {number} topK - Number of results to return
@@ -654,7 +691,23 @@ export async function queryCollection(collectionId, searchText, topK, settings) 
  */
 export async function queryMultipleCollections(collectionIds, searchText, topK, threshold, settings) {
     const backend = await getBackend(settings);
-    return await backend.queryMultipleCollections(collectionIds, searchText, topK, threshold, settings);
+
+    // Sources that require client-side embedding generation
+    const clientSideEmbeddingSources = ['webllm', 'koboldcpp', 'bananabread'];
+    let queryVector = null;
+
+    // Generate query vector once for all collections (efficiency)
+    if (clientSideEmbeddingSources.includes(settings.source)) {
+        const queryItem = [{ text: searchText, hash: 0 }];
+        const additionalArgs = await getAdditionalArgs(queryItem, settings);
+        if (additionalArgs.embeddings && additionalArgs.embeddings.length > 0) {
+            queryVector = additionalArgs.embeddings[0];
+        } else {
+            throw new Error(`VectHare: Failed to generate query embedding for ${settings.source}`);
+        }
+    }
+
+    return await backend.queryMultipleCollections(collectionIds, searchText, topK, threshold, settings, queryVector);
 }
 
 /**

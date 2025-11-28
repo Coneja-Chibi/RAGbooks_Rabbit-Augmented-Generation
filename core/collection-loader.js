@@ -23,7 +23,7 @@ import {
     ensureCollectionMeta,
     getCollectionMeta,
 } from './collection-metadata.js';
-import { getChatCollectionId, getLegacyChatCollectionId } from './chat-vectorization.js';
+import { getChatCollectionId, getLegacyChatCollectionId, getChatUUID } from './chat-vectorization.js';
 
 // Plugin detection state
 let pluginAvailable = null;
@@ -460,27 +460,53 @@ export async function discoverExistingCollections(settings) {
  * SINGLE SOURCE OF TRUTH: Check if a specific chat has vectors
  * This runs discovery if needed and checks all possible locations
  * @param {object} settings VectHare settings
- * @param {string} [chatId] Optional chat ID override
- * @param {string} [chatUUID] Optional UUID override
+ * @param {string} [overrideChatId] Optional chat ID override
+ * @param {string} [overrideUUID] Optional UUID override
  * @returns {Promise<{hasVectors: boolean, collectionId: string|null, chunkCount: number}>}
  */
-export async function doesChatHaveVectors(settings, chatId, chatUUID) {
+export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID) {
     // Always run discovery first to ensure registry is current
     await discoverExistingCollections(settings);
 
     const registry = getCollectionRegistry();
-    const newFormatId = getChatCollectionId(chatUUID);
-    const legacyFormatId = getLegacyChatCollectionId(chatId);
 
-    // Check registry for any matching collection (with or without source prefix)
+    // Get current chat identifiers
+    const uuid = overrideUUID || getChatUUID();
+    const chatId = overrideChatId || (getContext().chatId);
+
+    // Build all possible ID patterns to search for
+    const searchPatterns = [];
+    if (uuid) {
+        searchPatterns.push(uuid); // Just the UUID
+        searchPatterns.push(`vh:chat:${uuid}`); // New format
+    }
+    if (chatId) {
+        searchPatterns.push(chatId); // Just the chatId
+        searchPatterns.push(`vecthare_chat_${chatId}`); // Legacy format
+    }
+
+    console.log(`VectHare: Searching for chat vectors with patterns:`, searchPatterns);
+
+    // Check registry for any matching collection
     for (const registryKey of registry) {
         // Registry keys can be "source:collectionId" or just "collectionId"
-        const collectionId = registryKey.includes(':')
-            ? registryKey.substring(registryKey.indexOf(':') + 1)
-            : registryKey;
+        // Extract just the collection ID part
+        let collectionId = registryKey;
+        if (registryKey.includes(':')) {
+            // Could be "transformers:vh:chat:uuid" or "transformers:vecthare_chat_123"
+            const parts = registryKey.split(':');
+            // Skip the source prefix (first part)
+            collectionId = parts.slice(1).join(':');
+        }
 
-        // Check if this registry entry matches our chat
-        if (collectionId === newFormatId || collectionId === legacyFormatId) {
+        // Check if this collection matches ANY of our patterns
+        const matches = searchPatterns.some(pattern =>
+            collectionId === pattern ||
+            collectionId.includes(pattern) ||
+            registryKey.includes(pattern)
+        );
+
+        if (matches) {
             // Found it! Get chunk count from plugin cache if available
             let chunkCount = 0;
             if (pluginCollectionData && pluginCollectionData[registryKey]) {
@@ -498,7 +524,9 @@ export async function doesChatHaveVectors(settings, chatId, chatUUID) {
     }
 
     // Not found in registry - try direct query as last resort
-    // (in case discovery missed it somehow)
+    const newFormatId = getChatCollectionId(uuid);
+    const legacyFormatId = getLegacyChatCollectionId(chatId);
+
     for (const id of [newFormatId, legacyFormatId].filter(Boolean)) {
         try {
             const hashes = await getSavedHashes(id, settings);

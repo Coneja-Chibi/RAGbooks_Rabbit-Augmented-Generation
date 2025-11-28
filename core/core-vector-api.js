@@ -572,7 +572,9 @@ export async function insertVectorItems(collectionId, items, settings) {
     // If source requires client-side embeddings, generate them and attach to items
     if (clientSideEmbeddingSources.includes(settings.source)) {
         console.log(`VectHare: Generating client-side embeddings for ${settings.source}...`);
-        const additionalArgs = await getAdditionalArgs(items, settings);
+        // Extract text strings - getAdditionalArgs expects string[], not objects
+        const textStrings = items.map(item => item.text || item);
+        const additionalArgs = await getAdditionalArgs(textStrings, settings);
 
         if (additionalArgs.embeddings && additionalArgs.embeddings.length === items.length) {
             // Attach embeddings to items as .vector property

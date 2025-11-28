@@ -474,41 +474,33 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
     const uuid = overrideUUID || getChatUUID();
     const chatId = overrideChatId || (getContext().chatId);
 
-    // Build all possible ID patterns to search for
+    // PRIMARY: Search by UUID (the collection ID IS the UUID now)
+    // LEGACY: Also search old formats for backwards compatibility
     const searchPatterns = [];
+
+    // UUID is the primary identifier - collection ID = UUID
     if (uuid) {
-        searchPatterns.push(uuid.toLowerCase()); // Just the UUID
-        searchPatterns.push(`vh:chat:${uuid}`.toLowerCase()); // New format
+        searchPatterns.push(uuid.toLowerCase());
+        // Legacy format with prefix
+        searchPatterns.push(`vh:chat:${uuid}`.toLowerCase());
     }
+
+    // Legacy patterns for old collections created before UUID-based naming
     if (chatId) {
-        searchPatterns.push(chatId.toLowerCase()); // Just the chatId
-        searchPatterns.push(`vecthare_chat_${chatId}`.toLowerCase()); // Legacy format
+        // Old vecthare_chat_X format
+        searchPatterns.push(`vecthare_chat_${chatId}`.toLowerCase());
 
-        // Also add sanitized version (how content-vectorization creates IDs)
-        // e.g., "Avi - 2025-11-10@03h36m14s" → "avi"
-        const sanitizedChatId = chatId
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, '_')
-            .replace(/_+/g, '_')
-            .replace(/^_|_$/g, '')
-            .substring(0, 50);
-        if (sanitizedChatId && sanitizedChatId !== chatId.toLowerCase()) {
-            searchPatterns.push(sanitizedChatId);
-            searchPatterns.push(`vecthare_chat_${sanitizedChatId}`);
-        }
-
-        // Extract character name from chat filename (before " - " separator)
+        // Sanitized character name (how old content-vectorization named things)
         const charNameMatch = chatId.match(/^([^-]+)/);
         if (charNameMatch) {
             const charName = charNameMatch[1].trim().toLowerCase();
-            if (charName && !searchPatterns.includes(charName)) {
-                searchPatterns.push(charName);
+            if (charName) {
                 searchPatterns.push(`vecthare_chat_${charName}`);
             }
         }
     }
 
-    console.log(`VectHare: Searching for chat vectors with patterns:`, searchPatterns);
+    console.log(`VectHare: Searching for chat vectors. UUID: ${uuid}, Legacy patterns:`, searchPatterns);
 
     // Collect ALL matching collections, then pick the best one
     // This handles ghost collections (empty) vs real collections (has chunks)

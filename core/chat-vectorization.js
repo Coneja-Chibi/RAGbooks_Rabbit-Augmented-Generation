@@ -86,15 +86,17 @@ export function getChatUUID() {
 
 /**
  * Builds chat collection ID using the chat's unique UUID
+ * Collection ID IS the UUID - simple, unique, no ambiguity
  * @param {string} [chatUUID] Optional UUID override, otherwise uses current chat
- * @returns {string|null} Collection ID or null if no chat
+ * @returns {string|null} Collection ID (the UUID itself) or null if no chat
  */
 export function getChatCollectionId(chatUUID) {
     const uuid = chatUUID || getChatUUID();
     if (!uuid) {
         return null;
     }
-    return buildCollectionId('chat', uuid);
+    // Collection ID = UUID directly. Simple and unambiguous.
+    return uuid;
 }
 
 /**

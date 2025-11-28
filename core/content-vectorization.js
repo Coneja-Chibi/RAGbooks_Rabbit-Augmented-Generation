@@ -15,6 +15,7 @@ import { chunkText } from './chunking.js';
 import { insertVectorItems, purgeVectorIndex } from './core-vector-api.js';
 import { setCollectionMeta, getDefaultDecayForType } from './collection-metadata.js';
 import { registerCollection } from './collection-loader.js';
+import { getChatCollectionId } from './chat-vectorization.js';
 import { extractLorebookKeywords, extractTextKeywords, EXTRACTION_LEVELS, DEFAULT_EXTRACTION_LEVEL, DEFAULT_BASE_WEIGHT } from './keyword-boost.js';
 import { progressTracker } from '../ui/progress-tracker.js';
 import { extension_settings, getContext } from '../../../../extensions.js';
@@ -556,8 +557,19 @@ function prepareYouTubeContent(rawContent, settings) {
 
 /**
  * Generates a collection ID for the content
+ * For chat content, uses UUID-based ID for consistency
  */
 function generateCollectionId(contentType, source, settings) {
+    // For chat content, use the UUID-based ID (single source of truth)
+    if (contentType === 'chat') {
+        const chatCollectionId = getChatCollectionId();
+        if (chatCollectionId) {
+            return chatCollectionId;
+        }
+        // Fall through to legacy generation if UUID not available
+        console.warn('VectHare: Chat UUID not available, using legacy ID generation');
+    }
+
     const scope = settings.scope || 'global';
     const context = getContext();
 
@@ -571,6 +583,7 @@ function generateCollectionId(contentType, source, settings) {
             baseName = source.name || source.id || 'character';
             break;
         case 'chat':
+            // Fallback if UUID wasn't available
             baseName = source.name || context?.name2 || 'chat';
             break;
         case 'url':

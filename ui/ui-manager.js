@@ -1004,7 +1004,7 @@ async function executeWithWebLlmErrorHandling(func) {
  * Loads available WebLLM models into the dropdown
  * @param {object} settings - VectHare settings object
  */
-async function loadWebLlmModels(settings) {
+export async function loadWebLlmModels(settings) {
     return executeWithWebLlmErrorHandling(async () => {
         const provider = getWebLlmProvider();
         const models = provider.getModels();
@@ -1038,8 +1038,9 @@ async function loadWebLlmModels(settings) {
 
 /**
  * Updates the WebLLM status display based on availability
+ * @returns {boolean} True if WebLLM is available
  */
-function updateWebLlmStatus() {
+export function updateWebLlmStatus() {
     const $status = $('#vecthare_webllm_status');
     const $installBtn = $('#vecthare_webllm_install');
     const $loadBtn = $('#vecthare_webllm_load');

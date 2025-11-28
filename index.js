@@ -31,7 +31,7 @@ import { migrateOldEnabledKeys } from './core/collection-metadata.js';
 import { clearCollectionRegistry, discoverExistingCollections } from './core/collection-loader.js';
 
 // VectHare modules - UI
-import { renderSettings, openDiagnosticsModal } from './ui/ui-manager.js';
+import { renderSettings, openDiagnosticsModal, loadWebLlmModels, updateWebLlmStatus } from './ui/ui-manager.js';
 import { initializeVisualizer } from './ui/chunk-visualizer.js';
 import { initializeDatabaseBrowser } from './ui/database-browser.js';
 import { initializeSceneMarkers, updateAllMarkerStates, setSceneSettings } from './ui/scene-markers.js';
@@ -257,6 +257,15 @@ jQuery(async () => {
                 await purgeVectorIndex(collectionId, settings);
                 console.log(`VectHare: Purged vectors for deleted group chat: ${chatId}`);
             }
+        }
+    });
+
+    // When WebLLM extension is loaded, refresh the model list
+    eventSource.on(event_types.EXTENSION_SETTINGS_LOADED, async (manifest) => {
+        if (settings.source === 'webllm' && manifest?.display_name === 'WebLLM') {
+            console.log('VectHare: WebLLM extension loaded, refreshing models...');
+            updateWebLlmStatus();
+            await loadWebLlmModels(settings);
         }
     });
 

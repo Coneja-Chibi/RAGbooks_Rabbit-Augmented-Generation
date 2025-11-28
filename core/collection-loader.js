@@ -23,6 +23,7 @@ import {
     ensureCollectionMeta,
     getCollectionMeta,
 } from './collection-metadata.js';
+import { getChatCollectionId, getLegacyChatCollectionId } from './chat-vectorization.js';
 
 // Plugin detection state
 let pluginAvailable = null;
@@ -384,18 +385,36 @@ async function discoverViaFallback(settings) {
     const discovered = [];
 
     // Try to discover chat collections from current context
+    // Check BOTH formats: new (vh:chat:uuid) and legacy (vecthare_chat_chatId)
     if (context.chatId) {
-        const chatCollectionId = `vecthare_chat_${context.chatId}`;
-        try {
-            const hashes = await getSavedHashes(chatCollectionId, settings);
-            if (hashes && hashes.length > 0) {
-                discovered.push(chatCollectionId);
-                registerCollection(chatCollectionId);
-                console.log(`VectHare: Discovered existing collection: ${chatCollectionId} (${hashes.length} chunks)`);
+        // Try NEW format first (vh:chat:uuid)
+        const newFormatId = getChatCollectionId();
+        if (newFormatId) {
+            try {
+                const hashes = await getSavedHashes(newFormatId, settings);
+                if (hashes && hashes.length > 0) {
+                    discovered.push(newFormatId);
+                    registerCollection(newFormatId);
+                    console.log(`VectHare: Discovered existing collection: ${newFormatId} (${hashes.length} chunks)`);
+                }
+            } catch (error) {
+                console.debug(`VectHare: Collection discovery skipped ${newFormatId}:`, error.message);
             }
-        } catch (error) {
-            // Collection doesn't exist or query failed - this is normal during discovery
-            console.debug(`VectHare: Collection discovery skipped ${chatCollectionId}:`, error.message);
+        }
+
+        // Also try LEGACY format (vecthare_chat_chatId) for backwards compatibility
+        const legacyFormatId = getLegacyChatCollectionId(context.chatId);
+        if (!discovered.includes(legacyFormatId)) {
+            try {
+                const hashes = await getSavedHashes(legacyFormatId, settings);
+                if (hashes && hashes.length > 0) {
+                    discovered.push(legacyFormatId);
+                    registerCollection(legacyFormatId);
+                    console.log(`VectHare: Discovered existing legacy collection: ${legacyFormatId} (${hashes.length} chunks)`);
+                }
+            } catch (error) {
+                console.debug(`VectHare: Collection discovery skipped ${legacyFormatId}:`, error.message);
+            }
         }
     }
 

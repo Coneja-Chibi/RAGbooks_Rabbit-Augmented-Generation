@@ -98,6 +98,33 @@ export function getChatCollectionId(chatUUID) {
 }
 
 /**
+ * Gets the legacy format collection ID for backwards compatibility
+ * @param {string} [chatId] Optional chatId override, otherwise uses current chat
+ * @returns {string|null} Legacy collection ID or null if no chat
+ */
+export function getLegacyChatCollectionId(chatId) {
+    const id = chatId || getCurrentChatId();
+    if (!id) {
+        return null;
+    }
+    return `vecthare_chat_${id}`;
+}
+
+/**
+ * Gets all possible collection IDs for the current chat (both formats)
+ * Use this when you need to check for existing vectors in either format
+ * @param {string} [chatId] Optional chatId override
+ * @param {string} [chatUUID] Optional UUID override
+ * @returns {{newFormat: string|null, legacyFormat: string|null}} Both format IDs
+ */
+export function getAllChatCollectionIds(chatId, chatUUID) {
+    return {
+        newFormat: getChatCollectionId(chatUUID),
+        legacyFormat: getLegacyChatCollectionId(chatId),
+    };
+}
+
+/**
  * Builds lorebook collection ID
  * @param {string} lorebookUid Lorebook UID
  * @returns {string} Properly formatted collection ID

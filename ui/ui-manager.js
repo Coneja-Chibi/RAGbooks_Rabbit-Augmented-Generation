@@ -19,9 +19,46 @@ import { openDatabaseBrowser } from './database-browser.js';
 import { openContentVectorizer } from './content-vectorizer.js';
 import { openSearchDebugModal, getLastSearchDebug } from './search-debug.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
-import { getChatCollectionId } from '../core/chat-vectorization.js';
+import { getChatCollectionId, getAllChatCollectionIds } from '../core/chat-vectorization.js';
 import { getSavedHashes } from '../core/core-vector-api.js';
 import { getModelField } from '../core/providers.js';
+
+/**
+ * Checks if the current chat has vectors in EITHER format (new or legacy)
+ * @param {object} settings - VectHare settings
+ * @returns {Promise<{hasVectors: boolean, collectionId: string|null}>}
+ */
+async function checkChatHasVectors(settings) {
+    const ids = getAllChatCollectionIds();
+
+    // Try new format first
+    if (ids.newFormat) {
+        try {
+            const hashes = await getSavedHashes(ids.newFormat, settings);
+            if (hashes && hashes.length > 0) {
+                console.log(`VectHare: Found ${hashes.length} vectors in ${ids.newFormat}`);
+                return { hasVectors: true, collectionId: ids.newFormat };
+            }
+        } catch (e) {
+            console.debug(`VectHare: No vectors in new format: ${ids.newFormat}`);
+        }
+    }
+
+    // Try legacy format
+    if (ids.legacyFormat) {
+        try {
+            const hashes = await getSavedHashes(ids.legacyFormat, settings);
+            if (hashes && hashes.length > 0) {
+                console.log(`VectHare: Found ${hashes.length} vectors in legacy format ${ids.legacyFormat}`);
+                return { hasVectors: true, collectionId: ids.legacyFormat };
+            }
+        } catch (e) {
+            console.debug(`VectHare: No vectors in legacy format: ${ids.legacyFormat}`);
+        }
+    }
+
+    return { hasVectors: false, collectionId: null };
+}
 
 /**
  * Renders the VectHare settings UI
@@ -1040,6 +1077,15 @@ export async function loadWebLlmModels(settings) {
  * Updates the WebLLM status display based on availability
  * @returns {boolean} True if WebLLM is available
  */
+/**
+ * Refreshes the auto-sync checkbox state from current settings
+ * Call this when chat changes to keep UI in sync
+ * @param {object} settings - VectHare settings object
+ */
+export function refreshAutoSyncCheckbox(settings) {
+    $('#vecthare_autosync_enabled').prop('checked', settings.enabled_chats);
+}
+
 export function updateWebLlmStatus() {
     const $status = $('#vecthare_webllm_status');
     const $installBtn = $('#vecthare_webllm_install');
@@ -1131,27 +1177,11 @@ function bindSettingsEvents(settings, callbacks) {
                     return;
                 }
 
-                // Check if collection exists and has vectors
-                const collectionId = getChatCollectionId();
-                if (!collectionId) {
-                    // No collection yet - open vectorizer panel to set it up
-                    $(this).prop('checked', false);
-                    toastr.info('Set up your chat vectorization first');
-                    openContentVectorizer('chat');
-                    return;
-                }
+                // Check if collection exists and has vectors (both formats)
+                const { hasVectors } = await checkChatHasVectors(settings);
 
-                try {
-                    const existingHashes = await getSavedHashes(collectionId, settings);
-                    if (existingHashes.length === 0) {
-                        // No vectors yet - open vectorizer panel
-                        $(this).prop('checked', false); // Don't enable yet
-                        toastr.info('Set up your chat vectorization first');
-                        openContentVectorizer('chat');
-                        return;
-                    }
-                } catch (e) {
-                    // Collection doesn't exist or error - open vectorizer panel
+                if (!hasVectors) {
+                    // No vectors in either format - open vectorizer panel
                     $(this).prop('checked', false);
                     toastr.info('Set up your chat vectorization first');
                     openContentVectorizer('chat');

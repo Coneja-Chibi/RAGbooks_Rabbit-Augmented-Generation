@@ -31,7 +31,7 @@ import { migrateOldEnabledKeys } from './core/collection-metadata.js';
 import { clearCollectionRegistry, discoverExistingCollections } from './core/collection-loader.js';
 
 // VectHare modules - UI
-import { renderSettings, openDiagnosticsModal, loadWebLlmModels, updateWebLlmStatus } from './ui/ui-manager.js';
+import { renderSettings, openDiagnosticsModal, loadWebLlmModels, updateWebLlmStatus, refreshAutoSyncCheckbox } from './ui/ui-manager.js';
 import { initializeVisualizer } from './ui/chunk-visualizer.js';
 import { initializeDatabaseBrowser } from './ui/database-browser.js';
 import { initializeSceneMarkers, updateAllMarkerStates, setSceneSettings } from './ui/scene-markers.js';
@@ -267,6 +267,12 @@ jQuery(async () => {
             updateWebLlmStatus();
             await loadWebLlmModels(settings);
         }
+    });
+
+    // When chat changes, refresh UI state to match settings
+    eventSource.on(event_types.CHAT_CHANGED, () => {
+        console.log('VectHare: Chat changed, refreshing UI state');
+        refreshAutoSyncCheckbox(settings);
     });
 
     console.log('VectHare: ✅ Initialized successfully');

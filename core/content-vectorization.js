@@ -14,6 +14,7 @@ import { getContentType, getContentTypeDefaults, hasFeature } from './content-ty
 import { chunkText } from './chunking.js';
 import { insertVectorItems, purgeVectorIndex } from './core-vector-api.js';
 import { setCollectionMeta, getDefaultDecayForType } from './collection-metadata.js';
+import { registerCollection } from './collection-loader.js';
 import { extractLorebookKeywords, extractTextKeywords, EXTRACTION_LEVELS, DEFAULT_EXTRACTION_LEVEL, DEFAULT_BASE_WEIGHT } from './keyword-boost.js';
 import { progressTracker } from '../ui/progress-tracker.js';
 import { extension_settings, getContext } from '../../../../extensions.js';
@@ -86,6 +87,10 @@ export async function vectorizeContent({ contentType, source, settings }) {
                 ? (settings.temporalDecay || getDefaultDecayForType(contentType))
                 : { enabled: false },
         });
+
+        // Register collection in the registry so it's discoverable
+        registerCollection(collectionId);
+        console.log(`VectHare: Registered collection ${collectionId}`);
 
         progressTracker.complete(true, `Vectorized ${hashedChunks.length} chunks`);
 

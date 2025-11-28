@@ -457,6 +457,72 @@ export async function discoverExistingCollections(settings) {
 }
 
 /**
+ * SINGLE SOURCE OF TRUTH: Check if a specific chat has vectors
+ * This runs discovery if needed and checks all possible locations
+ * @param {object} settings VectHare settings
+ * @param {string} [chatId] Optional chat ID override
+ * @param {string} [chatUUID] Optional UUID override
+ * @returns {Promise<{hasVectors: boolean, collectionId: string|null, chunkCount: number}>}
+ */
+export async function doesChatHaveVectors(settings, chatId, chatUUID) {
+    // Always run discovery first to ensure registry is current
+    await discoverExistingCollections(settings);
+
+    const registry = getCollectionRegistry();
+    const newFormatId = getChatCollectionId(chatUUID);
+    const legacyFormatId = getLegacyChatCollectionId(chatId);
+
+    // Check registry for any matching collection (with or without source prefix)
+    for (const registryKey of registry) {
+        // Registry keys can be "source:collectionId" or just "collectionId"
+        const collectionId = registryKey.includes(':')
+            ? registryKey.substring(registryKey.indexOf(':') + 1)
+            : registryKey;
+
+        // Check if this registry entry matches our chat
+        if (collectionId === newFormatId || collectionId === legacyFormatId) {
+            // Found it! Get chunk count from plugin cache if available
+            let chunkCount = 0;
+            if (pluginCollectionData && pluginCollectionData[registryKey]) {
+                chunkCount = pluginCollectionData[registryKey].chunkCount || 0;
+            }
+
+            console.log(`VectHare: Chat has vectors in collection ${collectionId} (${chunkCount} chunks)`);
+            return {
+                hasVectors: true,
+                collectionId: collectionId,
+                registryKey: registryKey,
+                chunkCount: chunkCount
+            };
+        }
+    }
+
+    // Not found in registry - try direct query as last resort
+    // (in case discovery missed it somehow)
+    for (const id of [newFormatId, legacyFormatId].filter(Boolean)) {
+        try {
+            const hashes = await getSavedHashes(id, settings);
+            if (hashes && hashes.length > 0) {
+                // Found vectors! Register it now
+                registerCollection(id);
+                console.log(`VectHare: Found ${hashes.length} vectors via direct query, registered ${id}`);
+                return {
+                    hasVectors: true,
+                    collectionId: id,
+                    registryKey: id,
+                    chunkCount: hashes.length
+                };
+            }
+        } catch (e) {
+            // Query failed, continue to next format
+        }
+    }
+
+    console.log('VectHare: No vectors found for current chat');
+    return { hasVectors: false, collectionId: null, registryKey: null, chunkCount: 0 };
+}
+
+/**
  * Loads all collections with metadata
  * @param {object} settings VectHare settings
  * @param {boolean} autoDiscover If true, attempts to discover unregistered collections

@@ -19,46 +19,9 @@ import { openDatabaseBrowser } from './database-browser.js';
 import { openContentVectorizer } from './content-vectorizer.js';
 import { openSearchDebugModal, getLastSearchDebug } from './search-debug.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
-import { getChatCollectionId, getAllChatCollectionIds } from '../core/chat-vectorization.js';
-import { getSavedHashes } from '../core/core-vector-api.js';
+import { getChatCollectionId } from '../core/chat-vectorization.js';
+import { doesChatHaveVectors } from '../core/collection-loader.js';
 import { getModelField } from '../core/providers.js';
-
-/**
- * Checks if the current chat has vectors in EITHER format (new or legacy)
- * @param {object} settings - VectHare settings
- * @returns {Promise<{hasVectors: boolean, collectionId: string|null}>}
- */
-async function checkChatHasVectors(settings) {
-    const ids = getAllChatCollectionIds();
-
-    // Try new format first
-    if (ids.newFormat) {
-        try {
-            const hashes = await getSavedHashes(ids.newFormat, settings);
-            if (hashes && hashes.length > 0) {
-                console.log(`VectHare: Found ${hashes.length} vectors in ${ids.newFormat}`);
-                return { hasVectors: true, collectionId: ids.newFormat };
-            }
-        } catch (e) {
-            console.debug(`VectHare: No vectors in new format: ${ids.newFormat}`);
-        }
-    }
-
-    // Try legacy format
-    if (ids.legacyFormat) {
-        try {
-            const hashes = await getSavedHashes(ids.legacyFormat, settings);
-            if (hashes && hashes.length > 0) {
-                console.log(`VectHare: Found ${hashes.length} vectors in legacy format ${ids.legacyFormat}`);
-                return { hasVectors: true, collectionId: ids.legacyFormat };
-            }
-        } catch (e) {
-            console.debug(`VectHare: No vectors in legacy format: ${ids.legacyFormat}`);
-        }
-    }
-
-    return { hasVectors: false, collectionId: null };
-}
 
 /**
  * Renders the VectHare settings UI
@@ -1177,16 +1140,18 @@ function bindSettingsEvents(settings, callbacks) {
                     return;
                 }
 
-                // Check if collection exists and has vectors (both formats)
-                const { hasVectors } = await checkChatHasVectors(settings);
+                // SINGLE SOURCE OF TRUTH: Use doesChatHaveVectors which runs discovery
+                const { hasVectors, chunkCount } = await doesChatHaveVectors(settings);
 
                 if (!hasVectors) {
-                    // No vectors in either format - open vectorizer panel
+                    // No vectors found anywhere - open vectorizer panel
                     $(this).prop('checked', false);
                     toastr.info('Set up your chat vectorization first');
                     openContentVectorizer('chat');
                     return;
                 }
+
+                console.log(`VectHare: Auto-sync enabled - chat has ${chunkCount} vectors`);
             }
 
             settings.enabled_chats = enabling;

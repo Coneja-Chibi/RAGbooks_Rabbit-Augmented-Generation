@@ -1119,46 +1119,86 @@ function toggleProviderSettings(selectedProvider, settings) {
 
 /**
  * Shows a confirmation modal when enabling auto-sync on a chat with existing vectors
- * @param {string} collectionId - The existing collection ID
- * @param {number} chunkCount - Number of chunks in the collection
- * @returns {Promise<'reconnect'|'revectorize'|'cancel'>} User's choice
+ * If multiple collections match, lets user pick which one to use
+ * @param {Array} allMatches - Array of matching collections [{collectionId, registryKey, chunkCount, source, backend}]
+ * @param {object} settings - VectHare settings for purge operations
+ * @returns {Promise<{action: string, selectedCollection?: object}>} User's choice
  */
-async function showAutoSyncConfirmModal(collectionId, chunkCount) {
+async function showAutoSyncConfirmModal(allMatches, settings) {
+    // Import purge function for ghost cleanup
+    const { purgeVectorIndex } = await import('../core/core-vector-api.js');
+    const { unregisterCollection } = await import('../core/collection-loader.js');
+
     return new Promise((resolve) => {
-        // Truncate collection ID for display
-        const displayId = collectionId.length > 40
-            ? collectionId.substring(0, 20) + '...' + collectionId.substring(collectionId.length - 15)
-            : collectionId;
+        const hasMultiple = allMatches.length > 1;
+        const hasGhosts = allMatches.some(m => m.chunkCount === 0);
+
+        // Build collection list HTML
+        const collectionListHtml = allMatches.map((match, index) => {
+            const displayId = match.collectionId.length > 35
+                ? match.collectionId.substring(0, 18) + '...' + match.collectionId.substring(match.collectionId.length - 12)
+                : match.collectionId;
+            const isGhost = match.chunkCount === 0;
+            const isRecommended = index === 0 && !isGhost;
+
+            return `
+                <div class="vecthare-collection-option ${isGhost ? 'ghost' : ''}" data-index="${index}" style="
+                    background: var(--SmartThemeBlurTintColor);
+                    padding: 12px;
+                    border-radius: 8px;
+                    margin-bottom: 10px;
+                    cursor: pointer;
+                    border: 2px solid ${isRecommended ? 'var(--SmartThemeQuoteColor)' : 'transparent'};
+                    opacity: ${isGhost ? '0.6' : '1'};
+                    position: relative;
+                ">
+                    ${isRecommended ? '<span style="position: absolute; top: -8px; right: 10px; background: var(--SmartThemeQuoteColor); color: var(--SmartThemeBodyColor); font-size: 0.7em; padding: 2px 6px; border-radius: 4px;">RECOMMENDED</span>' : ''}
+                    ${isGhost ? '<span style="position: absolute; top: -8px; right: 10px; background: var(--SmartThemeFontColorOverrideWarning, #f0ad4e); color: #000; font-size: 0.7em; padding: 2px 6px; border-radius: 4px;">GHOST</span>' : ''}
+                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-family: monospace; word-break: break-all; font-size: 0.85em; margin-bottom: 6px;">
+                                ${displayId}
+                            </div>
+                            <div style="font-size: 0.8em; color: var(--SmartThemeQuoteColor);">
+                                <i class="fa-solid fa-cube"></i> <strong>${match.chunkCount}</strong> chunks
+                                ${match.source ? `<span style="margin-left: 10px;"><i class="fa-solid fa-database"></i> ${match.source}</span>` : ''}
+                            </div>
+                        </div>
+                        ${isGhost ? `
+                            <button class="menu_button menu_button_icon vecthare-delete-ghost" data-index="${index}" style="margin-left: 10px; color: var(--SmartThemeFontColorOverrideWarning, #f0ad4e);" title="Delete this ghost collection">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
 
         const modalHtml = `
             <div id="vecthare_autosync_confirm_modal" class="vecthare-modal" style="display: flex;">
-                <div class="vecthare-modal-content" style="max-width: 450px;">
+                <div class="vecthare-modal-content" style="max-width: 500px;">
                     <div class="vecthare-modal-header">
-                        <h3><i class="fa-solid fa-link"></i> Existing Collection Found</h3>
+                        <h3><i class="fa-solid fa-link"></i> ${hasMultiple ? 'Multiple Collections Found' : 'Existing Collection Found'}</h3>
                         <button class="vecthare-modal-close" data-action="cancel">
                             <i class="fa-solid fa-times"></i>
                         </button>
                     </div>
                     <div class="vecthare-modal-body" style="padding: 20px;">
                         <p style="margin-bottom: 15px;">
-                            This chat already has a vectorized collection:
+                            ${hasMultiple
+                                ? `Found <strong>${allMatches.length}</strong> collections matching this chat.${hasGhosts ? ' <span style="color: var(--SmartThemeFontColorOverrideWarning, #f0ad4e);">Ghost collections (0 chunks) can be deleted.</span>' : ''}`
+                                : 'This chat already has a vectorized collection:'}
                         </p>
-                        <div style="background: var(--SmartThemeBlurTintColor); padding: 12px; border-radius: 8px; margin-bottom: 20px;">
-                            <div style="font-size: 0.85em; color: var(--SmartThemeQuoteColor); margin-bottom: 5px;">
-                                Collection ID:
-                            </div>
-                            <div style="font-family: monospace; word-break: break-all; font-size: 0.9em;">
-                                ${displayId}
-                            </div>
-                            <div style="margin-top: 10px; font-size: 0.9em;">
-                                <i class="fa-solid fa-cube"></i> <strong>${chunkCount}</strong> chunks stored
-                            </div>
+                        <div style="max-height: 300px; overflow-y: auto; margin-bottom: 15px;">
+                            ${collectionListHtml}
                         </div>
-                        <p style="margin-bottom: 10px;">What would you like to do?</p>
+                        <p style="margin-bottom: 10px; font-size: 0.9em; color: var(--SmartThemeQuoteColor);">
+                            ${hasMultiple ? 'Click a collection to select it, then choose an action.' : 'What would you like to do?'}
+                        </p>
                     </div>
                     <div class="vecthare-modal-footer" style="display: flex; gap: 10px; padding: 15px 20px; border-top: 1px solid var(--SmartThemeBorderColor);">
                         <button class="menu_button" data-action="reconnect" style="flex: 1;">
-                            <i class="fa-solid fa-plug"></i> Reconnect
+                            <i class="fa-solid fa-plug"></i> Connect
                         </button>
                         <button class="menu_button" data-action="revectorize" style="flex: 1;">
                             <i class="fa-solid fa-rotate"></i> Re-vectorize
@@ -1174,18 +1214,78 @@ async function showAutoSyncConfirmModal(collectionId, chunkCount) {
         const $modal = $(modalHtml);
         $('body').append($modal);
 
-        // Handle button clicks
+        // Track selected collection (default to first/best)
+        let selectedIndex = 0;
+        $modal.find('.vecthare-collection-option').first().css('border-color', 'var(--SmartThemeQuoteColor)');
+
+        // Handle collection selection
+        $modal.find('.vecthare-collection-option').on('click', function(e) {
+            if ($(e.target).closest('.vecthare-delete-ghost').length) return; // Don't select when clicking delete
+
+            selectedIndex = parseInt($(this).data('index'));
+            $modal.find('.vecthare-collection-option').css('border-color', 'transparent');
+            $(this).css('border-color', 'var(--SmartThemeQuoteColor)');
+        });
+
+        // Handle ghost deletion
+        $modal.find('.vecthare-delete-ghost').on('click', async function(e) {
+            e.stopPropagation();
+            const index = parseInt($(this).data('index'));
+            const ghost = allMatches[index];
+
+            if (!confirm(`Delete ghost collection?\n\n${ghost.collectionId}\n\nThis will remove it from disk.`)) return;
+
+            try {
+                // Purge from backend
+                const purgeSettings = {
+                    ...settings,
+                    source: ghost.source || settings.source,
+                };
+                await purgeVectorIndex(ghost.collectionId, purgeSettings);
+                unregisterCollection(ghost.registryKey || ghost.collectionId);
+
+                // Remove from UI
+                allMatches.splice(index, 1);
+                $(this).closest('.vecthare-collection-option').fadeOut(200, function() {
+                    $(this).remove();
+                    // Re-index remaining items
+                    $modal.find('.vecthare-collection-option').each((i, el) => {
+                        $(el).attr('data-index', i);
+                        $(el).find('.vecthare-delete-ghost').attr('data-index', i);
+                    });
+                });
+
+                toastr.success('Ghost collection deleted', 'VectHare');
+
+                // If no collections left, close modal
+                if (allMatches.length === 0) {
+                    $modal.remove();
+                    resolve({ action: 'revectorize' });
+                } else if (selectedIndex >= allMatches.length) {
+                    selectedIndex = 0;
+                    $modal.find('.vecthare-collection-option').first().css('border-color', 'var(--SmartThemeQuoteColor)');
+                }
+            } catch (error) {
+                console.error('VectHare: Failed to delete ghost', error);
+                toastr.error('Failed to delete ghost collection', 'VectHare');
+            }
+        });
+
+        // Handle action buttons
         $modal.find('[data-action]').on('click', function() {
             const action = $(this).data('action');
             $modal.remove();
-            resolve(action);
+            resolve({
+                action,
+                selectedCollection: action === 'reconnect' ? allMatches[selectedIndex] : null
+            });
         });
 
         // Handle clicking outside modal
         $modal.on('click', function(e) {
             if (e.target === this) {
                 $modal.remove();
-                resolve('cancel');
+                resolve({ action: 'cancel' });
             }
         });
 
@@ -1193,7 +1293,7 @@ async function showAutoSyncConfirmModal(collectionId, chunkCount) {
         $(document).one('keydown.autosync_modal', function(e) {
             if (e.key === 'Escape') {
                 $modal.remove();
-                resolve('cancel');
+                resolve({ action: 'cancel' });
             }
         });
     });
@@ -1224,7 +1324,7 @@ function bindSettingsEvents(settings, callbacks) {
                 }
 
                 // SINGLE SOURCE OF TRUTH: Use doesChatHaveVectors which runs discovery
-                const { hasVectors, chunkCount, collectionId } = await doesChatHaveVectors(settings);
+                const { hasVectors, allMatches } = await doesChatHaveVectors(settings);
 
                 if (!hasVectors) {
                     // No vectors found anywhere - open vectorizer panel
@@ -1234,20 +1334,21 @@ function bindSettingsEvents(settings, callbacks) {
                     return;
                 }
 
-                // Found existing vectors - show confirmation modal
-                const result = await showAutoSyncConfirmModal(collectionId, chunkCount);
+                // Found existing vectors - show confirmation modal with all matches
+                const result = await showAutoSyncConfirmModal(allMatches, settings);
 
-                if (result === 'cancel') {
+                if (result.action === 'cancel') {
                     // User cancelled - don't enable
                     $checkbox.prop('checked', false);
                     return;
                 }
 
-                if (result === 'reconnect') {
-                    // Just reconnect to existing collection
-                    toastr.success(`Connected to existing collection with ${chunkCount} chunks`, 'Auto-Sync Enabled');
-                    console.log(`VectHare: Auto-sync enabled - reconnected to ${collectionId} (${chunkCount} chunks)`);
-                } else if (result === 'revectorize') {
+                if (result.action === 'reconnect' && result.selectedCollection) {
+                    // Connect to selected collection
+                    const selected = result.selectedCollection;
+                    toastr.success(`Connected to collection with ${selected.chunkCount} chunks`, 'Auto-Sync Enabled');
+                    console.log(`VectHare: Auto-sync enabled - connected to ${selected.collectionId} (${selected.chunkCount} chunks)`);
+                } else if (result.action === 'revectorize') {
                     // User wants to start fresh - open vectorizer
                     $checkbox.prop('checked', false);
                     openContentVectorizer('chat');

@@ -525,21 +525,28 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
         }
     }
 
-    // If we found matches, return the one with the MOST chunks (avoid ghost/empty collections)
+    // If we found matches, return ALL of them sorted by chunk count (best first)
     if (matchingCollections.length > 0) {
-        // Sort by chunk count descending, pick the best one
+        // Sort by chunk count descending
         matchingCollections.sort((a, b) => b.chunkCount - a.chunkCount);
-        const best = matchingCollections[0];
 
-        if (matchingCollections.length > 1) {
-            console.log(`VectHare: Found ${matchingCollections.length} matching collections, selecting ${best.collectionId} with ${best.chunkCount} chunks`);
+        // Add source info from plugin cache
+        for (const match of matchingCollections) {
+            if (pluginCollectionData && pluginCollectionData[match.registryKey]) {
+                match.source = pluginCollectionData[match.registryKey].source;
+                match.backend = pluginCollectionData[match.registryKey].backend;
+            }
         }
+
+        const best = matchingCollections[0];
+        console.log(`VectHare: Found ${matchingCollections.length} matching collection(s), best is ${best.collectionId} with ${best.chunkCount} chunks`);
 
         return {
             hasVectors: true,
             collectionId: best.collectionId,
             registryKey: best.registryKey,
-            chunkCount: best.chunkCount
+            chunkCount: best.chunkCount,
+            allMatches: matchingCollections  // Return ALL matches for user selection
         };
     }
 

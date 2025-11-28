@@ -487,7 +487,10 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
 
     console.log(`VectHare: Searching for chat vectors with patterns:`, searchPatterns);
 
-    // Check registry for any matching collection
+    // Collect ALL matching collections, then pick the best one
+    // This handles ghost collections (empty) vs real collections (has chunks)
+    const matchingCollections = [];
+
     for (const registryKey of registry) {
         // Registry keys can be "source:collectionId" or just "collectionId"
         // Extract just the collection ID part
@@ -507,20 +510,37 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
         );
 
         if (matches) {
-            // Found it! Get chunk count from plugin cache if available
+            // Get chunk count from plugin cache if available
             let chunkCount = 0;
             if (pluginCollectionData && pluginCollectionData[registryKey]) {
                 chunkCount = pluginCollectionData[registryKey].chunkCount || 0;
             }
 
-            console.log(`VectHare: Chat has vectors in collection ${collectionId} (${chunkCount} chunks)`);
-            return {
-                hasVectors: true,
-                collectionId: collectionId,
-                registryKey: registryKey,
-                chunkCount: chunkCount
-            };
+            matchingCollections.push({
+                collectionId,
+                registryKey,
+                chunkCount
+            });
+            console.log(`VectHare: Found matching collection ${collectionId} (${chunkCount} chunks)`);
         }
+    }
+
+    // If we found matches, return the one with the MOST chunks (avoid ghost/empty collections)
+    if (matchingCollections.length > 0) {
+        // Sort by chunk count descending, pick the best one
+        matchingCollections.sort((a, b) => b.chunkCount - a.chunkCount);
+        const best = matchingCollections[0];
+
+        if (matchingCollections.length > 1) {
+            console.log(`VectHare: Found ${matchingCollections.length} matching collections, selecting ${best.collectionId} with ${best.chunkCount} chunks`);
+        }
+
+        return {
+            hasVectors: true,
+            collectionId: best.collectionId,
+            registryKey: best.registryKey,
+            chunkCount: best.chunkCount
+        };
     }
 
     // Not found in registry - try direct query as last resort

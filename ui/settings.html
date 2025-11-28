@@ -195,6 +195,61 @@
                 </div>
             </div>
 
+            <!-- Cotton-Tales Emotion Classifier Section -->
+            <div id="vecthare_cottontales_section" class="flex-container flexFlowColumn marginTopBot5" style="display: none; padding: 10px; border: 1px solid var(--SmartThemeBorderColor); border-radius: 8px; background: linear-gradient(135deg, rgba(139,92,246,0.05), rgba(59,130,246,0.05));">
+                <div class="flex-container alignItemsCenter" style="margin-bottom: 8px;">
+                    <i class="fa-solid fa-masks-theater" style="color: #8b5cf6; margin-right: 8px;"></i>
+                    <b style="color: #8b5cf6;">Cotton-Tales Integration</b>
+                </div>
+                <small style="margin-bottom: 10px; opacity: 0.8;">
+                    Provide a dedicated emotion classifier model for Cotton-Tales expression detection.
+                    This is separate from your embedding model.
+                </small>
+
+                <label class="checkbox_label" for="vecthare_emotion_classifier_enabled">
+                    <input id="vecthare_emotion_classifier_enabled" type="checkbox" class="checkbox">
+                    <span>Enable Emotion Classifier</span>
+                </label>
+
+                <div id="vecthare_emotion_settings" style="display: none; margin-top: 10px;">
+                    <label for="vecthare_emotion_classifier_model">
+                        <small>Classifier Model</small>
+                    </label>
+                    <select id="vecthare_emotion_classifier_model" class="text_pole">
+                        <option value="SamLowe/roberta-base-go_emotions">RoBERTa GoEmotions (28 emotions) - Recommended</option>
+                        <option value="j-hartmann/emotion-english-distilroberta-base">DistilRoBERTa (7 emotions) - Faster</option>
+                        <option value="bhadresh-savani/distilbert-base-uncased-emotion">DistilBERT (6 emotions) - Lightweight</option>
+                        <option value="custom">Custom Model...</option>
+                    </select>
+
+                    <div id="vecthare_custom_classifier_model" class="flex-container flexFlowColumn marginTop5" style="display: none;">
+                        <label for="vecthare_emotion_classifier_custom">
+                            <small>Custom Model ID (HuggingFace)</small>
+                        </label>
+                        <input id="vecthare_emotion_classifier_custom" class="text_pole" type="text" placeholder="e.g., username/model-name" />
+                    </div>
+
+                    <div class="flex-container marginTop5">
+                        <div id="vecthare_test_classifier" class="menu_button menu_button_icon" title="Test if the selected model outputs emotion labels">
+                            <i class="fa-solid fa-flask"></i>
+                            <span>Test Classifier</span>
+                        </div>
+                    </div>
+
+                    <div id="vecthare_classifier_test_result" class="marginTop5" style="display: none; padding: 8px; border-radius: 4px;">
+                        <!-- Test results shown here -->
+                    </div>
+
+                    <label class="checkbox_label marginTop5" for="vecthare_emotion_use_similarity" title="Use embedding similarity instead of classifier model">
+                        <input id="vecthare_emotion_use_similarity" type="checkbox" class="checkbox">
+                        <span>Use Embedding Similarity Instead</span>
+                    </label>
+                    <small style="opacity: 0.7; display: block; margin-left: 24px;">
+                        Uses your embedding model to compare text against emotion descriptions via cosine similarity.
+                    </small>
+                </div>
+            </div>
+
             <div class="flex-container marginTopBot5">
                 <div class="flex-container flex1 flexFlowColumn" title="How many recent messages to include when building the search query. Higher = broader context for finding relevant content, but slower.">
                     <label for="vecthare_query">

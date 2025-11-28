@@ -1837,6 +1837,151 @@ function bindSettingsEvents(settings, callbacks) {
 
     // Initialize provider-specific settings visibility
     toggleProviderSettings(settings.source, settings);
+
+    // =========================================================================
+    // COTTON-TALES EMOTION CLASSIFIER INTEGRATION
+    // =========================================================================
+    initializeCottonTalesIntegration(settings);
+}
+
+/**
+ * Initialize Cotton-Tales emotion classifier integration
+ * Shows the section only if Cotton-Tales is installed
+ */
+async function initializeCottonTalesIntegration(settings) {
+    // Check if Cotton-Tales is installed
+    const cottonTalesInstalled = !!extension_settings?.cotton_tales;
+
+    if (cottonTalesInstalled) {
+        $('#vecthare_cottontales_section').show();
+        console.log('VectHare: Cotton-Tales detected, showing emotion classifier options');
+    } else {
+        $('#vecthare_cottontales_section').hide();
+        return;
+    }
+
+    // Import emotion classifier module
+    let emotionClassifier;
+    try {
+        emotionClassifier = await import('../core/emotion-classifier.js');
+    } catch (error) {
+        console.error('VectHare: Failed to load emotion classifier module:', error);
+        return;
+    }
+
+    // Enable/disable emotion classifier
+    $('#vecthare_emotion_classifier_enabled')
+        .prop('checked', settings.emotion_classifier_enabled || false)
+        .on('change', function() {
+            settings.emotion_classifier_enabled = $(this).prop('checked');
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+
+            // Show/hide emotion settings
+            $('#vecthare_emotion_settings').toggle(settings.emotion_classifier_enabled);
+
+            if (settings.emotion_classifier_enabled) {
+                emotionClassifier.updateClassifierSetting('enabled', true);
+            } else {
+                emotionClassifier.updateClassifierSetting('enabled', false);
+            }
+        })
+        .trigger('change');
+
+    // Classifier model selection
+    $('#vecthare_emotion_classifier_model')
+        .val(settings.emotion_classifier_model || 'SamLowe/roberta-base-go_emotions')
+        .on('change', function() {
+            const value = $(this).val();
+
+            if (value === 'custom') {
+                $('#vecthare_custom_classifier_model').show();
+            } else {
+                $('#vecthare_custom_classifier_model').hide();
+                settings.emotion_classifier_model = value;
+                Object.assign(extension_settings.vecthare, settings);
+                saveSettingsDebounced();
+                emotionClassifier.updateClassifierSetting('model', value);
+            }
+        });
+
+    // Custom model input
+    $('#vecthare_emotion_classifier_custom')
+        .val(settings.emotion_classifier_custom || '')
+        .on('input', function() {
+            settings.emotion_classifier_custom = $(this).val();
+            settings.emotion_classifier_model = $(this).val();
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+            emotionClassifier.updateClassifierSetting('model', $(this).val());
+        });
+
+    // Use embedding similarity toggle
+    $('#vecthare_emotion_use_similarity')
+        .prop('checked', settings.emotion_use_similarity || false)
+        .on('change', function() {
+            settings.emotion_use_similarity = $(this).prop('checked');
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+            emotionClassifier.updateClassifierSetting('useEmbeddingSimilarity', settings.emotion_use_similarity);
+        });
+
+    // Test classifier button
+    $('#vecthare_test_classifier').on('click', async function() {
+        const $btn = $(this);
+        const $result = $('#vecthare_classifier_test_result');
+
+        $btn.addClass('disabled').find('i').removeClass('fa-flask').addClass('fa-spinner fa-spin');
+        $result.hide();
+
+        try {
+            const model = settings.emotion_classifier_model || 'SamLowe/roberta-base-go_emotions';
+            const testResult = await emotionClassifier.testClassifierModel(model);
+
+            $result.show();
+
+            if (testResult.error) {
+                $result.css('background', 'rgba(239,68,68,0.2)').html(`
+                    <div style="color: #ef4444;">
+                        <i class="fa-solid fa-times-circle"></i>
+                        <b>Error:</b> ${testResult.error}
+                    </div>
+                `);
+            } else if (testResult.isEmotionClassifier) {
+                const confidenceColor = testResult.confidence === 'high' ? '#22c55e' : '#eab308';
+                $result.css('background', 'rgba(34,197,94,0.2)').html(`
+                    <div style="color: #22c55e;">
+                        <i class="fa-solid fa-check-circle"></i>
+                        <b>Looks like an emotion classifier!</b>
+                    </div>
+                    <div style="margin-top: 4px; font-size: 0.9em;">
+                        <b>Confidence:</b> <span style="color: ${confidenceColor}">${testResult.confidence}</span><br>
+                        <b>Sample labels:</b> ${testResult.sampleLabels.join(', ')}
+                    </div>
+                `);
+            } else {
+                $result.css('background', 'rgba(234,179,8,0.2)').html(`
+                    <div style="color: #eab308;">
+                        <i class="fa-solid fa-exclamation-triangle"></i>
+                        <b>May not be an emotion classifier</b>
+                    </div>
+                    <div style="margin-top: 4px; font-size: 0.9em;">
+                        Labels don't look like emotions: ${testResult.sampleLabels.join(', ')}<br>
+                        Consider using a different model.
+                    </div>
+                `);
+            }
+        } catch (error) {
+            $result.show().css('background', 'rgba(239,68,68,0.2)').html(`
+                <div style="color: #ef4444;">
+                    <i class="fa-solid fa-times-circle"></i>
+                    <b>Test failed:</b> ${error.message}
+                </div>
+            `);
+        } finally {
+            $btn.removeClass('disabled').find('i').removeClass('fa-spinner fa-spin').addClass('fa-flask');
+        }
+    });
 }
 
 // Store current diagnostic results for copy/filter functionality

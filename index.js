@@ -36,6 +36,9 @@ import { initializeVisualizer } from './ui/chunk-visualizer.js';
 import { initializeDatabaseBrowser } from './ui/database-browser.js';
 import { initializeSceneMarkers, updateAllMarkerStates, setSceneSettings } from './ui/scene-markers.js';
 
+// VectHare modules - Cotton-Tales Integration
+import './core/emotion-classifier.js'; // Exposes window.VectHareEmotionClassifier
+
 // Constants
 const MODULE_NAME = 'VectHare';
 

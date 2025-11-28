@@ -1118,6 +1118,88 @@ function toggleProviderSettings(selectedProvider, settings) {
 }
 
 /**
+ * Shows a confirmation modal when enabling auto-sync on a chat with existing vectors
+ * @param {string} collectionId - The existing collection ID
+ * @param {number} chunkCount - Number of chunks in the collection
+ * @returns {Promise<'reconnect'|'revectorize'|'cancel'>} User's choice
+ */
+async function showAutoSyncConfirmModal(collectionId, chunkCount) {
+    return new Promise((resolve) => {
+        // Truncate collection ID for display
+        const displayId = collectionId.length > 40
+            ? collectionId.substring(0, 20) + '...' + collectionId.substring(collectionId.length - 15)
+            : collectionId;
+
+        const modalHtml = `
+            <div id="vecthare_autosync_confirm_modal" class="vecthare-modal" style="display: flex;">
+                <div class="vecthare-modal-content" style="max-width: 450px;">
+                    <div class="vecthare-modal-header">
+                        <h3><i class="fa-solid fa-link"></i> Existing Collection Found</h3>
+                        <button class="vecthare-modal-close" data-action="cancel">
+                            <i class="fa-solid fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="vecthare-modal-body" style="padding: 20px;">
+                        <p style="margin-bottom: 15px;">
+                            This chat already has a vectorized collection:
+                        </p>
+                        <div style="background: var(--SmartThemeBlurTintColor); padding: 12px; border-radius: 8px; margin-bottom: 20px;">
+                            <div style="font-size: 0.85em; color: var(--SmartThemeQuoteColor); margin-bottom: 5px;">
+                                Collection ID:
+                            </div>
+                            <div style="font-family: monospace; word-break: break-all; font-size: 0.9em;">
+                                ${displayId}
+                            </div>
+                            <div style="margin-top: 10px; font-size: 0.9em;">
+                                <i class="fa-solid fa-cube"></i> <strong>${chunkCount}</strong> chunks stored
+                            </div>
+                        </div>
+                        <p style="margin-bottom: 10px;">What would you like to do?</p>
+                    </div>
+                    <div class="vecthare-modal-footer" style="display: flex; gap: 10px; padding: 15px 20px; border-top: 1px solid var(--SmartThemeBorderColor);">
+                        <button class="menu_button" data-action="reconnect" style="flex: 1;">
+                            <i class="fa-solid fa-plug"></i> Reconnect
+                        </button>
+                        <button class="menu_button" data-action="revectorize" style="flex: 1;">
+                            <i class="fa-solid fa-rotate"></i> Re-vectorize
+                        </button>
+                        <button class="menu_button menu_button_icon" data-action="cancel">
+                            <i class="fa-solid fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const $modal = $(modalHtml);
+        $('body').append($modal);
+
+        // Handle button clicks
+        $modal.find('[data-action]').on('click', function() {
+            const action = $(this).data('action');
+            $modal.remove();
+            resolve(action);
+        });
+
+        // Handle clicking outside modal
+        $modal.on('click', function(e) {
+            if (e.target === this) {
+                $modal.remove();
+                resolve('cancel');
+            }
+        });
+
+        // Handle escape key
+        $(document).one('keydown.autosync_modal', function(e) {
+            if (e.key === 'Escape') {
+                $modal.remove();
+                resolve('cancel');
+            }
+        });
+    });
+}
+
+/**
  * Binds event handlers to UI elements
  * @param {object} settings - VectHare settings object
  * @param {object} callbacks - Callback functions
@@ -1128,6 +1210,7 @@ function bindSettingsEvents(settings, callbacks) {
         .prop('checked', settings.enabled_chats)
         .on('input', async function() {
             const enabling = $(this).prop('checked');
+            const $checkbox = $(this);
 
             // If enabling, check if we need to set up the collection first
             if (enabling) {
@@ -1136,27 +1219,49 @@ function bindSettingsEvents(settings, callbacks) {
                 if (!chatId) {
                     // No chat open - warn and don't enable
                     toastr.warning('Open a chat first before enabling auto-sync');
-                    $(this).prop('checked', false);
+                    $checkbox.prop('checked', false);
                     return;
                 }
 
                 // SINGLE SOURCE OF TRUTH: Use doesChatHaveVectors which runs discovery
-                const { hasVectors, chunkCount } = await doesChatHaveVectors(settings);
+                const { hasVectors, chunkCount, collectionId } = await doesChatHaveVectors(settings);
 
                 if (!hasVectors) {
                     // No vectors found anywhere - open vectorizer panel
-                    $(this).prop('checked', false);
+                    $checkbox.prop('checked', false);
                     toastr.info('Set up your chat vectorization first');
                     openContentVectorizer('chat');
                     return;
                 }
 
-                console.log(`VectHare: Auto-sync enabled - chat has ${chunkCount} vectors`);
+                // Found existing vectors - show confirmation modal
+                const result = await showAutoSyncConfirmModal(collectionId, chunkCount);
+
+                if (result === 'cancel') {
+                    // User cancelled - don't enable
+                    $checkbox.prop('checked', false);
+                    return;
+                }
+
+                if (result === 'reconnect') {
+                    // Just reconnect to existing collection
+                    toastr.success(`Connected to existing collection with ${chunkCount} chunks`, 'Auto-Sync Enabled');
+                    console.log(`VectHare: Auto-sync enabled - reconnected to ${collectionId} (${chunkCount} chunks)`);
+                } else if (result === 'revectorize') {
+                    // User wants to start fresh - open vectorizer
+                    $checkbox.prop('checked', false);
+                    openContentVectorizer('chat');
+                    return;
+                }
             }
 
             settings.enabled_chats = enabling;
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
+
+            if (!enabling) {
+                toastr.info('Auto-sync disabled for chat messages');
+            }
             console.log(`VectHare: Chat auto-sync ${settings.enabled_chats ? 'enabled' : 'disabled'}`);
         });
 

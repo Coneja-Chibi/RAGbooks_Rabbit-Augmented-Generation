@@ -525,8 +525,8 @@ export async function synchronizeChat(settings, batchSize = 5) {
             return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
         }
 
-        // Register collection
-        registerCollection(collectionId);
+        // NOTE: Registration happens AFTER first successful insert to prevent ghosts
+        let isRegistered = false;
 
         // Step 1: What's already vectorized? (source of truth = DB)
         const existingHashes = new Set(await getSavedHashes(collectionId, settings));
@@ -579,6 +579,13 @@ export async function synchronizeChat(settings, batchSize = 5) {
                 if (chunks.length > 0) {
                     await insertVectorItems(collectionId, chunks, settings);
                     chunksCreated += chunks.length;
+
+                    // Register on first successful insert (prevents ghost collections)
+                    if (!isRegistered) {
+                        registerCollection(collectionId);
+                        isRegistered = true;
+                        console.log(`VectHare: Registered collection ${collectionId} after first successful insert`);
+                    }
                 }
             } catch (itemError) {
                 // Log error but continue processing other items

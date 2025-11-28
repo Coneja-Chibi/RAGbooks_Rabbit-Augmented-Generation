@@ -228,7 +228,7 @@ export function getVectorsRequestBody(args = {}, settings) {
 
 /**
  * Gets additional arguments for vector requests.
- * Special handling for WebLLM and KoboldCpp which generate embeddings client-side.
+ * Special handling for WebLLM, KoboldCpp, and BananaBread which generate embeddings client-side.
  * @param {string[]} items Items to embed
  * @param {object} settings VectHare settings object
  * @returns {Promise<object>} Additional arguments
@@ -241,6 +241,12 @@ export async function getAdditionalArgs(items, settings) {
             break;
         case 'koboldcpp': {
             const { embeddings, model } = await createKoboldCppEmbeddings(items, settings);
+            args.embeddings = embeddings;
+            args.model = model;
+            break;
+        }
+        case 'bananabread': {
+            const { embeddings, model } = await createBananaBreadEmbeddings(items, settings);
             args.embeddings = embeddings;
             args.model = model;
             break;
@@ -358,6 +364,84 @@ async function createKoboldCppEmbeddings(items, settings) {
             ...RETRY_CONFIG,
             onRetry: (attempt, error) => {
                 console.warn(`VectHare: KoboldCpp embedding retry ${attempt} - ${error.message}`);
+            }
+        });
+    }, settings);
+}
+
+/**
+ * Creates BananaBread embeddings for a list of items.
+ * Wrapped with retry, timeout, and rate limiting for robustness.
+ * @param {string[]} items Items to embed
+ * @param {object} settings VectHare settings object
+ * @returns {Promise<{embeddings: Record<string, number[]>, model: string}>} Calculated embeddings
+ */
+async function createBananaBreadEmbeddings(items, settings) {
+    // Clean text before embedding (strip HTML/Markdown)
+    const cleanedItems = items.map(item => stripFormatting(item) || item);
+
+    return await dynamicRateLimiter.execute(async () => {
+        return await AsyncUtils.retry(async () => {
+            const serverUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : 'http://localhost:8008';
+            const cleanUrl = serverUrl.replace(/\/$/, '');
+
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+
+            // Retrieve API key if available
+            if (secret_state['bananabread_api_key']) {
+                const secrets = secret_state['bananabread_api_key'];
+                const activeSecret = Array.isArray(secrets) ? (secrets.find(s => s.active) || secrets[0]) : null;
+                if (activeSecret) {
+                    headers['Authorization'] = `Bearer ${activeSecret.value}`;
+                }
+            }
+
+            const fetchPromise = fetch(`${cleanUrl}/v1/embeddings`, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({
+                    input: cleanedItems,
+                    model: settings.bananabread_model || 'bananabread',
+                }),
+            });
+
+            const response = await AsyncUtils.timeout(fetchPromise, API_TIMEOUT_MS, 'BananaBread embedding request timed out');
+
+            if (!response.ok) {
+                throw new Error(`Failed to get BananaBread embeddings: ${response.status} ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            
+            // OpenAI format: { data: [{ embedding: [], index: 0, ... }, ...], model: "..." }
+            if (!data.data || !Array.isArray(data.data) || data.data.length !== cleanedItems.length) {
+                 throw new Error('Invalid response from BananaBread embeddings (OpenAI format)');
+            }
+
+            const embeddings = /** @type {Record<string, number[]>} */ ({});
+            
+            // Sort by index to ensure order matches items
+            data.data.sort((a, b) => a.index - b.index);
+
+            for (let i = 0; i < data.data.length; i++) {
+                const embedding = data.data[i].embedding;
+                if (!Array.isArray(embedding) || embedding.length === 0) {
+                    throw new Error('BananaBread returned an empty embedding.');
+                }
+                // Map back to original items (not cleaned) for hash consistency
+                embeddings[items[i]] = embedding;
+            }
+
+            return {
+                embeddings: embeddings,
+                model: data.model || 'bananabread',
+            };
+        }, {
+            ...RETRY_CONFIG,
+            onRetry: (attempt, error) => {
+                console.warn(`VectHare: BananaBread embedding retry ${attempt} - ${error.message}`);
             }
         });
     }, settings);

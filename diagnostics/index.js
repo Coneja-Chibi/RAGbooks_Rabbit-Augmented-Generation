@@ -21,7 +21,8 @@ import {
     checkEmbeddingProvider,
     checkApiKeys,
     checkApiUrls,
-    checkProviderConnectivity
+    checkProviderConnectivity,
+    checkWebLlmExtension
 } from './infrastructure.js';
 
 import {
@@ -107,6 +108,12 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
     }
 
     categories.infrastructure.push(await checkProviderConnectivity(settings));
+
+    // WebLLM-specific check (only if WebLLM is selected)
+    const webllmCheck = checkWebLlmExtension(settings);
+    if (webllmCheck.status !== 'skipped') {
+        categories.infrastructure.push(webllmCheck);
+    }
 
     // ========== CONFIGURATION CHECKS ==========
     categories.configuration.push(checkChatEnabled(settings));
@@ -245,6 +252,9 @@ export function getFixSuggestion(check) {
         case 'Group Member Integrity':
             return 'Click "Fix Now" to remove group members that reference deleted chunks. This can happen after purging or deleting vectors.';
 
+        case 'WebLLM Extension':
+            return 'Install the WebLLM extension from Extensions > Download Extensions, then paste: https://github.com/SillyTavern/Extension-WebLLM. Requires Chrome 113+ or Edge 113+ for WebGPU support.';
+
         default:
             return 'Check the console for more details.';
     }
@@ -278,6 +288,14 @@ export async function executeFixAction(check) {
 
         case 'cleanOrphanedGroupMembers':
             return await fixOrphanedGroupMembers();
+
+        case 'install_webllm':
+        case 'update_webllm': {
+            // Open the third-party extension menu with WebLLM URL
+            const { openThirdPartyExtensionMenu } = await import('../../../../extensions.js');
+            openThirdPartyExtensionMenu('https://github.com/SillyTavern/Extension-WebLLM');
+            return { success: true, message: 'Opening extension installer...' };
+        }
 
         default:
             return { success: false, message: `Unknown fix action: ${check.fixAction}` };

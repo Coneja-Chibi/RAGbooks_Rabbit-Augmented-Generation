@@ -767,3 +767,72 @@ export async function checkProviderConnectivity(settings) {
         message: `Provider ${config.name} is recognized`
     };
 }
+
+/**
+ * Check: WebLLM extension availability
+ * Only runs if WebLLM is the selected provider
+ */
+export function checkWebLlmExtension(settings) {
+    // Only relevant if WebLLM is selected
+    if (settings.source !== 'webllm') {
+        return {
+            name: 'WebLLM Extension',
+            status: 'skipped',
+            message: 'WebLLM not selected as provider',
+            category: 'infrastructure'
+        };
+    }
+
+    // Check browser WebGPU support
+    if (!('gpu' in navigator)) {
+        return {
+            name: 'WebLLM Extension',
+            status: 'fail',
+            message: 'Browser does not support WebGPU. Use Chrome 113+, Edge 113+, or another WebGPU-compatible browser.',
+            fixable: false,
+            category: 'infrastructure'
+        };
+    }
+
+    // Check if WebLLM extension is installed
+    if (!Object.hasOwn(SillyTavern, 'llm')) {
+        return {
+            name: 'WebLLM Extension',
+            status: 'fail',
+            message: 'WebLLM extension is not installed. Install from: github.com/SillyTavern/Extension-WebLLM',
+            fixable: true,
+            fixAction: 'install_webllm',
+            category: 'infrastructure'
+        };
+    }
+
+    // Check if WebLLM extension supports embeddings
+    if (typeof SillyTavern.llm.generateEmbedding !== 'function') {
+        return {
+            name: 'WebLLM Extension',
+            status: 'fail',
+            message: 'WebLLM extension is outdated and does not support embeddings. Please update the extension.',
+            fixable: true,
+            fixAction: 'update_webllm',
+            category: 'infrastructure'
+        };
+    }
+
+    // Check if model is selected
+    if (!settings.webllm_model) {
+        return {
+            name: 'WebLLM Extension',
+            status: 'warning',
+            message: 'WebLLM extension is installed but no model is selected. Select a model in VectHare settings.',
+            fixable: false,
+            category: 'infrastructure'
+        };
+    }
+
+    return {
+        name: 'WebLLM Extension',
+        status: 'pass',
+        message: `WebLLM ready with model: ${settings.webllm_model}`,
+        category: 'infrastructure'
+    };
+}

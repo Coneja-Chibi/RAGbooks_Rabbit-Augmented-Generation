@@ -1001,3 +1001,47 @@ export async function checkPromptContextConfig(settings) {
         };
     }
 }
+
+/**
+ * Check: PNG Export Capability
+ * Verifies the browser supports CompressionStream for PNG exports.
+ */
+export function checkPNGExportCapability() {
+    const hasCompressionStream = typeof CompressionStream !== 'undefined';
+    const hasDecompressionStream = typeof DecompressionStream !== 'undefined';
+    const hasCanvas = typeof HTMLCanvasElement !== 'undefined';
+
+    const allSupported = hasCompressionStream && hasDecompressionStream && hasCanvas;
+
+    if (!allSupported) {
+        const missing = [];
+        if (!hasCompressionStream) missing.push('CompressionStream');
+        if (!hasDecompressionStream) missing.push('DecompressionStream');
+        if (!hasCanvas) missing.push('Canvas');
+
+        return {
+            name: 'PNG Export Capability',
+            status: 'warning',
+            message: `Missing browser APIs: ${missing.join(', ')}. PNG export may not work.`,
+            category: 'configuration'
+        };
+    }
+
+    // Test if deflate-raw is supported
+    let deflateRawSupported = false;
+    try {
+        new CompressionStream('deflate-raw');
+        deflateRawSupported = true;
+    } catch {
+        // deflate-raw not supported, will use fallback
+    }
+
+    return {
+        name: 'PNG Export Capability',
+        status: 'pass',
+        message: deflateRawSupported
+            ? 'Full PNG export support (native deflate-raw)'
+            : 'PNG export supported (using deflate fallback)',
+        category: 'configuration'
+    };
+}

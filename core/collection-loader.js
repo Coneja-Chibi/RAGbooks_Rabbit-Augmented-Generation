@@ -477,12 +477,35 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
     // Build all possible ID patterns to search for
     const searchPatterns = [];
     if (uuid) {
-        searchPatterns.push(uuid); // Just the UUID
-        searchPatterns.push(`vh:chat:${uuid}`); // New format
+        searchPatterns.push(uuid.toLowerCase()); // Just the UUID
+        searchPatterns.push(`vh:chat:${uuid}`.toLowerCase()); // New format
     }
     if (chatId) {
-        searchPatterns.push(chatId); // Just the chatId
-        searchPatterns.push(`vecthare_chat_${chatId}`); // Legacy format
+        searchPatterns.push(chatId.toLowerCase()); // Just the chatId
+        searchPatterns.push(`vecthare_chat_${chatId}`.toLowerCase()); // Legacy format
+
+        // Also add sanitized version (how content-vectorization creates IDs)
+        // e.g., "Avi - 2025-11-10@03h36m14s" → "avi"
+        const sanitizedChatId = chatId
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '_')
+            .replace(/_+/g, '_')
+            .replace(/^_|_$/g, '')
+            .substring(0, 50);
+        if (sanitizedChatId && sanitizedChatId !== chatId.toLowerCase()) {
+            searchPatterns.push(sanitizedChatId);
+            searchPatterns.push(`vecthare_chat_${sanitizedChatId}`);
+        }
+
+        // Extract character name from chat filename (before " - " separator)
+        const charNameMatch = chatId.match(/^([^-]+)/);
+        if (charNameMatch) {
+            const charName = charNameMatch[1].trim().toLowerCase();
+            if (charName && !searchPatterns.includes(charName)) {
+                searchPatterns.push(charName);
+                searchPatterns.push(`vecthare_chat_${charName}`);
+            }
+        }
     }
 
     console.log(`VectHare: Searching for chat vectors with patterns:`, searchPatterns);
@@ -502,11 +525,13 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
             collectionId = parts.slice(1).join(':');
         }
 
-        // Check if this collection matches ANY of our patterns
+        // Check if this collection matches ANY of our patterns (case-insensitive)
+        const collectionIdLower = collectionId.toLowerCase();
+        const registryKeyLower = registryKey.toLowerCase();
         const matches = searchPatterns.some(pattern =>
-            collectionId === pattern ||
-            collectionId.includes(pattern) ||
-            registryKey.includes(pattern)
+            collectionIdLower === pattern ||
+            collectionIdLower.includes(pattern) ||
+            registryKeyLower.includes(pattern)
         );
 
         if (matches) {

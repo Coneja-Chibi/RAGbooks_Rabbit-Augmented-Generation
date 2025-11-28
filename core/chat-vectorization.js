@@ -86,17 +86,30 @@ export function getChatUUID() {
 
 /**
  * Builds chat collection ID using the chat's unique UUID
- * Collection ID IS the UUID - simple, unique, no ambiguity
+ * Format: vecthare_chat_{charName}_{uuid}
+ * Human-readable prefix + guaranteed unique UUID
  * @param {string} [chatUUID] Optional UUID override, otherwise uses current chat
- * @returns {string|null} Collection ID (the UUID itself) or null if no chat
+ * @returns {string|null} Collection ID or null if no chat
  */
 export function getChatCollectionId(chatUUID) {
     const uuid = chatUUID || getChatUUID();
     if (!uuid) {
         return null;
     }
-    // Collection ID = UUID directly. Simple and unambiguous.
-    return uuid;
+
+    // Get character name for human-readable prefix
+    const context = getContext();
+    const charName = context?.name2 || 'chat';
+
+    // Sanitize character name (lowercase, alphanumeric only)
+    const sanitizedChar = charName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_|_$/g, '')
+        .substring(0, 30);
+
+    // Format: vecthare_chat_{charName}_{uuid}
+    return `vecthare_chat_${sanitizedChar}_${uuid}`;
 }
 
 /**

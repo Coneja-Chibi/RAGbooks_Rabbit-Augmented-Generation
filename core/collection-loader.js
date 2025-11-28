@@ -474,18 +474,17 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
     const uuid = overrideUUID || getChatUUID();
     const chatId = overrideChatId || (getContext().chatId);
 
-    // PRIMARY: Search by UUID (the collection ID IS the UUID now)
+    // PRIMARY: Search by UUID - the UUID is the unique identifier within the collection ID
+    // Format: vecthare_chat_{charName}_{uuid}
     // LEGACY: Also search old formats for backwards compatibility
     const searchPatterns = [];
 
-    // UUID is the primary identifier - collection ID = UUID
+    // UUID is the primary identifier - any collection containing this UUID belongs to this chat
     if (uuid) {
         searchPatterns.push(uuid.toLowerCase());
-        // Legacy format with prefix
-        searchPatterns.push(`vh:chat:${uuid}`.toLowerCase());
     }
 
-    // Legacy patterns for old collections created before UUID-based naming
+    // Legacy patterns for old collections
     if (chatId) {
         // Old vecthare_chat_X format
         searchPatterns.push(`vecthare_chat_${chatId}`.toLowerCase());
@@ -500,7 +499,7 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
         }
     }
 
-    console.log(`VectHare: Searching for chat vectors. UUID: ${uuid}, Legacy patterns:`, searchPatterns);
+    console.log(`VectHare: Searching for chat vectors. UUID: ${uuid}, Patterns:`, searchPatterns);
 
     // Collect ALL matching collections, then pick the best one
     // This handles ghost collections (empty) vs real collections (has chunks)

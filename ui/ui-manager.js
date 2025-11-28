@@ -1125,9 +1125,8 @@ function toggleProviderSettings(selectedProvider, settings) {
  * @returns {Promise<{action: string, selectedCollection?: object}>} User's choice
  */
 async function showAutoSyncConfirmModal(allMatches, settings) {
-    // Import purge function for ghost cleanup
-    const { purgeVectorIndex } = await import('../core/core-vector-api.js');
-    const { unregisterCollection } = await import('../core/collection-loader.js');
+    // Import unified delete function for ghost cleanup
+    const { deleteCollection } = await import('../core/collection-loader.js');
 
     return new Promise((resolve) => {
         const hasMultiple = allMatches.length > 1;
@@ -1227,7 +1226,7 @@ async function showAutoSyncConfirmModal(allMatches, settings) {
             $(this).css('border-color', 'var(--SmartThemeQuoteColor)');
         });
 
-        // Handle ghost deletion
+        // Handle ghost deletion - uses unified deleteCollection()
         $modal.find('.vecthare-delete-ghost').on('click', async function(e) {
             e.stopPropagation();
             const index = parseInt($(this).data('index'));
@@ -1236,13 +1235,12 @@ async function showAutoSyncConfirmModal(allMatches, settings) {
             if (!confirm(`Delete ghost collection?\n\n${ghost.collectionId}\n\nThis will remove it from disk.`)) return;
 
             try {
-                // Purge from backend
-                const purgeSettings = {
+                // Use unified delete function - handles vectors, registry, AND metadata
+                const deleteSettings = {
                     ...settings,
                     source: ghost.source || settings.source,
                 };
-                await purgeVectorIndex(ghost.collectionId, purgeSettings);
-                unregisterCollection(ghost.registryKey || ghost.collectionId);
+                const result = await deleteCollection(ghost.collectionId, deleteSettings, ghost.registryKey);
 
                 // Remove from UI
                 allMatches.splice(index, 1);
@@ -1255,7 +1253,11 @@ async function showAutoSyncConfirmModal(allMatches, settings) {
                     });
                 });
 
-                toastr.success('Ghost collection deleted', 'VectHare');
+                if (result.success) {
+                    toastr.success('Ghost collection deleted', 'VectHare');
+                } else {
+                    toastr.warning(`Partial deletion: ${result.errors.join(', ')}`, 'VectHare');
+                }
 
                 // If no collections left, close modal
                 if (allMatches.length === 0) {

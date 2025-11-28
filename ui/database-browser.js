@@ -16,6 +16,7 @@ import {
     registerCollection,
     unregisterCollection,
     clearCollectionRegistry,
+    deleteCollection,
 } from '../core/collection-loader.js';
 import { purgeVectorIndex, queryMultipleCollections } from '../core/core-vector-api.js';
 import { getRequestHeaders } from '../../../../../script.js';
@@ -896,7 +897,7 @@ function bindCollectionCardEvents() {
         );
     });
 
-    // Delete collection
+    // Delete collection - uses unified deleteCollection() to handle all 3 stores
     $('.vecthare-action-delete').off('click').on('click', async function(e) {
         e.stopPropagation();
         const collectionKey = $(this).data('collection-key');
@@ -913,28 +914,26 @@ function bindCollectionCardEvents() {
         if (!confirmed) return;
 
         try {
-            // Purge from vector backend (use collection's ID, backend, AND source)
+            // Use unified delete function - handles vectors, registry, AND metadata
             const collectionSettings = {
                 ...browserState.settings,
                 vector_backend: collection.backend,
-                source: collection.source,  // CRITICAL: use collection's source, not global
+                source: collection.source,
             };
-            console.log(`VectHare: Purging collection ${collection.id} with source=${collection.source}, backend=${collection.backend}`);
-            await purgeVectorIndex(collection.id, collectionSettings);
 
-            // Unregister from registry - use the registryKey (source:id format) if available
-            unregisterCollection(collection.registryKey || collection.id);
+            const result = await deleteCollection(collection.id, collectionSettings, collection.registryKey);
 
-            // Delete collection metadata
-            deleteCollectionMeta(collection.id);
-
-            // Remove from state (filter by key)
+            // Remove from state
             browserState.collections = browserState.collections.filter(c => (c.registryKey || c.id) !== collectionKey);
 
             // Re-render
             renderCollections();
 
-            toastr.success(`Deleted collection "${collection.name}"`, 'VectHare');
+            if (result.success) {
+                toastr.success(`Deleted collection "${collection.name}"`, 'VectHare');
+            } else {
+                toastr.warning(`Partial deletion: ${result.errors.join(', ')}`, 'VectHare');
+            }
         } catch (error) {
             console.error('VectHare: Failed to delete collection', error);
             toastr.error('Failed to delete collection. Check console.', 'VectHare');
@@ -2587,7 +2586,7 @@ function bindBulkEvents() {
         toastr.success(`Exported ${successCount} collection(s)`, 'VectHare');
     });
 
-    // Bulk delete
+    // Bulk delete - uses unified deleteCollection()
     $('#vecthare_bulk_delete').off('click').on('click', async function() {
         if (browserState.bulkSelected.size === 0) return;
 
@@ -2609,15 +2608,23 @@ function bindBulkEvents() {
         toastr.info(`Deleting ${browserState.bulkSelected.size} collection(s)...`, 'VectHare');
 
         let successCount = 0;
+        let partialCount = 0;
         for (const key of browserState.bulkSelected) {
             const collection = browserState.collections.find(c => (c.registryKey || c.id) === key);
             if (!collection) continue;
 
             try {
-                await purgeVectorIndex(collection.id, browserState.settings);
-                deleteCollectionMeta(collection.id);
-                unregisterCollection(key);
-                successCount++;
+                const collectionSettings = {
+                    ...browserState.settings,
+                    vector_backend: collection.backend,
+                    source: collection.source,
+                };
+                const result = await deleteCollection(collection.id, collectionSettings, collection.registryKey);
+                if (result.success) {
+                    successCount++;
+                } else {
+                    partialCount++;
+                }
             } catch (error) {
                 console.error(`VectHare: Failed to delete ${collection.id}`, error);
             }
@@ -2627,7 +2634,11 @@ function bindBulkEvents() {
         await refreshCollections();
         renderBulkList();
 
-        toastr.success(`Deleted ${successCount} collection(s)`, 'VectHare');
+        if (partialCount > 0) {
+            toastr.warning(`Deleted ${successCount}, partial: ${partialCount}`, 'VectHare');
+        } else {
+            toastr.success(`Deleted ${successCount} collection(s)`, 'VectHare');
+        }
     });
 }
 

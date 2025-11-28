@@ -20,9 +20,11 @@ import {
     getChunkMetadata,
     saveChunkMetadata,
     deleteChunkMetadata,
+    deleteCollectionMeta,
     ensureCollectionMeta,
     getCollectionMeta,
 } from './collection-metadata.js';
+import { purgeVectorIndex } from './core-vector-api.js';
 import { getChatCollectionId, getLegacyChatCollectionId, getChatUUID } from './chat-vectorization.js';
 
 // Plugin detection state
@@ -70,6 +72,83 @@ export function unregisterCollection(collectionId) {
     } else {
         console.log(`VectHare: Collection not found in registry: ${collectionId}`);
     }
+}
+
+/**
+ * COMPLETE collection deletion - removes from ALL THREE stores:
+ * 1. Vector backend (actual embeddings)
+ * 2. Registry (collection tracking)
+ * 3. Metadata (display names, settings, chunk info)
+ *
+ * This is the ONE function that should be called to fully delete a collection.
+ * All other delete functions are partial and will leave ghosts.
+ *
+ * @param {string} collectionId - Collection ID to delete
+ * @param {object} settings - VectHare settings (for backend routing)
+ * @param {string} [registryKey] - Optional registry key (source:id format) if different from collectionId
+ * @returns {Promise<{success: boolean, errors: string[], vectorsDeleted: boolean, registryDeleted: boolean, metadataDeleted: boolean}>}
+ */
+export async function deleteCollection(collectionId, settings, registryKey = null) {
+    const errors = [];
+    let vectorsDeleted = false;
+    let registryDeleted = false;
+    let metadataDeleted = false;
+
+    console.log(`VectHare: Deleting collection ${collectionId} (registry key: ${registryKey || collectionId})`);
+
+    // Step 1: Delete vectors from backend (most important - actual data)
+    try {
+        await purgeVectorIndex(collectionId, settings);
+        vectorsDeleted = true;
+        console.log(`VectHare: ✓ Deleted vectors for ${collectionId}`);
+    } catch (error) {
+        errors.push(`Vectors: ${error.message}`);
+        console.warn(`VectHare: ✗ Failed to delete vectors for ${collectionId}:`, error.message);
+        // Continue anyway - registry/metadata cleanup is still valuable
+    }
+
+    // Step 2: Unregister from registry (try both formats)
+    try {
+        const keyToUnregister = registryKey || collectionId;
+        unregisterCollection(keyToUnregister);
+
+        // Also try the other format if they differ
+        if (registryKey && registryKey !== collectionId) {
+            unregisterCollection(collectionId);
+        }
+
+        registryDeleted = true;
+        console.log(`VectHare: ✓ Unregistered ${collectionId}`);
+    } catch (error) {
+        errors.push(`Registry: ${error.message}`);
+        console.warn(`VectHare: ✗ Failed to unregister ${collectionId}:`, error.message);
+    }
+
+    // Step 3: Delete metadata
+    try {
+        deleteCollectionMeta(collectionId);
+        metadataDeleted = true;
+        console.log(`VectHare: ✓ Deleted metadata for ${collectionId}`);
+    } catch (error) {
+        errors.push(`Metadata: ${error.message}`);
+        console.warn(`VectHare: ✗ Failed to delete metadata for ${collectionId}:`, error.message);
+    }
+
+    const success = vectorsDeleted && registryDeleted && metadataDeleted;
+
+    if (success) {
+        console.log(`VectHare: ✓ Fully deleted collection ${collectionId}`);
+    } else {
+        console.warn(`VectHare: Partial deletion of ${collectionId}:`, errors.join(', '));
+    }
+
+    return {
+        success,
+        errors,
+        vectorsDeleted,
+        registryDeleted,
+        metadataDeleted,
+    };
 }
 
 /**

@@ -15,7 +15,14 @@ import { chunkText } from './chunking.js';
 import { insertVectorItems, purgeVectorIndex } from './core-vector-api.js';
 import { setCollectionMeta, getDefaultDecayForType } from './collection-metadata.js';
 import { registerCollection } from './collection-loader.js';
-import { getChatCollectionId } from './chat-vectorization.js';
+// Import from collection-ids.js - single source of truth for collection ID operations
+import {
+    buildChatCollectionId,
+    buildLorebookCollectionId,
+    buildCharacterCollectionId,
+    buildDocumentCollectionId,
+    COLLECTION_PREFIXES,
+} from './collection-ids.js';
 import { extractLorebookKeywords, extractTextKeywords, EXTRACTION_LEVELS, DEFAULT_EXTRACTION_LEVEL, DEFAULT_BASE_WEIGHT } from './keyword-boost.js';
 import { progressTracker } from '../ui/progress-tracker.js';
 import { extension_settings, getContext } from '../../../../extensions.js';
@@ -557,56 +564,54 @@ function prepareYouTubeContent(rawContent, settings) {
 
 /**
  * Generates a collection ID for the content
- * For chat content, uses UUID-based ID for consistency
+ * Uses the unified builders from collection-ids.js
  */
 function generateCollectionId(contentType, source, settings) {
-    // For chat content, use the UUID-based ID (single source of truth)
-    if (contentType === 'chat') {
-        const chatCollectionId = getChatCollectionId();
-        if (chatCollectionId) {
-            return chatCollectionId;
-        }
-        // Fall through to legacy generation if UUID not available
-        console.warn('VectHare: Chat UUID not available, using legacy ID generation');
-    }
-
-    const scope = settings.scope || 'global';
-    const context = getContext();
-
-    let baseName = '';
+    const sourceName = source.name || source.id || source.filename || contentType;
+    const timestamp = Date.now();
 
     switch (contentType) {
-        case 'lorebook':
-            baseName = source.name || source.id || 'lorebook';
-            break;
-        case 'character':
-            baseName = source.name || source.id || 'character';
-            break;
         case 'chat':
-            // Fallback if UUID wasn't available
-            baseName = source.name || context?.name2 || 'chat';
+            // Use UUID-based ID (single source of truth)
+            const chatCollectionId = buildChatCollectionId();
+            if (chatCollectionId) {
+                return chatCollectionId;
+            }
+            // Fall through to legacy generation if UUID not available
+            console.warn('VectHare: Chat UUID not available, using legacy ID generation');
             break;
+
+        case 'lorebook':
+            return buildLorebookCollectionId(sourceName, timestamp);
+
+        case 'character':
+            return buildCharacterCollectionId(sourceName, timestamp);
+
+        case 'document':
+            return buildDocumentCollectionId(sourceName, timestamp);
+
         case 'url':
             // Use domain from URL or title
+            let urlName = sourceName;
             try {
                 const url = new URL(source.url || '');
-                baseName = source.title || url.hostname || 'webpage';
+                urlName = source.title || url.hostname || 'webpage';
             } catch {
-                baseName = source.title || source.name || 'webpage';
+                urlName = source.title || source.name || 'webpage';
             }
-            break;
-        case 'document':
-            baseName = source.name || source.filename || 'document';
-            break;
+            return buildDocumentCollectionId(urlName, timestamp);
+
         case 'wiki':
-            baseName = source.name || 'wiki';
-            break;
+            return buildDocumentCollectionId(source.name || 'wiki', timestamp);
+
         case 'youtube':
-            baseName = source.name || source.videoId || 'youtube';
-            break;
-        default:
-            baseName = contentType;
+            return buildDocumentCollectionId(source.name || source.videoId || 'youtube', timestamp);
     }
+
+    // Fallback for unknown types or chat fallback
+    const scope = settings.scope || 'global';
+    const context = getContext();
+    const baseName = sourceName;
 
     // Sanitize name for use in ID
     const sanitizedName = baseName
@@ -622,7 +627,7 @@ function generateCollectionId(contentType, source, settings) {
         scopePrefix = `chat_${context.chatId}_`;
     }
 
-    return `vecthare_${contentType}_${scopePrefix}${sanitizedName}_${Date.now()}`;
+    return `vecthare_${contentType}_${scopePrefix}${sanitizedName}_${timestamp}`;
 }
 
 /**

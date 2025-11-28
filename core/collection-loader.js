@@ -25,7 +25,17 @@ import {
     getCollectionMeta,
 } from './collection-metadata.js';
 import { purgeVectorIndex } from './core-vector-api.js';
-import { getChatCollectionId, getLegacyChatCollectionId, getChatUUID } from './chat-vectorization.js';
+// Import from collection-ids.js - single source of truth for collection ID operations
+import {
+    getChatUUID,
+    buildChatCollectionId as getChatCollectionId,
+    buildLegacyChatCollectionId as getLegacyChatCollectionId,
+    parseCollectionId,
+    buildChatSearchPatterns,
+    matchesPatterns,
+    parseRegistryKey,
+    COLLECTION_PREFIXES,
+} from './collection-ids.js';
 
 // Plugin detection state
 let pluginAvailable = null;
@@ -209,91 +219,7 @@ export function cleanupTestCollections() {
     return removed;
 }
 
-/**
- * Parses collection ID into structured metadata
- * @param {string} collectionId Collection identifier
- * @returns {object} Parsed collection info
- */
-function parseCollectionId(collectionId) {
-    // Guard against null/undefined
-    if (!collectionId) {
-        console.warn('VectHare: parseCollectionId received null/undefined collectionId');
-        return { type: 'unknown', rawId: 'unknown', scope: 'unknown' };
-    }
-
-    // Expected formats:
-    // - vecthare_chat_12345
-    // - file_67890
-    // - lorebook_abc
-    // - Avi-2025-11-10@03h36m14s (chat without prefix)
-    // - carrotkernel_char_* (legacy CarrotKernel format)
-    // - ragbooks_lorebook_* (Ragbooks format)
-
-    if (collectionId.startsWith('vecthare_chat_')) {
-        return {
-            type: 'chat',
-            rawId: collectionId.replace('vecthare_chat_', ''),
-            scope: 'chat'
-        };
-    }
-
-    if (collectionId.startsWith('file_')) {
-        return {
-            type: 'file',
-            rawId: collectionId.replace('file_', ''),
-            scope: 'global'
-        };
-    }
-
-    if (collectionId.startsWith('lorebook_')) {
-        return {
-            type: 'lorebook',
-            rawId: collectionId.replace('lorebook_', ''),
-            scope: 'global'
-        };
-    }
-
-    // VectHare lorebook format: vecthare_lorebook__<name>_<timestamp>
-    if (collectionId.startsWith('vecthare_lorebook_')) {
-        return {
-            type: 'lorebook',
-            rawId: collectionId.replace('vecthare_lorebook_', ''),
-            scope: 'global'
-        };
-    }
-
-    if (collectionId.startsWith('ragbooks_lorebook_')) {
-        return {
-            type: 'lorebook',
-            rawId: collectionId.replace('ragbooks_lorebook_', ''),
-            scope: 'global'
-        };
-    }
-
-    if (collectionId.startsWith('carrotkernel_char_')) {
-        return {
-            type: 'chat',
-            rawId: collectionId.replace('carrotkernel_char_', ''),
-            scope: 'character'
-        };
-    }
-
-    // Heuristic: If it looks like a chat timestamp (contains @ or date-like patterns), assume it's a chat
-    if (collectionId.includes('@') || /\d{4}-\d{2}-\d{2}/.test(collectionId)) {
-        return {
-            type: 'chat',
-            rawId: collectionId,
-            scope: 'chat'
-        };
-    }
-
-    // Default: assume chat (most common case)
-    return {
-        type: 'chat',
-        rawId: collectionId,
-        scope: 'chat'
-    };
-}
+// parseCollectionId is now imported from collection-ids.js
 
 /**
  * Gets display name for a collection
@@ -553,30 +479,8 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
     const uuid = overrideUUID || getChatUUID();
     const chatId = overrideChatId || (getContext().chatId);
 
-    // PRIMARY: Search by UUID - the UUID is the unique identifier within the collection ID
-    // Format: vecthare_chat_{charName}_{uuid}
-    // LEGACY: Also search old formats for backwards compatibility
-    const searchPatterns = [];
-
-    // UUID is the primary identifier - any collection containing this UUID belongs to this chat
-    if (uuid) {
-        searchPatterns.push(uuid.toLowerCase());
-    }
-
-    // Legacy patterns for old collections
-    if (chatId) {
-        // Old vecthare_chat_X format
-        searchPatterns.push(`vecthare_chat_${chatId}`.toLowerCase());
-
-        // Sanitized character name (how old content-vectorization named things)
-        const charNameMatch = chatId.match(/^([^-]+)/);
-        if (charNameMatch) {
-            const charName = charNameMatch[1].trim().toLowerCase();
-            if (charName) {
-                searchPatterns.push(`vecthare_chat_${charName}`);
-            }
-        }
-    }
+    // Use unified pattern builder from collection-ids.js
+    const searchPatterns = buildChatSearchPatterns(chatId, uuid);
 
     console.log(`VectHare: Searching for chat vectors. UUID: ${uuid}, Patterns:`, searchPatterns);
 
@@ -585,24 +489,13 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
     const matchingCollections = [];
 
     for (const registryKey of registry) {
-        // Registry keys can be "source:collectionId" or just "collectionId"
-        // Extract just the collection ID part
-        let collectionId = registryKey;
-        if (registryKey.includes(':')) {
-            // Could be "transformers:vh:chat:uuid" or "transformers:vecthare_chat_123"
-            const parts = registryKey.split(':');
-            // Skip the source prefix (first part)
-            collectionId = parts.slice(1).join(':');
-        }
+        // Use unified registry key parser from collection-ids.js
+        const parsed = parseRegistryKey(registryKey);
+        const collectionId = parsed.collectionId;
 
-        // Check if this collection matches ANY of our patterns (case-insensitive)
-        const collectionIdLower = collectionId.toLowerCase();
-        const registryKeyLower = registryKey.toLowerCase();
-        const matches = searchPatterns.some(pattern =>
-            collectionIdLower === pattern ||
-            collectionIdLower.includes(pattern) ||
-            registryKeyLower.includes(pattern)
-        );
+        // Use unified pattern matching from collection-ids.js
+        const matches = matchesPatterns(registryKey, searchPatterns) ||
+                       matchesPatterns(collectionId, searchPatterns);
 
         if (matches) {
             // Get chunk count from plugin cache if available
@@ -693,16 +586,10 @@ export async function loadAllCollections(settings, autoDiscover = true) {
 
     for (const registryKey of registry) {
         try {
-            // Registry key format is now "source:collectionId" when from plugin
-            // Parse it to get both parts
-            let collectionId = registryKey;
-            let registrySource = null;
-
-            if (registryKey.includes(':')) {
-                const colonIndex = registryKey.indexOf(':');
-                registrySource = registryKey.substring(0, colonIndex);
-                collectionId = registryKey.substring(colonIndex + 1);
-            }
+            // Use unified registry key parser from collection-ids.js
+            const parsedKey = parseRegistryKey(registryKey);
+            const collectionId = parsedKey.collectionId;
+            const registrySource = parsedKey.source;
 
             console.log(`VectHare: Loading collection: ${collectionId} (source: ${registrySource || 'unknown'})`);
 

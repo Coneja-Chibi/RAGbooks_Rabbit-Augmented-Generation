@@ -33,6 +33,15 @@ import { createDebugData, setLastSearchDebug, addTrace, recordChunkFate } from '
 import { Queue, LRUCache } from '../utils/data-structures.js';
 import { getRequestHeaders } from '../../../../../script.js';
 import { EXTENSION_PROMPT_TAG, HASH_CACHE_SIZE } from './constants.js';
+// Import from collection-ids.js - single source of truth for collection ID operations
+import {
+    getChatUUID,
+    buildChatCollectionId,
+    buildLegacyChatCollectionId,
+    getAllChatCollectionIds,
+    parseCollectionId,
+    parseRegistryKey,
+} from './collection-ids.js';
 
 // Hash cache for performance
 const hashCache = new LRUCache(HASH_CACHE_SIZE);
@@ -40,76 +49,22 @@ const hashCache = new LRUCache(HASH_CACHE_SIZE);
 // Synchronization state
 let syncBlocked = false;
 
-/**
- * VectHare Collection ID Format: vh:{type}:{uuid}
- *
- * Uses chat_metadata.integrity UUID for guaranteed uniqueness.
- * Same character with multiple chats = different UUIDs = separate vector stores.
- *
- * Examples:
- *   vh:chat:a1b2c3d4-e5f6-7890-abcd-ef1234567890
- *   vh:lorebook:world_info_12345
- *   vh:doc:character_card_67890
- */
+// ============================================================================
+// RE-EXPORTS from collection-ids.js for backwards compatibility
+// Other files importing from chat-vectorization.js will still work.
+// ============================================================================
 
-const VH_PREFIX = 'vh';
-
-/**
- * Builds a proper collection ID for multitenancy
- * Format: vh:{type}:{sourceId}
- * @param {string} type Collection type (chat, lorebook, doc, etc)
- * @param {string} sourceId Source identifier (UUID, lorebook uid, etc)
- * @returns {string} Properly formatted collection ID
- */
-function buildCollectionId(type, sourceId) {
-    return `${VH_PREFIX}:${type}:${sourceId}`;
-}
-
-/**
- * Gets the unique chat UUID from chat_metadata.integrity
- * Falls back to chatId if integrity not available (shouldn't happen)
- * @returns {string|null} Chat UUID or null if no chat
- */
-export function getChatUUID() {
-    const integrity = chat_metadata?.integrity;
-    if (integrity) {
-        return integrity;
-    }
-    // Fallback: use chatId (less ideal but works)
-    const chatId = getCurrentChatId();
-    if (chatId) {
-        console.warn('VectHare: chat_metadata.integrity not found, falling back to chatId');
-        return chatId;
-    }
-    return null;
-}
+// Re-export getChatUUID (already imported above)
+export { getChatUUID };
 
 /**
  * Builds chat collection ID using the chat's unique UUID
  * Format: vecthare_chat_{charName}_{uuid}
- * Human-readable prefix + guaranteed unique UUID
  * @param {string} [chatUUID] Optional UUID override, otherwise uses current chat
  * @returns {string|null} Collection ID or null if no chat
  */
 export function getChatCollectionId(chatUUID) {
-    const uuid = chatUUID || getChatUUID();
-    if (!uuid) {
-        return null;
-    }
-
-    // Get character name for human-readable prefix
-    const context = getContext();
-    const charName = context?.name2 || 'chat';
-
-    // Sanitize character name (lowercase, alphanumeric only)
-    const sanitizedChar = charName
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '_')
-        .replace(/^_|_$/g, '')
-        .substring(0, 30);
-
-    // Format: vecthare_chat_{charName}_{uuid}
-    return `vecthare_chat_${sanitizedChar}_${uuid}`;
+    return buildChatCollectionId(chatUUID);
 }
 
 /**
@@ -118,64 +73,11 @@ export function getChatCollectionId(chatUUID) {
  * @returns {string|null} Legacy collection ID or null if no chat
  */
 export function getLegacyChatCollectionId(chatId) {
-    const id = chatId || getCurrentChatId();
-    if (!id) {
-        return null;
-    }
-    return `vecthare_chat_${id}`;
+    return buildLegacyChatCollectionId(chatId);
 }
 
-/**
- * Gets all possible collection IDs for the current chat (both formats)
- * Use this when you need to check for existing vectors in either format
- * @param {string} [chatId] Optional chatId override
- * @param {string} [chatUUID] Optional UUID override
- * @returns {{newFormat: string|null, legacyFormat: string|null}} Both format IDs
- */
-export function getAllChatCollectionIds(chatId, chatUUID) {
-    return {
-        newFormat: getChatCollectionId(chatUUID),
-        legacyFormat: getLegacyChatCollectionId(chatId),
-    };
-}
-
-/**
- * Builds lorebook collection ID
- * @param {string} lorebookUid Lorebook UID
- * @returns {string} Properly formatted collection ID
- */
-export function getLorebookCollectionId(lorebookUid) {
-    return buildCollectionId('lorebook', lorebookUid);
-}
-
-/**
- * Builds document collection ID
- * @param {string} documentId Document identifier
- * @returns {string} Properly formatted collection ID
- */
-export function getDocumentCollectionId(documentId) {
-    return buildCollectionId('doc', documentId);
-}
-
-/**
- * Parses a VectHare collection ID
- * @param {string} collectionId Collection ID to parse
- * @returns {{prefix: string, type: string, sourceId: string}|null} Parsed parts or null if invalid
- */
-export function parseCollectionId(collectionId) {
-    if (!collectionId || typeof collectionId !== 'string') {
-        return null;
-    }
-    const parts = collectionId.split(':');
-    if (parts.length >= 3 && parts[0] === VH_PREFIX) {
-        return {
-            prefix: parts[0],
-            type: parts[1],
-            sourceId: parts.slice(2).join(':') // Handle UUIDs with colons
-        };
-    }
-    return null;
-}
+// Re-export getAllChatCollectionIds with adapted return format for backwards compat
+export { getAllChatCollectionIds };
 
 /**
  * Gets the hash value for a string (with LRU caching)

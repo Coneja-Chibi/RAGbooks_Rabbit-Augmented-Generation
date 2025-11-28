@@ -1854,7 +1854,7 @@ async function initializeCottonTalesIntegration(settings) {
 
     if (cottonTalesInstalled) {
         $('#vecthare_cottontales_section').show();
-        console.log('VectHare: Cotton-Tales detected, showing emotion classifier options');
+        console.log('VectHare: Cotton-Tales detected, showing emotion classification options');
     } else {
         $('#vecthare_cottontales_section').hide();
         return;
@@ -1869,24 +1869,58 @@ async function initializeCottonTalesIntegration(settings) {
         return;
     }
 
-    // Enable/disable emotion classifier
-    $('#vecthare_emotion_classifier_enabled')
-        .prop('checked', settings.emotion_classifier_enabled || false)
+    // Helper to update UI based on method selection
+    function updateMethodUI(method) {
+        $('#vecthare_classifier_settings').toggle(method === 'classifier');
+        $('#vecthare_similarity_settings').toggle(method === 'similarity');
+
+        // Update the display of current embedding source for similarity mode
+        if (method === 'similarity') {
+            $('#vecthare_similarity_source_display').text(settings.source || 'transformers');
+        }
+    }
+
+    // Determine initial method from settings
+    function getCurrentMethod() {
+        if (settings.emotion_classifier_enabled && !settings.emotion_use_similarity) {
+            return 'classifier';
+        } else if (settings.emotion_use_similarity) {
+            return 'similarity';
+        }
+        return 'disabled';
+    }
+
+    // Classification method dropdown
+    $('#vecthare_emotion_method')
+        .val(getCurrentMethod())
         .on('change', function() {
-            settings.emotion_classifier_enabled = $(this).prop('checked');
+            const method = $(this).val();
+
+            // Update settings based on method
+            if (method === 'disabled') {
+                settings.emotion_classifier_enabled = false;
+                settings.emotion_use_similarity = false;
+                emotionClassifier.updateClassifierSetting('enabled', false);
+                emotionClassifier.updateClassifierSetting('useEmbeddingSimilarity', false);
+            } else if (method === 'classifier') {
+                settings.emotion_classifier_enabled = true;
+                settings.emotion_use_similarity = false;
+                emotionClassifier.updateClassifierSetting('enabled', true);
+                emotionClassifier.updateClassifierSetting('useEmbeddingSimilarity', false);
+            } else if (method === 'similarity') {
+                settings.emotion_classifier_enabled = true; // Still enabled, but uses similarity
+                settings.emotion_use_similarity = true;
+                emotionClassifier.updateClassifierSetting('enabled', true);
+                emotionClassifier.updateClassifierSetting('useEmbeddingSimilarity', true);
+            }
+
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
+            updateMethodUI(method);
+        });
 
-            // Show/hide emotion settings
-            $('#vecthare_emotion_settings').toggle(settings.emotion_classifier_enabled);
-
-            if (settings.emotion_classifier_enabled) {
-                emotionClassifier.updateClassifierSetting('enabled', true);
-            } else {
-                emotionClassifier.updateClassifierSetting('enabled', false);
-            }
-        })
-        .trigger('change');
+    // Initialize UI for current method
+    updateMethodUI(getCurrentMethod());
 
     // Classifier model selection
     $('#vecthare_emotion_classifier_model')
@@ -1905,6 +1939,13 @@ async function initializeCottonTalesIntegration(settings) {
             }
         });
 
+    // Show custom model input if currently set to custom
+    if (settings.emotion_classifier_model &&
+        !['SamLowe/roberta-base-go_emotions', 'j-hartmann/emotion-english-distilroberta-base', 'bhadresh-savani/distilbert-base-uncased-emotion'].includes(settings.emotion_classifier_model)) {
+        $('#vecthare_emotion_classifier_model').val('custom');
+        $('#vecthare_custom_classifier_model').show();
+    }
+
     // Custom model input
     $('#vecthare_emotion_classifier_custom')
         .val(settings.emotion_classifier_custom || '')
@@ -1914,16 +1955,6 @@ async function initializeCottonTalesIntegration(settings) {
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
             emotionClassifier.updateClassifierSetting('model', $(this).val());
-        });
-
-    // Use embedding similarity toggle
-    $('#vecthare_emotion_use_similarity')
-        .prop('checked', settings.emotion_use_similarity || false)
-        .on('change', function() {
-            settings.emotion_use_similarity = $(this).prop('checked');
-            Object.assign(extension_settings.vecthare, settings);
-            saveSettingsDebounced();
-            emotionClassifier.updateClassifierSetting('useEmbeddingSimilarity', settings.emotion_use_similarity);
         });
 
     // Test classifier button

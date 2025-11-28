@@ -195,23 +195,28 @@
                 </div>
             </div>
 
-            <!-- Cotton-Tales Emotion Classifier Section -->
+            <!-- Cotton-Tales Emotion Classification Section -->
             <div id="vecthare_cottontales_section" class="flex-container flexFlowColumn marginTopBot5" style="display: none; padding: 10px; border: 1px solid var(--SmartThemeBorderColor); border-radius: 8px; background: linear-gradient(135deg, rgba(139,92,246,0.05), rgba(59,130,246,0.05));">
                 <div class="flex-container alignItemsCenter" style="margin-bottom: 8px;">
                     <i class="fa-solid fa-masks-theater" style="color: #8b5cf6; margin-right: 8px;"></i>
                     <b style="color: #8b5cf6;">Cotton-Tales Integration</b>
                 </div>
                 <small style="margin-bottom: 10px; opacity: 0.8;">
-                    Provide a dedicated emotion classifier model for Cotton-Tales expression detection.
-                    This is separate from your embedding model.
+                    Configure how VectHare provides emotion classification to Cotton-Tales.
                 </small>
 
-                <label class="checkbox_label" for="vecthare_emotion_classifier_enabled">
-                    <input id="vecthare_emotion_classifier_enabled" type="checkbox" class="checkbox">
-                    <span>Enable Emotion Classifier</span>
+                <!-- Classification Method Selection -->
+                <label for="vecthare_emotion_method">
+                    <small>Classification Method</small>
                 </label>
+                <select id="vecthare_emotion_method" class="text_pole">
+                    <option value="disabled">Disabled</option>
+                    <option value="classifier">Dedicated Classifier Model</option>
+                    <option value="similarity">Embedding Similarity (uses your embedding model)</option>
+                </select>
 
-                <div id="vecthare_emotion_settings" style="display: none; margin-top: 10px;">
+                <!-- Dedicated Classifier Settings -->
+                <div id="vecthare_classifier_settings" style="display: none; margin-top: 10px; padding: 8px; background: rgba(0,0,0,0.1); border-radius: 4px;">
                     <label for="vecthare_emotion_classifier_model">
                         <small>Classifier Model</small>
                     </label>
@@ -239,13 +244,17 @@
                     <div id="vecthare_classifier_test_result" class="marginTop5" style="display: none; padding: 8px; border-radius: 4px;">
                         <!-- Test results shown here -->
                     </div>
+                </div>
 
-                    <label class="checkbox_label marginTop5" for="vecthare_emotion_use_similarity" title="Use embedding similarity instead of classifier model">
-                        <input id="vecthare_emotion_use_similarity" type="checkbox" class="checkbox">
-                        <span>Use Embedding Similarity Instead</span>
-                    </label>
-                    <small style="opacity: 0.7; display: block; margin-left: 24px;">
-                        Uses your embedding model to compare text against emotion descriptions via cosine similarity.
+                <!-- Embedding Similarity Settings -->
+                <div id="vecthare_similarity_settings" style="display: none; margin-top: 10px; padding: 8px; background: rgba(0,0,0,0.1); border-radius: 4px;">
+                    <small style="opacity: 0.8; display: block;">
+                        <i class="fa-solid fa-info-circle"></i>
+                        Compares message text against emotion descriptions using your configured embedding model.
+                        The emotion with the highest cosine similarity score is selected.
+                    </small>
+                    <small style="opacity: 0.6; display: block; margin-top: 5px;">
+                        Currently using: <b id="vecthare_similarity_source_display">transformers</b>
                     </small>
                 </div>
             </div>

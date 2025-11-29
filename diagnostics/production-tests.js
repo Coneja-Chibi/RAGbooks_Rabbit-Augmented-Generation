@@ -58,25 +58,62 @@ function getProviderBody(settings) {
 }
 
 /**
+ * Helper: Get provider-specific body parameters for Similharity plugin requests
+ * This ensures BananaBread and other providers that need special params get them
+ * @param {object} settings - VectHare settings
+ * @returns {object} Additional body parameters for the request
+ */
+function getPluginProviderParams(settings) {
+    const params = {};
+    const source = settings.source;
+
+    // BananaBread requires apiUrl and apiKey in request body
+    if (source === 'bananabread') {
+        params.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : 'http://localhost:8008';
+        // API key is stored in extension settings (not ST's secret store)
+        if (settings.bananabread_api_key) {
+            params.apiKey = settings.bananabread_api_key;
+        }
+    }
+
+    // Ollama needs apiUrl and keep param
+    if (source === 'ollama') {
+        params.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : settings.ollama_url;
+        params.keep = !!settings.ollama_keep;
+    }
+
+    // llamacpp needs apiUrl
+    if (source === 'llamacpp') {
+        params.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : settings.llamacpp_url;
+    }
+
+    // vllm needs apiUrl
+    if (source === 'vllm') {
+        params.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : settings.vllm_url;
+    }
+
+    return params;
+}
+
+/**
  * Test: Can we generate an embedding?
- * Uses Similharity plugin to test actual configured provider (incl. bananabread)
+ * Uses Similharity plugin's dedicated embedding endpoint to test the provider.
+ * This does NOT insert anything into the database - it only tests embedding generation.
  */
 export async function testEmbeddingGeneration(settings) {
     try {
         const testText = 'This is a test message for embedding generation.';
-        const backend = settings.vector_backend || 'standard';
-        const backendType = backend === 'standard' ? 'vectra' : backend;
 
-        const response = await fetch('/api/plugins/similharity/chunks/query', {
+        // Use the dedicated get-embedding endpoint which doesn't store anything
+        const response = await fetch('/api/plugins/similharity/get-embedding', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
-                backend: backendType,
-                collectionId: 'vh:test:embed_gen',
-                searchText: testText,
-                topK: 1,
+                text: testText,
                 source: settings.source || 'transformers',
                 model: settings[getModelField(settings.source)] || null,
+                // Include provider-specific params (apiUrl, apiKey for BananaBread, etc.)
+                ...getPluginProviderParams(settings),
             })
         });
 
@@ -90,10 +127,22 @@ export async function testEmbeddingGeneration(settings) {
             };
         }
 
+        const data = await response.json();
+
+        // Verify we actually got an embedding back
+        if (!data.embedding || !Array.isArray(data.embedding) || data.embedding.length === 0) {
+            return {
+                name: '[PROD] Embedding Generation',
+                status: 'fail',
+                message: 'Embedding endpoint returned invalid or empty embedding',
+                category: 'production'
+            };
+        }
+
         return {
             name: '[PROD] Embedding Generation',
             status: 'pass',
-            message: 'Successfully generated test embedding',
+            message: `Successfully generated test embedding (${data.embedding.length} dimensions)`,
             category: 'production'
         };
     } catch (error) {
@@ -108,7 +157,8 @@ export async function testEmbeddingGeneration(settings) {
 
 /**
  * Test: Can we store and retrieve a vector?
- * Uses Similharity plugin to test actual configured provider (incl. bananabread)
+ * Uses Similharity plugin to test actual configured provider (incl. bananabread).
+ * Creates a temporary test collection that is cleaned up after the test.
  */
 export async function testVectorStorage(settings) {
     try {
@@ -131,6 +181,8 @@ export async function testVectorStorage(settings) {
                 }],
                 source: settings.source || 'transformers',
                 model: settings[getModelField(settings.source)] || null,
+                // Include provider-specific params (apiUrl, apiKey for BananaBread, etc.)
+                ...getPluginProviderParams(settings),
             })
         });
 
@@ -241,6 +293,7 @@ export async function testVectorRetrieval(settings) {
  * Test: Are vector dimensions consistent?
  * Detects if embedding model was switched without re-vectorizing.
  * Compares stored collection dimensions with current provider's expected dimensions.
+ * Uses the dedicated get-embedding endpoint to avoid inserting test data.
  */
 export async function testVectorDimensions(settings) {
     if (!getCurrentChatId()) {
@@ -297,59 +350,35 @@ export async function testVectorDimensions(settings) {
             };
         }
 
-        // Generate a test embedding to get current dimensions
-        const testCollectionId = `vh:test:dim_${Date.now()}`;
-        const testHash = Math.floor(Math.random() * 1000000);
+        // Generate a test embedding using the dedicated endpoint (no storage)
         const testText = 'Dimension test';
-        const backend = settings.vector_backend || 'standard';
-        const backendType = backend === 'standard' ? 'vectra' : backend;
-
-        const insertResponse = await fetch('/api/plugins/similharity/chunks/insert', {
+        const embeddingResponse = await fetch('/api/plugins/similharity/get-embedding', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
-                backend: backendType,
-                collectionId: testCollectionId,
-                items: [{
-                    hash: testHash,
-                    text: testText,
-                    index: 0
-                }],
+                text: testText,
                 source: settings.source || 'transformers',
                 model: settings[getModelField(settings.source)] || null,
+                // Include provider-specific params (apiUrl, apiKey for BananaBread, etc.)
+                ...getPluginProviderParams(settings),
             })
         });
 
-        if (!insertResponse.ok) {
-            const errorText = await insertResponse.text();
+        if (!embeddingResponse.ok) {
+            const errorText = await embeddingResponse.text();
             return {
                 name: '[PROD] Vector Dimensions',
                 status: 'warning',
-                message: `Could not generate test embedding: ${insertResponse.status} - ${errorText}`,
+                message: `Could not generate test embedding: ${embeddingResponse.status} - ${errorText}`,
                 category: 'production'
             };
         }
 
-        // Get stats for test collection to see what dimensions were generated
-        const testStatsResponse = await fetch('/api/plugins/similharity/chunks/stats', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify({
-                backend: settings.db || 'standard',
-                collectionId: testCollectionId,
-                source: settings.source || 'transformers',
-                model: settings[getModelField(settings.source)] || null,
-            }),
-        });
-
+        const embeddingData = await embeddingResponse.json();
         let currentDimensions = 0;
-        if (testStatsResponse.ok) {
-            const testStats = await testStatsResponse.json();
-            currentDimensions = testStats.stats?.embeddingDimensions || 0;
+        if (embeddingData.embedding && Array.isArray(embeddingData.embedding)) {
+            currentDimensions = embeddingData.embedding.length;
         }
-
-        // Cleanup test collection
-        await cleanupTestCollection(testCollectionId, settings);
 
         if (currentDimensions === 0) {
             return {
@@ -806,6 +835,7 @@ export async function testTemporallyBlindChunks(settings) {
  * Test: Does the plugin backend correctly generate embeddings during insert?
  * This specifically tests the Similharity plugin's LanceDB/Qdrant handlers.
  * These handlers MUST generate embeddings - they cannot rely on pre-provided vectors.
+ * Creates a temporary test collection that is cleaned up after the test.
  */
 export async function testPluginEmbeddingGeneration(settings) {
     const backend = settings.vector_backend || 'standard';
@@ -840,6 +870,8 @@ export async function testPluginEmbeddingGeneration(settings) {
                 }],
                 source: settings.source || 'transformers',
                 model: settings[getModelField(settings.source)] || null,
+                // Include provider-specific params (apiUrl, apiKey for BananaBread, etc.)
+                ...getPluginProviderParams(settings),
             }),
         });
 
@@ -864,6 +896,8 @@ export async function testPluginEmbeddingGeneration(settings) {
                 topK: 1,
                 source: settings.source || 'transformers',
                 model: settings[getModelField(settings.source)] || null,
+                // Include provider-specific params (apiUrl, apiKey for BananaBread, etc.)
+                ...getPluginProviderParams(settings),
             }),
         });
 

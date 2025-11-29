@@ -34,12 +34,13 @@ class MilvusBackend {
             address: '127.0.0.1:19530',
             token: '', // API token or user:password
             ssl: false,
+            dimensions: null,
         };
     }
 
     /**
      * Initialize Milvus connection
-     * @param {object} config - Configuration { address, token, ssl }
+     * @param {object} config - Configuration { address, token, ssl, dimensions }
      */
     async initialize(config = {}) {
         this.config = { ...this.config, ...config };
@@ -59,7 +60,10 @@ class MilvusBackend {
             console.log('[Milvus] Connection successful');
             
             // Ensure main collection exists
-            await this.ensureCollection('vecthare_main');
+            // If dimensions are manually configured, use them. Otherwise default to 768.
+            // If not set, it will be auto-corrected on first insert if different.
+            const dim = this.config.dimensions ? Number(this.config.dimensions) : 768;
+            await this.ensureCollection('vecthare_main', dim);
             
         } catch (error) {
             this.isConnected = false;

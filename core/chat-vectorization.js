@@ -77,7 +77,7 @@ export function getLegacyChatCollectionId(chatId) {
 }
 
 // Re-export getAllChatCollectionIds with adapted return format for backwards compat
-export { getAllChatCollectionIds };
+export { getAllChatCollectionIds, parseCollectionId, parseRegistryKey };
 
 /**
  * Gets the hash value for a string (with LRU caching)

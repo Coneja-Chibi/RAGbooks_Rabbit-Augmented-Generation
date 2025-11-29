@@ -836,3 +836,92 @@ export function checkWebLlmExtension(settings) {
         category: 'infrastructure'
     };
 }
+
+/**
+ * Check: BananaBread Connection
+ * Tests connection to BananaBread server and validates API key
+ */
+export async function checkBananaBreadConnection(settings) {
+    if (settings.source !== 'bananabread') {
+        return {
+            name: 'BananaBread Connection',
+            status: 'skipped',
+            message: 'BananaBread not selected as provider',
+            category: 'infrastructure'
+        };
+    }
+
+    try {
+        const serverUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : 'http://localhost:8008';
+        const cleanUrl = serverUrl.replace(/\/$/, '');
+
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+
+        // Retrieve API key if available
+        const secretKey = 'bananabread_api_key';
+        if (secretKey && secret_state[secretKey]) {
+            const secrets = secret_state[secretKey];
+            const activeSecret = Array.isArray(secrets) ? (secrets.find(s => s.active) || secrets[0]) : null;
+            if (activeSecret) {
+                headers['Authorization'] = `Bearer ${activeSecret.value}`;
+            }
+        }
+
+        const response = await fetch(`${cleanUrl}/v1/models`, {
+            method: 'GET',
+            headers: headers
+        });
+
+        if (!response.ok) {
+            if (response.status === 401 || response.status === 403) {
+                 return {
+                    name: 'BananaBread Connection',
+                    status: 'fail',
+                    message: `Authentication failed (${response.status}). Check API key.`,
+                    fixable: true,
+                    fixAction: 'configure_api_key',
+                    category: 'infrastructure'
+                };
+            }
+             return {
+                name: 'BananaBread Connection',
+                status: 'fail',
+                message: `Connection failed: ${response.status} ${response.statusText}`,
+                fixable: true,
+                fixAction: 'configure_url',
+                category: 'infrastructure'
+            };
+        }
+        
+        const data = await response.json();
+        const modelCount = data.data?.length || 0;
+
+        if (modelCount > 0) {
+            return {
+                name: 'BananaBread Connection',
+                status: 'pass',
+                message: `Connected to ${cleanUrl} (${modelCount} models available)`,
+                category: 'infrastructure'
+            };
+        } else {
+             return {
+                name: 'BananaBread Connection',
+                status: 'warning',
+                message: `Connected to ${cleanUrl} but no models found`,
+                category: 'infrastructure'
+            };
+        }
+
+    } catch (error) {
+        return {
+            name: 'BananaBread Connection',
+            status: 'fail',
+            message: `Connection error: ${error.message}`,
+            fixable: true,
+            fixAction: 'configure_url',
+            category: 'infrastructure'
+        };
+    }
+}

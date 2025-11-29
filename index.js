@@ -73,6 +73,7 @@ const defaultSettings = {
     webllm_model: '',
     google_model: 'text-embedding-005',
     bananabread_rerank: false,
+    bananabread_api_key: '', // Stored here since custom keys aren't returned by ST's readSecretState()
 
     // Chat vectorization
     enabled_chats: false,

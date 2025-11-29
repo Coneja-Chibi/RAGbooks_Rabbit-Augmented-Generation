@@ -1,3 +1,4 @@
 # Documentation files (except README)
 docs/*.md
 !README.md
+.DS_Store

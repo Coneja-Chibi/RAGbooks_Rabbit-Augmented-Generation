@@ -1717,13 +1717,17 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
     // BananaBread API key
+    // Note: We store in extension settings because custom keys aren't returned by ST's readSecretState()
     const updateBananaBreadKeyDisplay = () => {
-        const secrets = secret_state['bananabread_api_key'];
-        if (Array.isArray(secrets) && secrets.length > 0) {
-            const activeSecret = secrets.find(s => s.active) || secrets[0];
-            if (activeSecret?.value) {
-                $('#vecthare_bananabread_apikey').attr('placeholder', activeSecret.value);
-            }
+        const savedKey = settings.bananabread_api_key;
+        if (savedKey) {
+            // Mask the key for display (show last 4 chars)
+            const masked = savedKey.length > 4
+                ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
+                : '*'.repeat(savedKey.length);
+            $('#vecthare_bananabread_apikey').attr('placeholder', `Key saved: ${masked}`);
+        } else {
+            $('#vecthare_bananabread_apikey').attr('placeholder', 'Paste key here to save...');
         }
     };
     updateBananaBreadKeyDisplay();
@@ -1732,8 +1736,14 @@ function bindSettingsEvents(settings, callbacks) {
         .on('change', async function() {
             const value = String($(this).val()).trim();
             if (value) {
+                // Store in extension settings (primary storage for this key)
+                settings.bananabread_api_key = value;
+                Object.assign(extension_settings.vecthare, settings);
+                saveSettingsDebounced();
+
+                // Also write to ST secrets for potential future compatibility
                 await writeSecret('bananabread_api_key', value);
-                await readSecretState();
+
                 toastr.success('BananaBread API key saved');
                 $(this).val('');
                 updateBananaBreadKeyDisplay();

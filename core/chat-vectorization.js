@@ -339,7 +339,7 @@ function trackChunkActivation(hash, messageCount) {
 async function rerankWithBananaBread(query, chunks, settings) {
     if (!chunks.length) return chunks;
 
-    const apiUrl = settings.api_url_custom || 'http://localhost:8008';
+    const apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : 'http://localhost:8008';
     const documents = chunks.map(c => c.text);
 
     try {
@@ -348,6 +348,7 @@ async function rerankWithBananaBread(query, chunks, settings) {
             headers: getRequestHeaders(),
             body: JSON.stringify({
                 apiUrl,
+                apiKey: settings.bananabread_api_key || '', // Include API key for authentication
                 query,
                 documents,
                 top_k: chunks.length

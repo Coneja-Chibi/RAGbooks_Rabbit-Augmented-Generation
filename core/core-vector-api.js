@@ -198,12 +198,9 @@ export function getVectorsRequestBody(args = {}, settings) {
             break;
         case 'bananabread':
             body.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : 'http://localhost:8008';
-            if (secret_state['bananabread_api_key']) {
-               const secrets = secret_state['bananabread_api_key'];
-               const activeSecret = Array.isArray(secrets) ? (secrets.find(s => s.active) || secrets[0]) : null;
-               if (activeSecret) {
-                   body.apiKey = activeSecret.value;
-               }
+            // Use extension settings for API key (custom keys aren't returned by ST's readSecretState)
+            if (settings.bananabread_api_key) {
+                body.apiKey = settings.bananabread_api_key;
             }
             break;
         case 'webllm':
@@ -389,13 +386,9 @@ async function createBananaBreadEmbeddings(items, settings) {
                 'Content-Type': 'application/json',
             };
 
-            // Retrieve API key if available
-            if (secret_state['bananabread_api_key']) {
-                const secrets = secret_state['bananabread_api_key'];
-                const activeSecret = Array.isArray(secrets) ? (secrets.find(s => s.active) || secrets[0]) : null;
-                if (activeSecret) {
-                    headers['Authorization'] = `Bearer ${activeSecret.value}`;
-                }
+            // Use extension settings for API key (custom keys aren't returned by ST's readSecretState)
+            if (settings.bananabread_api_key) {
+                headers['Authorization'] = `Bearer ${settings.bananabread_api_key}`;
             }
 
             const fetchPromise = fetch(`${cleanUrl}/v1/embeddings`, {

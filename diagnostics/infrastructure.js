@@ -859,14 +859,9 @@ export async function checkBananaBreadConnection(settings) {
             'Content-Type': 'application/json',
         };
 
-        // Retrieve API key if available
-        const secretKey = 'bananabread_api_key';
-        if (secretKey && secret_state[secretKey]) {
-            const secrets = secret_state[secretKey];
-            const activeSecret = Array.isArray(secrets) ? (secrets.find(s => s.active) || secrets[0]) : null;
-            if (activeSecret) {
-                headers['Authorization'] = `Bearer ${activeSecret.value}`;
-            }
+        // Use extension settings for API key (custom keys aren't returned by ST's readSecretState)
+        if (settings.bananabread_api_key) {
+            headers['Authorization'] = `Bearer ${settings.bananabread_api_key}`;
         }
 
         const response = await fetch(`${cleanUrl}/v1/models`, {

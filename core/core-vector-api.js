@@ -375,8 +375,8 @@ async function createKoboldCppEmbeddings(items, settings) {
  */
 async function createBananaBreadEmbeddings(items, settings) {
     // Clean text before embedding (strip HTML/Markdown)
-    const cleanedItems = items.map(item => stripFormatting(item) || item);
-
+    const cleanedItems = items.map(item => stripFormatting(item.text) || item.text);
+    
     return await dynamicRateLimiter.execute(async () => {
         return await AsyncUtils.retry(async () => {
             const serverUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : 'http://localhost:8008';

@@ -25,6 +25,44 @@ import {
 } from '../core/providers.js';
 
 /**
+ * Helper: Get provider-specific body parameters for Similharity plugin requests
+ * This ensures BananaBread and other providers that need special params get them
+ * @param {object} settings - VectHare settings
+ * @returns {object} Additional body parameters for the request
+ */
+function getPluginProviderParams(settings) {
+    const params = {};
+    const source = settings.source;
+
+    // BananaBread requires apiUrl and apiKey in request body
+    if (source === 'bananabread') {
+        params.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : 'http://localhost:8008';
+        // API key is stored in extension settings (not ST's secret store)
+        if (settings.bananabread_api_key) {
+            params.apiKey = settings.bananabread_api_key;
+        }
+    }
+
+    // Ollama needs apiUrl and keep param
+    if (source === 'ollama') {
+        params.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : settings.ollama_url;
+        params.keep = !!settings.ollama_keep;
+    }
+
+    // llamacpp needs apiUrl
+    if (source === 'llamacpp') {
+        params.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : settings.llamacpp_url;
+    }
+
+    // vllm needs apiUrl
+    if (source === 'vllm') {
+        params.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : settings.vllm_url;
+    }
+
+    return params;
+}
+
+/**
  * Check: ST Vectra backend (standard file-based vector storage)
  * This is the default backend - always available if ST is running
  */
@@ -532,6 +570,8 @@ export async function checkQdrantDimensionMatch(settings) {
                 text: 'test',
                 source: settings.source || 'transformers',
                 model: getModelFromSettings(settings),
+                // Include provider-specific params (apiUrl, apiKey for BananaBread, etc.)
+                ...getPluginProviderParams(settings),
             })
         });
 

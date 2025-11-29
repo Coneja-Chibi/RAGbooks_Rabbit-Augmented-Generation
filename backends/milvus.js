@@ -33,7 +33,46 @@ function getModelFromSettings(settings) {
 }
 
 export class MilvusBackend extends VectorBackend {
+    async _autoDetectDimensions(settings) {
+        try {
+            // Don't auto-detect for sources that are handled client-side in VectHare 
+            // but missing in Similharity servers-side generation (e.g. KoboldCpp/WebLLM)
+            // Although WebLLM is client-side, we can't easily run it here without importing providers.
+            // This is a best-effort for server-side providers (OpenAI, etc.) supported by Similharity.
+            
+            console.log(`VectHare: Attempting to auto-detect embedding dimensions for ${settings.source}...`);
+            
+            const response = await fetch('/api/plugins/similharity/get-embedding', {
+                method: 'POST',
+                headers: getRequestHeaders(),
+                body: JSON.stringify({
+                    text: 'test',
+                    source: settings.source || 'transformers',
+                    model: getModelFromSettings(settings)
+                }),
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.embedding && Array.isArray(data.embedding)) {
+                    console.log(`VectHare: Auto-detected dimension: ${data.embedding.length}`);
+                    return data.embedding.length;
+                }
+            }
+        } catch (e) {
+            console.warn('VectHare: Failed to auto-detect dimensions:', e);
+        }
+        return null;
+    }
+
     async initialize(settings) {
+        // Determine dimensions: Manual setting > Auto-detect > Default (null)
+        let dimensions = settings.milvus_dimensions ? parseInt(settings.milvus_dimensions) : null;
+        
+        if (!dimensions || isNaN(dimensions)) {
+            dimensions = await this._autoDetectDimensions(settings);
+        }
+
         // Get Milvus config from settings
         const config = {
             host: settings.milvus_host || 'localhost',
@@ -42,6 +81,7 @@ export class MilvusBackend extends VectorBackend {
             username: settings.milvus_username || null,
             password: settings.milvus_password || null,
             token: settings.milvus_token || null,
+            dimensions: dimensions,
         };
 
         const response = await fetch('/api/plugins/similharity/backend/init/milvus', {

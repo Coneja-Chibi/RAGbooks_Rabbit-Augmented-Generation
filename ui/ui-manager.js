@@ -139,6 +139,12 @@ export function renderSettings(containerId, settings, callbacks) {
                                     <small>API Token (Optional):</small>
                                 </label>
                                 <input type="password" id="vecthare_milvus_token" class="vecthare-input" placeholder="For cloud instances" />
+
+                                <label for="vecthare_milvus_dimensions">
+                                    <small>Embedding Dimensions:</small>
+                                </label>
+                                <input type="number" id="vecthare_milvus_dimensions" class="vecthare-input" placeholder="Auto (768)" min="1" />
+                                <small class="vecthare_hint">Manually set dimension size if auto-detection fails (e.g. 1536, 4096). Required for some models on first run.</small>
                             </div>
 
                             <label for="vecthare_source">
@@ -1521,6 +1527,15 @@ function bindSettingsEvents(settings, callbacks) {
         .val(settings.milvus_token || '')
         .on('input', function() {
             settings.milvus_token = String($(this).val());
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#vecthare_milvus_dimensions')
+        .val(settings.milvus_dimensions || '')
+        .on('input', function() {
+            const value = parseInt($(this).val());
+            settings.milvus_dimensions = isNaN(value) ? '' : value;
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
         });

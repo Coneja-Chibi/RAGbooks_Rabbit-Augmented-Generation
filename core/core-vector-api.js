@@ -374,8 +374,22 @@ async function createKoboldCppEmbeddings(items, settings) {
  * @returns {Promise<{embeddings: number[][], model: string}>} Calculated embeddings as array (index-aligned with input items)
  */
 async function createBananaBreadEmbeddings(items, settings) {
-    // Clean text before embedding (strip HTML/Markdown)
-    const cleanedItems = items.map(item => stripFormatting(item) || item);
+    // Clean text before embedding (strip HTML/Markdown & Handle mixed types: strings vs objects)
+    const cleanedItems = items.map(item => {
+        // 1. Handle primitive strings
+        if (typeof item === 'string') {
+            return stripFormatting(item) || item;
+        }
+
+        // 2. Handle objects: Extract known text fields (e.g., item.text, item.content)
+        if (item && typeof item === 'object') {
+            const textValue = item.text || item.content || '';
+            return stripFormatting(textValue) || textValue;
+        }
+
+        // 3. Fallback for unexpected types
+        return '';
+    }).filter(t => t.length > 0); // Remove empty strings to prevent 422s on empty payloads
 
     return await dynamicRateLimiter.execute(async () => {
         return await AsyncUtils.retry(async () => {

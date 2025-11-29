@@ -371,7 +371,7 @@ async function createKoboldCppEmbeddings(items, settings) {
  * Wrapped with retry, timeout, and rate limiting for robustness.
  * @param {string[]} items Items to embed
  * @param {object} settings VectHare settings object
- * @returns {Promise<{embeddings: Record<string, number[]>, model: string}>} Calculated embeddings
+ * @returns {Promise<{embeddings: number[][], model: string}>} Calculated embeddings as array (index-aligned with input items)
  */
 async function createBananaBreadEmbeddings(items, settings) {
     // Clean text before embedding (strip HTML/Markdown)
@@ -407,24 +407,23 @@ async function createBananaBreadEmbeddings(items, settings) {
             }
 
             const data = await response.json();
-            
+
             // OpenAI format: { data: [{ embedding: [], index: 0, ... }, ...], model: "..." }
             if (!data.data || !Array.isArray(data.data) || data.data.length !== cleanedItems.length) {
-                 throw new Error('Invalid response from BananaBread embeddings (OpenAI format)');
+                throw new Error(`Invalid response from BananaBread embeddings (OpenAI format): expected ${cleanedItems.length} embeddings, got ${data.data?.length || 0}`);
             }
 
-            const embeddings = /** @type {Record<string, number[]>} */ ({});
-            
-            // Sort by index to ensure order matches items
+            // Sort by index to ensure order matches input items
             data.data.sort((a, b) => a.index - b.index);
 
+            // Build array of embeddings aligned with input order
+            const embeddings = /** @type {number[][]} */ ([]);
             for (let i = 0; i < data.data.length; i++) {
                 const embedding = data.data[i].embedding;
                 if (!Array.isArray(embedding) || embedding.length === 0) {
-                    throw new Error('BananaBread returned an empty embedding.');
+                    throw new Error(`BananaBread returned an empty or invalid embedding at index ${i}.`);
                 }
-                // Map back to original items (not cleaned) for hash consistency
-                embeddings[items[i]] = embedding;
+                embeddings.push(embedding);
             }
 
             return {

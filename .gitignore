@@ -2,3 +2,6 @@
 docs/*.md
 !README.md
 .DS_Store
+
+# Local development notes
+VECTOR_LIST.md

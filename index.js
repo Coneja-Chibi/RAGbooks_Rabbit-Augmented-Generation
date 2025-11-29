@@ -1418,6 +1418,50 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
             const { getOpenAIVector } = await import('../../src/vectors/openai-vectors.js');
             return await getOpenAIVector(text, source, directories, model);
         }
+        case 'koboldcpp': {
+            // KoboldCpp uses OpenAI-compatible /v1/embeddings endpoint
+            let apiUrl = req.body.apiUrl;
+            if (!apiUrl || typeof apiUrl !== 'string' || apiUrl.trim() === '') {
+                throw new Error('KoboldCpp: apiUrl is missing or invalid. Configure the embedding URL in VectHare settings.');
+            }
+            apiUrl = apiUrl.trim();
+
+            let url;
+            try {
+                url = new URL(apiUrl);
+                // Ensure we're hitting the embeddings endpoint
+                if (!url.pathname.includes('/embeddings')) {
+                    url.pathname = url.pathname.replace(/\/?$/, '/v1/embeddings').replace(/\/+/g, '/');
+                }
+            } catch (e) {
+                throw new Error(`KoboldCpp: Invalid URL format "${apiUrl}" - ${e.message}`);
+            }
+
+            const response = await fetch(url.toString(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    input: text,
+                    model: model || 'koboldcpp',
+                }),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`KoboldCpp: ${response.status} ${response.statusText} - ${errorText}`);
+            }
+
+            const data = await response.json();
+            // OpenAI format: { data: [{ embedding: [...] }] }
+            if (data?.data?.[0]?.embedding) {
+                return data.data[0].embedding;
+            }
+            // Fallback: direct embedding array
+            if (Array.isArray(data?.embedding)) {
+                return data.embedding;
+            }
+            throw new Error('KoboldCpp: Invalid response format - no embedding found');
+        }
         case 'nomicai': {
             const { getNomicAIVector } = await import('../../src/vectors/nomicai-vectors.js');
             return await getNomicAIVector(text, source, directories);

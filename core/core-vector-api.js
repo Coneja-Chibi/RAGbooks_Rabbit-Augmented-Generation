@@ -375,21 +375,22 @@ async function createKoboldCppEmbeddings(items, settings) {
  */
 async function createBananaBreadEmbeddings(items, settings) {
     // Clean text before embedding (strip HTML/Markdown & Handle mixed types: strings vs objects)
+    // Note: Must preserve 1:1 mapping with input items, so we replace empty strings with space instead of filtering
     const cleanedItems = items.map(item => {
+        let text = '';
         // 1. Handle primitive strings
         if (typeof item === 'string') {
-            return stripFormatting(item) || item;
+            text = stripFormatting(item) || item;
         }
-
         // 2. Handle objects: Extract known text fields (e.g., item.text, item.content)
-        if (item && typeof item === 'object') {
+        else if (item && typeof item === 'object') {
             const textValue = item.text || item.content || '';
-            return stripFormatting(textValue) || textValue;
+            text = stripFormatting(textValue) || textValue;
         }
 
-        // 3. Fallback for unexpected types
-        return '';
-    }).filter(t => t.length > 0); // Remove empty strings to prevent 422s on empty payloads
+        // 3. Fallback for unexpected types or empty result
+        return text.length > 0 ? text : ' ';
+    });
 
     return await dynamicRateLimiter.execute(async () => {
         return await AsyncUtils.retry(async () => {
@@ -430,14 +431,15 @@ async function createBananaBreadEmbeddings(items, settings) {
             // Sort by index to ensure order matches input items
             data.data.sort((a, b) => a.index - b.index);
 
-            // Build array of embeddings aligned with input order
-            const embeddings = /** @type {number[][]} */ ([]);
+            // Build map of embeddings keyed by original item text
+            const embeddings = /** @type {Record<string, number[]>} */ ({});
             for (let i = 0; i < data.data.length; i++) {
                 const embedding = data.data[i].embedding;
                 if (!Array.isArray(embedding) || embedding.length === 0) {
                     throw new Error(`BananaBread returned an empty or invalid embedding at index ${i}.`);
                 }
-                embeddings.push(embedding);
+                // Map back to original items for hash consistency/lookup
+                embeddings[items[i]] = embedding;
             }
 
             return {
@@ -658,8 +660,8 @@ export async function queryCollection(collectionId, searchText, topK, settings) 
 
     // If source requires client-side embeddings, generate query vector
     if (clientSideEmbeddingSources.includes(settings.source)) {
-        // getAdditionalArgs expects string[], not objects
-        const additionalArgs = await getAdditionalArgs([searchText], settings);
+        const queryItem = [searchText];
+        const additionalArgs = await getAdditionalArgs(queryItem, settings);
         // additionalArgs.embeddings is a Record<string, number[]> where keys are original text
         if (additionalArgs.embeddings && additionalArgs.embeddings[searchText]) {
             queryVector = additionalArgs.embeddings[searchText];

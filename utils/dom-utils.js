@@ -282,14 +282,29 @@ const DOMUtils = {
       const element = typeof target === 'string' ? this.query(target) : target;
       if (element) {
         const rect = element.getBoundingClientRect();
-        const scrollTop = container === window
-          ? window.pageYOffset
-          : container.scrollTop;
 
-        container.scrollTo({
-          top: scrollTop + rect.top + offset,
-          behavior
-        });
+        if (container === window) {
+          // For window scrolling, add viewport position to page offset
+          const scrollTop = window.pageYOffset;
+          container.scrollTo({
+            top: scrollTop + rect.top + offset,
+            behavior
+          });
+        } else {
+          // For non-window containers, calculate position relative to container
+          // getBoundingClientRect() is relative to viewport, so we need to:
+          // 1. Get the container's viewport position
+          // 2. Calculate the element's position relative to container
+          // 3. Add the container's current scroll position
+          const containerRect = container.getBoundingClientRect();
+          const relativeTop = rect.top - containerRect.top;
+          const targetScrollTop = container.scrollTop + relativeTop + offset;
+
+          container.scrollTo({
+            top: targetScrollTop,
+            behavior
+          });
+        }
       }
     } else {
       container.scrollTo({

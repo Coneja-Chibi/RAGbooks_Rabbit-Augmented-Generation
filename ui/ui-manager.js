@@ -13,7 +13,7 @@
 import { saveSettingsDebounced, getCurrentChatId } from '../../../../../script.js';
 import { extension_settings, openThirdPartyExtensionMenu } from '../../../../extensions.js';
 import { writeSecret, SECRET_KEYS, secret_state, readSecretState } from '../../../../secrets.js';
-import { WebLlmVectorProvider } from '../providers/webllm.js';
+import { getWebLlmProvider as getSharedWebLlmProvider } from '../providers/webllm.js';
 import { openVisualizer } from './chunk-visualizer.js';
 import { openDatabaseBrowser } from './database-browser.js';
 import { openContentVectorizer } from './content-vectorizer.js';
@@ -893,19 +893,9 @@ function initializeCollapsibleCards() {
     });
 }
 
-// WebLLM provider instance (lazy-initialized)
-let webllmProvider = null;
-
-/**
- * Gets or creates the WebLLM provider instance
- * @returns {WebLlmVectorProvider}
- */
-function getWebLlmProvider() {
-    if (!webllmProvider) {
-        webllmProvider = new WebLlmVectorProvider();
-    }
-    return webllmProvider;
-}
+// Use shared WebLLM provider singleton from providers/webllm.js
+// This ensures the same engine instance is shared with core-vector-api.js
+const getWebLlmProvider = getSharedWebLlmProvider;
 
 /**
  * Checks if WebLLM is supported (browser + extension)
@@ -1047,12 +1037,21 @@ export async function loadWebLlmModels(settings) {
  * @returns {boolean} True if WebLLM is available
  */
 /**
- * Refreshes the auto-sync checkbox state from current settings
+ * Refreshes the auto-sync checkbox state from current chat's collection
  * Call this when chat changes to keep UI in sync
- * @param {object} settings - VectHare settings object
+ * @param {object} settings - VectHare settings object (unused, kept for API compatibility)
  */
 export function refreshAutoSyncCheckbox(settings) {
-    $('#vecthare_autosync_enabled').prop('checked', settings.enabled_chats);
+    const collectionId = getChatCollectionId();
+    if (!collectionId) {
+        $('#vecthare_autosync_enabled').prop('checked', false);
+        return;
+    }
+    // Dynamically import to avoid circular dependency
+    import('../core/collection-metadata.js').then(({ isCollectionAutoSyncEnabled }) => {
+        const isEnabled = isCollectionAutoSyncEnabled(collectionId);
+        $('#vecthare_autosync_enabled').prop('checked', isEnabled);
+    });
 }
 
 export function updateWebLlmStatus() {
@@ -1313,24 +1312,33 @@ async function showAutoSyncConfirmModal(allMatches, settings) {
  * @param {object} callbacks - Callback functions
  */
 function bindSettingsEvents(settings, callbacks) {
-    // Auto-sync enable/disable
+    // Auto-sync enable/disable - now per-collection instead of global
+    // Initial state is set by refreshAutoSyncCheckbox() after chat loads
     $('#vecthare_autosync_enabled')
-        .prop('checked', settings.enabled_chats)
         .on('input', async function() {
             const enabling = $(this).prop('checked');
             const $checkbox = $(this);
 
+            const chatId = getCurrentChatId();
+            if (!chatId) {
+                // No chat open - warn and don't enable
+                toastr.warning('Open a chat first before enabling auto-sync');
+                $checkbox.prop('checked', false);
+                return;
+            }
+
+            const collectionId = getChatCollectionId();
+            if (!collectionId) {
+                toastr.warning('Could not get collection ID for this chat');
+                $checkbox.prop('checked', false);
+                return;
+            }
+
+            // Import the metadata functions
+            const { setCollectionAutoSync } = await import('../core/collection-metadata.js');
+
             // If enabling, check if we need to set up the collection first
             if (enabling) {
-                const chatId = getCurrentChatId();
-
-                if (!chatId) {
-                    // No chat open - warn and don't enable
-                    toastr.warning('Open a chat first before enabling auto-sync');
-                    $checkbox.prop('checked', false);
-                    return;
-                }
-
                 // SINGLE SOURCE OF TRUTH: Use doesChatHaveVectors which runs discovery
                 const { hasVectors, allMatches } = await doesChatHaveVectors(settings);
 
@@ -1364,14 +1372,15 @@ function bindSettingsEvents(settings, callbacks) {
                 }
             }
 
-            settings.enabled_chats = enabling;
-            Object.assign(extension_settings.vecthare, settings);
-            saveSettingsDebounced();
+            // Save to per-collection metadata instead of global setting
+            setCollectionAutoSync(collectionId, enabling);
 
             if (!enabling) {
-                toastr.info('Auto-sync disabled for chat messages');
+                toastr.info('Auto-sync disabled for this chat');
+            } else {
+                toastr.success('Auto-sync enabled for this chat');
             }
-            console.log(`VectHare: Chat auto-sync ${settings.enabled_chats ? 'enabled' : 'disabled'}`);
+            console.log(`VectHare: Chat auto-sync for ${collectionId}: ${enabling ? 'enabled' : 'disabled'}`);
         });
 
     // Chunking strategy

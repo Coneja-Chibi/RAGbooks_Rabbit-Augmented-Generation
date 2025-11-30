@@ -139,14 +139,14 @@ const AsyncUtils = {
    *
    * @param {number} maxCalls - Maximum calls per period
    * @param {number} period - Time period in milliseconds
-   * @returns {Object} Rate limiter object with execute method
+   * @returns {Object} Rate limiter object with execute and destroy methods
    */
   rateLimiter(maxCalls, period) {
     const queue = [];
     let tokens = maxCalls;
 
-    // Refill tokens periodically
-    setInterval(() => {
+    // Refill tokens periodically - store interval ID for cleanup
+    const intervalId = setInterval(() => {
       tokens = maxCalls;
       while (queue.length > 0 && tokens > 0) {
         const resolve = queue.shift();
@@ -164,6 +164,14 @@ const AsyncUtils = {
 
         await new Promise(resolve => queue.push(resolve));
         return fn();
+      },
+      /**
+       * Stop the rate limiter and clear the interval
+       * Call this when the rate limiter is no longer needed
+       */
+      destroy() {
+        clearInterval(intervalId);
+        queue.length = 0;
       }
     };
   },

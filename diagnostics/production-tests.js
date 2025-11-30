@@ -163,7 +163,7 @@ export async function testEmbeddingGeneration(settings) {
 export async function testVectorStorage(settings) {
     try {
         const testCollectionId = `vh:test:storage_${Date.now()}`;
-        const testHash = Math.floor(Math.random() * 1000000);
+        const testHash = String(Math.floor(Math.random() * 1000000));
         const testText = 'VectHare storage test message';
         const backend = settings.vector_backend || 'standard';
         const backendType = backend === 'standard' ? 'vectra' : backend;
@@ -321,7 +321,7 @@ export async function testVectorDimensions(settings) {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
-                backend: settings.db || 'standard',
+                backend: settings.vector_backend || 'standard',
                 collectionId: collectionId,
                 source: settings.source || 'transformers',
                 model: settings[getModelField(settings.source)] || null,
@@ -852,7 +852,7 @@ export async function testPluginEmbeddingGeneration(settings) {
 
     try {
         const testCollectionId = `vh:test:embed_${Date.now()}`;
-        const testHash = Math.floor(Math.random() * 1000000);
+        const testHash = String(Math.floor(Math.random() * 1000000));
         const testText = 'Plugin embedding generation test';
 
         // Try to insert WITHOUT providing a vector - the plugin must generate it

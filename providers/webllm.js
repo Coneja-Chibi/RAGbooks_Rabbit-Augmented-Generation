@@ -1,4 +1,11 @@
-export class WebLlmVectorProvider {
+/**
+ * WebLLM Vector Provider - Singleton Pattern
+ *
+ * This provider manages the WebLLM engine for embedding generation.
+ * Uses singleton pattern to ensure only one engine instance exists across
+ * the entire application (both core-vector-api and ui-manager).
+ */
+class WebLlmVectorProvider {
     /** @type {object?} WebLLM engine */
     #engine = null;
 
@@ -61,4 +68,30 @@ export class WebLlmVectorProvider {
     async loadModel(modelId) {
         await this.#initEngine(modelId);
     }
+
+    /**
+     * Check if the engine has a model loaded
+     * @returns {boolean} True if a model is loaded
+     */
+    hasLoadedModel() {
+        return this.#engine !== null;
+    }
 }
+
+// Singleton instance - shared across all imports
+let singletonInstance = null;
+
+/**
+ * Get the shared WebLLM provider instance (singleton).
+ * Use this instead of creating new instances to ensure engine state is shared.
+ * @returns {WebLlmVectorProvider} The shared provider instance
+ */
+export function getWebLlmProvider() {
+    if (!singletonInstance) {
+        singletonInstance = new WebLlmVectorProvider();
+    }
+    return singletonInstance;
+}
+
+// Export class for type checking (but prefer getWebLlmProvider() for instances)
+export { WebLlmVectorProvider };

@@ -21,6 +21,7 @@ import { saveSettingsDebounced } from '../../../../../script.js';
  */
 const defaultCollectionMeta = {
     enabled: true,
+    autoSync: false,  // Per-collection auto-sync for chat vectorization
     scope: 'unknown',
     displayName: null,
     description: '',
@@ -279,6 +280,32 @@ export function setCollectionEnabled(collectionId, enabled) {
 export function isCollectionEnabled(collectionId) {
     const meta = getCollectionMeta(collectionId);
     return meta.enabled !== false;
+}
+
+// ============================================================================
+// AUTO-SYNC STATE (per-collection auto-sync for chat vectorization)
+// ============================================================================
+
+/**
+ * Sets whether auto-sync is enabled for a collection
+ * @param {string} collectionId Collection identifier
+ * @param {boolean} autoSync Whether auto-sync is enabled
+ */
+export function setCollectionAutoSync(collectionId, autoSync) {
+    setCollectionMeta(collectionId, { autoSync: autoSync });
+}
+
+/**
+ * Checks if auto-sync is enabled for a collection
+ * @param {string} collectionId Collection identifier
+ * @returns {boolean} Whether auto-sync is enabled (default: false)
+ */
+export function isCollectionAutoSyncEnabled(collectionId) {
+    if (!collectionId) {
+        return false;
+    }
+    const meta = getCollectionMeta(collectionId);
+    return meta.autoSync === true;
 }
 
 // ============================================================================

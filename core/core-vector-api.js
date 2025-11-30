@@ -28,7 +28,7 @@ import { secret_state } from '../../../../secrets.js';
 import { textgen_types, textgenerationwebui_settings } from '../../../../textgen-settings.js';
 import { oai_settings } from '../../../../openai.js';
 import { isWebLlmSupported } from '../../../shared.js';
-import { WebLlmVectorProvider } from '../providers/webllm.js';
+import { getWebLlmProvider } from '../providers/webllm.js';
 import { getBackend } from '../backends/backend-manager.js';
 import {
     getProviderConfig,
@@ -51,8 +51,8 @@ import {
     RETRY_BACKOFF_MULTIPLIER
 } from './constants.js';
 
-// Initialize WebLLM provider
-const webllmProvider = new WebLlmVectorProvider();
+// Get shared WebLLM provider singleton (lazy-initialized)
+const webllmProvider = getWebLlmProvider();
 
 /**
  * Rate limiter that respects user settings dynamically.
@@ -469,7 +469,12 @@ export function throwIfSourceInvalid(settings) {
     if (requiresApiKey(source)) {
         const secretKey = getSecretKey(source);
         if (secretKey && !secret_state[secretKey]) {
-            throw new Error('VectHare: API key missing', { cause: 'api_key_missing' });
+            // Special case: VertexAI can use service account as fallback
+            if (source === 'vertexai' && secret_state['VERTEXAI_SERVICE_ACCOUNT']) {
+                // Service account auth is available, continue
+            } else {
+                throw new Error('VectHare: API key missing', { cause: 'api_key_missing' });
+            }
         }
     }
 
@@ -582,22 +587,27 @@ export async function insertVectorItems(collectionId, items, settings) {
         const textStrings = items.map(item => item.text || item);
         const additionalArgs = await getAdditionalArgs(textStrings, settings);
 
-        if (additionalArgs.embeddings && additionalArgs.embeddings.length === items.length) {
+        // additionalArgs.embeddings is a Record<string, number[]> where keys are original text
+        // We need to match by text content, not array index
+        if (additionalArgs.embeddings && Object.keys(additionalArgs.embeddings).length === items.length) {
             // Attach embeddings to items as .vector property
             for (let i = 0; i < items.length; i++) {
-                items[i].vector = additionalArgs.embeddings[i];
+                const text = items[i].text || items[i];
+                items[i].vector = additionalArgs.embeddings[text];
             }
             console.log(`VectHare: Attached ${items.length} embeddings to items`);
         } else {
-            throw new Error(`VectHare: Failed to generate embeddings for ${settings.source} - got ${additionalArgs.embeddings?.length || 0} embeddings for ${items.length} items`);
+            const gotCount = additionalArgs.embeddings ? Object.keys(additionalArgs.embeddings).length : 0;
+            throw new Error(`VectHare: Failed to generate embeddings for ${settings.source} - got ${gotCount} embeddings for ${items.length} items`);
         }
     }
 
     // If rate limiting is enabled, batch execution
     if (settings.rate_limit_calls > 0) {
-        // Use a reasonable batch size for the APIs (e.g. 10 items per request)
-        // This ensures we don't send too many items in one go, but also don't span too many requests
-        const BATCH_SIZE = 10;
+        // Batch size depends on provider - some need smaller batches
+        // Ollama and Transformers work best with batch size of 1 (like Stock ST)
+        const smallBatchProviders = ['transformers', 'ollama'];
+        const BATCH_SIZE = smallBatchProviders.includes(settings.source) ? 1 : 10;
         const batches = chunkArray(items, BATCH_SIZE);
 
         console.log(`VectHare: Processing ${items.length} items in ${batches.length} batches with rate limit (Max ${settings.rate_limit_calls} calls / ${settings.rate_limit_interval}s)`);
@@ -648,10 +658,11 @@ export async function queryCollection(collectionId, searchText, topK, settings) 
 
     // If source requires client-side embeddings, generate query vector
     if (clientSideEmbeddingSources.includes(settings.source)) {
-        const queryItem = [{ text: searchText, hash: 0 }];
-        const additionalArgs = await getAdditionalArgs(queryItem, settings);
-        if (additionalArgs.embeddings && additionalArgs.embeddings.length > 0) {
-            queryVector = additionalArgs.embeddings[0];
+        // getAdditionalArgs expects string[], not objects
+        const additionalArgs = await getAdditionalArgs([searchText], settings);
+        // additionalArgs.embeddings is a Record<string, number[]> where keys are original text
+        if (additionalArgs.embeddings && additionalArgs.embeddings[searchText]) {
+            queryVector = additionalArgs.embeddings[searchText];
         } else {
             throw new Error(`VectHare: Failed to generate query embedding for ${settings.source}`);
         }
@@ -706,10 +717,11 @@ export async function queryMultipleCollections(collectionIds, searchText, topK, 
 
     // Generate query vector once for all collections (efficiency)
     if (clientSideEmbeddingSources.includes(settings.source)) {
-        const queryItem = [{ text: searchText, hash: 0 }];
-        const additionalArgs = await getAdditionalArgs(queryItem, settings);
-        if (additionalArgs.embeddings && additionalArgs.embeddings.length > 0) {
-            queryVector = additionalArgs.embeddings[0];
+        // getAdditionalArgs expects string[], not objects
+        const additionalArgs = await getAdditionalArgs([searchText], settings);
+        // additionalArgs.embeddings is a Record<string, number[]> where keys are original text
+        if (additionalArgs.embeddings && additionalArgs.embeddings[searchText]) {
+            queryVector = additionalArgs.embeddings[searchText];
         } else {
             throw new Error(`VectHare: Failed to generate query embedding for ${settings.source}`);
         }

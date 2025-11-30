@@ -397,7 +397,15 @@ async function rerankWithBananaBread(query, chunks, settings) {
  * @returns {Promise<object>} Progress info
  */
 export async function synchronizeChat(settings, batchSize = 5) {
-    if (!settings.enabled_chats) {
+    // Build proper collection ID using chat UUID first
+    const collectionId = getChatCollectionId();
+    if (!collectionId) {
+        return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
+    }
+
+    // Check per-collection autoSync setting instead of global enabled_chats
+    const { isCollectionAutoSyncEnabled } = await import('./collection-metadata.js');
+    if (!isCollectionAutoSyncEnabled(collectionId)) {
         return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
     }
 
@@ -418,13 +426,6 @@ export async function synchronizeChat(settings, batchSize = 5) {
         const context = getContext();
 
         if (!getCurrentChatId() || !Array.isArray(context.chat)) {
-            return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
-        }
-
-        // Build proper collection ID using chat UUID
-        const collectionId = getChatCollectionId();
-        if (!collectionId) {
-            console.error('VectHare: Could not get collection ID for chat');
             return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
         }
 
@@ -538,8 +539,9 @@ function gatherCollectionsToQuery(settings) {
     const chatCollectionId = getChatCollectionId();
     const collectionsToQuery = [];
 
-    // Include chat collection if enabled_chats is true AND we have a valid collection ID
-    if (settings.enabled_chats && chatCollectionId) {
+    // Include chat collection if it's enabled AND we have a valid collection ID
+    // Uses per-collection enabled state, not global enabled_chats
+    if (chatCollectionId && isCollectionEnabled(chatCollectionId)) {
         collectionsToQuery.push(chatCollectionId);
     }
 

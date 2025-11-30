@@ -16,6 +16,10 @@ import { getRequestHeaders } from '../../../../../script.js';
 import { VectorBackend } from './backend-interface.js';
 import { getModelField } from '../core/providers.js';
 import { VECTOR_LIST_LIMIT } from '../core/constants.js';
+import { extension_settings } from '../../../../extensions.js';
+import { textgen_types, textgenerationwebui_settings } from '../../../../textgen-settings.js';
+import { oai_settings } from '../../../../openai.js';
+import { secret_state } from '../../../../secrets.js';
 
 const BACKEND_TYPE = 'vectra';
 
@@ -25,6 +29,85 @@ const BACKEND_TYPE = 'vectra';
 function getModelFromSettings(settings) {
     const modelField = getModelField(settings.source);
     return modelField ? settings[modelField] || '' : '';
+}
+
+/**
+ * Build provider-specific parameters for the plugin API.
+ * This ensures all provider-specific fields (URLs, API keys, input_type, etc.)
+ * are passed through to the server-side embedding handlers.
+ *
+ * @param {object} settings - VectHare settings
+ * @param {boolean} isQuery - Whether this is a query operation (affects Cohere input_type)
+ * @returns {object} Provider-specific parameters to merge into request body
+ */
+function getProviderSpecificParams(settings, isQuery = false) {
+    const params = {};
+    const source = settings.source;
+
+    switch (source) {
+        case 'extras':
+            // Extras requires URL and key from extension_settings
+            params.extrasUrl = extension_settings.apiUrl;
+            params.extrasKey = extension_settings.apiKey;
+            break;
+
+        case 'cohere':
+            // Cohere requires input_type to distinguish queries from documents
+            // This is CRITICAL for proper embedding quality
+            params.input_type = isQuery ? 'search_query' : 'search_document';
+            break;
+
+        case 'ollama':
+            // Ollama needs apiUrl and keep_alive setting
+            params.apiUrl = settings.use_alt_endpoint
+                ? settings.alt_endpoint_url
+                : textgenerationwebui_settings.server_urls[textgen_types.OLLAMA];
+            params.keep = !!settings.ollama_keep;
+            break;
+
+        case 'llamacpp':
+            params.apiUrl = settings.use_alt_endpoint
+                ? settings.alt_endpoint_url
+                : textgenerationwebui_settings.server_urls[textgen_types.LLAMACPP];
+            break;
+
+        case 'vllm':
+            params.apiUrl = settings.use_alt_endpoint
+                ? settings.alt_endpoint_url
+                : textgenerationwebui_settings.server_urls[textgen_types.VLLM];
+            break;
+
+        case 'bananabread':
+            params.apiUrl = settings.use_alt_endpoint
+                ? settings.alt_endpoint_url
+                : 'http://localhost:8008';
+            // Pass API key if available
+            if (secret_state['bananabread_api_key']) {
+                const secrets = secret_state['bananabread_api_key'];
+                const activeSecret = Array.isArray(secrets) ? (secrets.find(s => s.active) || secrets[0]) : null;
+                if (activeSecret) {
+                    params.apiKey = activeSecret.value;
+                }
+            }
+            break;
+
+        case 'palm':
+            params.api = 'makersuite';
+            break;
+
+        case 'vertexai':
+            params.api = 'vertexai';
+            params.vertexai_auth_mode = oai_settings.vertexai_auth_mode;
+            params.vertexai_region = oai_settings.vertexai_region;
+            params.vertexai_express_project_id = oai_settings.vertexai_express_project_id;
+            break;
+
+        default:
+            // No additional params needed
+            break;
+    }
+
+    return params;
 }
 
 export class StandardBackend extends VectorBackend {
@@ -72,6 +155,9 @@ export class StandardBackend extends VectorBackend {
     }
 
     async getSavedHashes(collectionId, settings) {
+        // Get provider-specific params (not a query, just listing)
+        const providerParams = getProviderSpecificParams(settings, false);
+
         const response = await fetch('/api/plugins/similharity/chunks/list', {
             method: 'POST',
             headers: getRequestHeaders(),
@@ -81,6 +167,8 @@ export class StandardBackend extends VectorBackend {
                 source: settings.source || 'transformers',
                 model: getModelFromSettings(settings),
                 limit: VECTOR_LIST_LIMIT, // Get all for hash comparison
+                // Merge provider-specific params
+                ...providerParams,
             }),
         });
 
@@ -95,6 +183,9 @@ export class StandardBackend extends VectorBackend {
 
     async insertVectorItems(collectionId, items, settings) {
         if (items.length === 0) return;
+
+        // Get provider-specific params (isQuery=false for inserts - these are documents)
+        const providerParams = getProviderSpecificParams(settings, false);
 
         const response = await fetch('/api/plugins/similharity/chunks/insert', {
             method: 'POST',
@@ -123,6 +214,8 @@ export class StandardBackend extends VectorBackend {
                 })),
                 source: settings.source || 'transformers',
                 model: getModelFromSettings(settings),
+                // Merge provider-specific params (extras URL/key, cohere input_type, etc.)
+                ...providerParams,
             }),
         });
 
@@ -154,14 +247,19 @@ export class StandardBackend extends VectorBackend {
     }
 
     async queryCollection(collectionId, searchText, topK, settings, queryVector = null) {
+        // Get provider-specific params (isQuery=true for queries)
+        const providerParams = getProviderSpecificParams(settings, true);
+
         // Build request body - use queryVector if provided, otherwise searchText
         const requestBody = {
             backend: BACKEND_TYPE,
             collectionId: collectionId,
             topK: topK,
-            threshold: 0.0,
+            threshold: settings.score_threshold || 0.0, // Use user's threshold setting
             source: settings.source || 'transformers',
             model: getModelFromSettings(settings),
+            // Merge provider-specific params (cohere input_type='search_query', etc.)
+            ...providerParams,
         };
 
         if (queryVector) {
@@ -196,6 +294,9 @@ export class StandardBackend extends VectorBackend {
     }
 
     async queryMultipleCollections(collectionIds, searchText, topK, threshold, settings, queryVector = null) {
+        // Get provider-specific params (isQuery=true for queries)
+        const providerParams = getProviderSpecificParams(settings, true);
+
         // Query each collection separately (unified API handles one at a time)
         const results = {};
 
@@ -209,6 +310,8 @@ export class StandardBackend extends VectorBackend {
                     threshold: threshold,
                     source: settings.source || 'transformers',
                     model: getModelFromSettings(settings),
+                    // Merge provider-specific params (cohere input_type='search_query', etc.)
+                    ...providerParams,
                 };
 
                 if (queryVector) {

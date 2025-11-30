@@ -41,8 +41,10 @@ const Jaccard = {
       }
     }
 
-    // Handle edge case where both vectors are all zeros
-    if (union === 0) return 0;
+    // Handle edge case where both vectors are all zeros (empty sets)
+    // By mathematical convention, two identical empty sets have similarity 1
+    // (they are identical - both contain nothing)
+    if (union === 0) return 1;
 
     return intersection / union;
   },

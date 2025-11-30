@@ -219,6 +219,9 @@ jQuery(async () => {
         onRunDiagnostics: onRunDiagnosticsClick
     });
 
+    // Initialize auto-sync checkbox state for current chat (if any)
+    refreshAutoSyncCheckbox(settings);
+
     // Initialize visualizer
     initializeVisualizer();
 

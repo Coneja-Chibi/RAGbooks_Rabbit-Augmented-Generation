@@ -11,7 +11,8 @@
 
 import { getCurrentChatId, is_send_press, setExtensionPrompt, substituteParams, chat_metadata, extension_prompts } from '../../../../../script.js';
 import { getContext } from '../../../../extensions.js';
-import { getStringHash as calculateHash, waitUntilCondition, onlyUnique, splitRecursive } from '../../../../utils.js';
+import { getStringHash as calculateHash, waitUntilCondition, onlyUnique } from '../../../../utils.js';
+import { isUnitStrategy } from './chunking.js';
 import {
     getSavedHashes,
     insertVectorItems,
@@ -105,47 +106,93 @@ function getTextWithoutAttachments(message) {
     return String(message?.mes || '').substring(fileLength).trim();
 }
 
-/**
- * Gets chunk delimiters for splitting text
- * @returns {string[]} Array of delimiters
- */
-function getChunkDelimiters() {
-    return ['\n\n', '\n', ' ', ''];
-}
+// Threshold for applying adaptive splitting to oversized messages (matches chunking.js)
+const OVERSIZED_MESSAGE_THRESHOLD = 2000;
 
 /**
- * Splits messages into chunks
+ * Applies adaptive splitting to oversized items
+ * Only splits items that exceed the threshold - unit strategies keep items intact otherwise
  * @param {object[]} items Array of vector items
- * @param {number} chunkSize Maximum chunk size in characters
- * @returns {object[]} Chunked items
+ * @returns {object[]} Items with oversized ones split
  */
-function splitByChunks(items, chunkSize) {
-    if (chunkSize <= 0) {
-        return items;
-    }
-
-    const chunkedItems = [];
+function splitOversizedItems(items) {
+    const result = [];
     for (const item of items) {
-        const chunks = splitRecursive(item.text, chunkSize, getChunkDelimiters());
-        for (let i = 0; i < chunks.length; i++) {
-            // Compute unique hash from chunk text for proper identification in visualizer
-            const chunkHash = getStringHash(chunks[i]);
-            chunkedItems.push({
+        if (item.text.length > OVERSIZED_MESSAGE_THRESHOLD) {
+            // Split oversized item using adaptive chunking
+            const subChunks = adaptiveSplit(item.text);
+            for (let i = 0; i < subChunks.length; i++) {
+                const chunkHash = getStringHash(subChunks[i]);
+                result.push({
+                    ...item,
+                    hash: chunkHash,
+                    text: subChunks[i],
+                    metadata: {
+                        ...item.metadata,
+                        source: 'chat',
+                        isSubChunk: true,
+                        subChunkIndex: i,
+                        subChunkTotal: subChunks.length,
+                        originalHash: item.hash
+                    }
+                });
+            }
+        } else {
+            // Keep item as-is
+            result.push({
                 ...item,
-                hash: chunkHash,  // Unique hash for this chunk's text
-                text: chunks[i],
                 metadata: {
                     ...item.metadata,
                     source: 'chat',
-                    messageId: item.index,
-                    chunkIndex: i,
-                    totalChunks: chunks.length,
-                    originalMessageHash: item.hash  // Track which message this came from
                 }
             });
         }
     }
-    return chunkedItems;
+    return result;
+}
+
+/**
+ * Simple adaptive splitting for oversized text
+ * Splits at paragraphs first, then sentences, then words
+ * @param {string} text Text to split
+ * @param {number} maxSize Maximum chunk size
+ * @returns {string[]} Array of chunks
+ */
+function adaptiveSplit(text, maxSize = 500) {
+    const chunks = [];
+    const paragraphs = text.split(/\n\n+/).filter(p => p.trim());
+    let currentChunk = '';
+
+    for (const para of paragraphs) {
+        const trimmed = para.trim();
+        if (!trimmed) continue;
+
+        if (currentChunk.length + trimmed.length + 2 > maxSize) {
+            if (currentChunk) {
+                chunks.push(currentChunk.trim());
+                currentChunk = '';
+            }
+            if (trimmed.length > maxSize) {
+                // Split large paragraph by sentences
+                const sentences = trimmed.split(/(?<=[.!?])\s+/);
+                for (const sentence of sentences) {
+                    if (currentChunk.length + sentence.length + 1 <= maxSize) {
+                        currentChunk += (currentChunk ? ' ' : '') + sentence;
+                    } else {
+                        if (currentChunk) chunks.push(currentChunk);
+                        currentChunk = sentence.length > maxSize ? sentence.substring(0, maxSize) : sentence;
+                    }
+                }
+            } else {
+                currentChunk = trimmed;
+            }
+        } else {
+            currentChunk += (currentChunk ? '\n\n' : '') + trimmed;
+        }
+    }
+
+    if (currentChunk) chunks.push(currentChunk.trim());
+    return chunks.length > 0 ? chunks : [text];
 }
 
 /**
@@ -476,8 +523,8 @@ export async function synchronizeChat(settings, batchSize = 5) {
             const item = queue.dequeue();
 
             try {
-                // Chunk this item (which may be 1 message, a turn pair, or a batch)
-                const chunks = splitByChunks([item], settings.message_chunk_size);
+                // Process item - only split if oversized (unit strategies keep items intact)
+                const chunks = splitOversizedItems([item]);
 
                 // Insert chunks (insertVectorItems handles duplicates at DB level)
                 if (chunks.length > 0) {

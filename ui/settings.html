@@ -485,11 +485,11 @@
                         </label>
                     </div>
                     <div class="flex-container">
-                        <div class="flex1" title="Can increase the retrieval quality for the cost of processing. 0 = disabled.">
-                            <label for="vecthare_message_chunk_size">
-                                <small data-i18n="Chunk size (chars)">Chunk size (chars)</small>
+                        <div class="flex1" title="Target chunk size for adaptive strategy. Unit strategies ignore this.">
+                            <label for="vecthare_chunk_size">
+                                <small data-i18n="Chunk size (adaptive)">Chunk size (adaptive)</small>
                             </label>
-                            <input id="vecthare_message_chunk_size" type="number" class="text_pole widthUnset" min="0" max="9999" />
+                            <input id="vecthare_chunk_size" type="number" class="text_pole widthUnset" min="100" max="9999" />
                         </div>
                         <div class="flex1" title="Prevents last N messages from being placed out of order.">
                             <label for="vecthare_protect">

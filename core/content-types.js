@@ -6,11 +6,11 @@
  * features while sharing the same pipeline infrastructure.
  *
  * CHUNKING STRATEGY DESIGN:
- * - "unit" strategies (per_message, per_entry, per_field, per_page) = no size controls
- * - "text" strategies (recursive, paragraph, sliding) = show size/overlap controls
+ * - "unit" strategies (per_message, conversation_turns, message_batch, per_entry, per_field) = no size controls
+ * - "text" strategies (adaptive, paragraph, section, sentence) = show size controls where applicable
  *
  * @author Coneja Chibi
- * @version 2.0.0-alpha
+ * @version 3.0.0
  * ============================================================================
  */
 
@@ -18,25 +18,50 @@
  * Chunking strategy metadata
  * needsSize: whether chunk size slider should appear
  * needsOverlap: whether overlap slider should appear
+ * needsBatchSize: whether batch size slider should appear (for message_batch)
  */
 export const CHUNKING_STRATEGIES = {
-    // ========================================================================
-    // UNIT-BASED STRATEGIES (no size controls - the unit IS the chunk)
-    // ========================================================================
+    // =========================================================================
+    // CHAT STRATEGIES (unit-based, no size controls)
+    // =========================================================================
     per_message: {
         id: 'per_message',
         name: 'Per Message',
-        description: 'Each message becomes one chunk. Best for chat recall.',
+        description: 'Each message becomes one chunk. Best for precise recall.',
         needsSize: false,
         needsOverlap: false,
+        needsBatchSize: false,
         bestFor: ['chat'],
     },
+    conversation_turns: {
+        id: 'conversation_turns',
+        name: 'Conversation Turns',
+        description: 'Pairs user + AI messages together. Good for dialogue context.',
+        needsSize: false,
+        needsOverlap: false,
+        needsBatchSize: false,
+        bestFor: ['chat'],
+    },
+    message_batch: {
+        id: 'message_batch',
+        name: 'Message Batch',
+        description: 'Groups N messages together. Configurable batch size.',
+        needsSize: false,
+        needsOverlap: false,
+        needsBatchSize: true,
+        bestFor: ['chat'],
+    },
+
+    // =========================================================================
+    // CONTENT STRATEGIES (unit-based, no size controls)
+    // =========================================================================
     per_entry: {
         id: 'per_entry',
         name: 'Per Entry',
         description: 'Each lorebook entry becomes one chunk. Preserves WI structure.',
         needsSize: false,
         needsOverlap: false,
+        needsBatchSize: false,
         bestFor: ['lorebook'],
     },
     per_field: {
@@ -45,6 +70,7 @@ export const CHUNKING_STRATEGIES = {
         description: 'Each character field becomes one chunk. Enables field-specific retrieval.',
         needsSize: false,
         needsOverlap: false,
+        needsBatchSize: false,
         bestFor: ['character'],
     },
     per_page: {
@@ -53,37 +79,22 @@ export const CHUNKING_STRATEGIES = {
         description: 'Each wiki page becomes one chunk. Best for multi-page scrapes.',
         needsSize: false,
         needsOverlap: false,
+        needsBatchSize: false,
         bestFor: ['wiki'],
     },
-    by_speaker: {
-        id: 'by_speaker',
-        name: 'By Speaker Turn',
-        description: 'Groups consecutive messages from the same speaker.',
-        needsSize: false,
-        needsOverlap: false,
-        bestFor: ['chat'],
-    },
-    by_scene: {
-        id: 'by_scene',
-        name: 'By Scene',
-        description: 'Each marked scene becomes one chunk. Requires closed scenes.',
-        needsSize: false,
-        needsOverlap: false,
-        bestFor: ['chat'],
-    },
 
-    // ========================================================================
-    // TEXT-BASED STRATEGIES (need size/overlap controls)
-    // ========================================================================
+    // =========================================================================
+    // TEXT STRATEGIES (size-based)
+    // =========================================================================
     adaptive: {
         id: 'adaptive',
         name: 'Adaptive',
         description: 'Intelligently splits at natural boundaries (paragraphs → sentences → words).',
         needsSize: true,
-        needsOverlap: true,
-        bestFor: ['document', 'url', 'wiki', 'youtube'],
-        defaultSize: 400,
-        defaultOverlap: 50,
+        needsOverlap: false,
+        needsBatchSize: false,
+        bestFor: ['chat', 'document', 'url', 'wiki', 'youtube'],
+        defaultSize: 500,
     },
     paragraph: {
         id: 'paragraph',
@@ -91,6 +102,7 @@ export const CHUNKING_STRATEGIES = {
         description: 'Splits on double newlines. Each paragraph becomes a chunk.',
         needsSize: false,
         needsOverlap: false,
+        needsBatchSize: false,
         bestFor: ['document', 'url', 'lorebook'],
     },
     section: {
@@ -99,17 +111,8 @@ export const CHUNKING_STRATEGIES = {
         description: 'Splits on markdown headers (#, ##). Each section becomes a chunk.',
         needsSize: false,
         needsOverlap: false,
+        needsBatchSize: false,
         bestFor: ['document', 'url', 'wiki'],
-    },
-    sliding: {
-        id: 'sliding',
-        name: 'Sliding Window',
-        description: 'Fixed-size chunks with overlap. Maximum context continuity.',
-        needsSize: true,
-        needsOverlap: true,
-        bestFor: ['document', 'youtube'],
-        defaultSize: 400,
-        defaultOverlap: 100,
     },
     sentence: {
         id: 'sentence',
@@ -117,9 +120,19 @@ export const CHUNKING_STRATEGIES = {
         description: 'Groups sentences up to target size. Most granular text splitting.',
         needsSize: true,
         needsOverlap: false,
+        needsBatchSize: false,
         bestFor: ['document'],
         defaultSize: 300,
-        defaultOverlap: 0,
+    },
+    dialogue: {
+        id: 'dialogue',
+        name: 'Dialogue-Aware',
+        description: 'Keeps quoted speech intact. Best for transcripts and scripts.',
+        needsSize: true,
+        needsOverlap: false,
+        needsBatchSize: false,
+        bestFor: ['document', 'youtube'],
+        defaultSize: 400,
     },
 };
 
@@ -145,6 +158,13 @@ export function strategyNeedsOverlap(strategyId) {
 }
 
 /**
+ * Check if a strategy needs batch size controls
+ */
+export function strategyNeedsBatchSize(strategyId) {
+    return CHUNKING_STRATEGIES[strategyId]?.needsBatchSize ?? false;
+}
+
+/**
  * Content Type Definitions
  * Each type defines its unique characteristics while sharing core infrastructure
  */
@@ -162,13 +182,13 @@ export const CONTENT_TYPES = {
             scenes: true,
         },
 
-        // Strategies ordered by recommendation
-        chunkingStrategies: ['per_message', 'by_speaker', 'by_scene', 'adaptive', 'sliding'],
+        // Chat strategies: per_message, conversation_turns, message_batch, adaptive
+        chunkingStrategies: ['per_message', 'conversation_turns', 'message_batch', 'adaptive'],
         defaultStrategy: 'per_message',
 
         defaults: {
             chunkSize: 500,
-            chunkOverlap: 50,
+            batchSize: 4,
             temporalDecay: { enabled: true, halfLife: 50, floor: 0.3 },
             autoKeywords: false,
         },
@@ -198,7 +218,6 @@ export const CONTENT_TYPES = {
 
         defaults: {
             chunkSize: 600,
-            chunkOverlap: 50,
             autoKeywords: true,
             scope: 'global',
         },
@@ -229,7 +248,6 @@ export const CONTENT_TYPES = {
 
         defaults: {
             chunkSize: 400,
-            chunkOverlap: 30,
             autoKeywords: true,
             scope: 'character',
             fields: {
@@ -264,12 +282,11 @@ export const CONTENT_TYPES = {
             sectionHeaders: true,
         },
 
-        chunkingStrategies: ['adaptive', 'section', 'paragraph', 'sliding'],
+        chunkingStrategies: ['adaptive', 'section', 'paragraph'],
         defaultStrategy: 'adaptive',
 
         defaults: {
             chunkSize: 400,
-            chunkOverlap: 50,
             autoKeywords: true,
             scope: 'global',
         },
@@ -292,12 +309,11 @@ export const CONTENT_TYPES = {
             sectionHeaders: true,
         },
 
-        chunkingStrategies: ['adaptive', 'section', 'paragraph', 'sentence', 'sliding'],
+        chunkingStrategies: ['adaptive', 'section', 'paragraph', 'sentence', 'dialogue'],
         defaultStrategy: 'adaptive',
 
         defaults: {
             chunkSize: 400,
-            chunkOverlap: 50,
             autoKeywords: false,
             scope: 'global',
         },
@@ -325,12 +341,11 @@ export const CONTENT_TYPES = {
             bulkScrape: true,
         },
 
-        chunkingStrategies: ['per_page', 'section', 'adaptive', 'sliding'],
+        chunkingStrategies: ['per_page', 'section', 'adaptive'],
         defaultStrategy: 'per_page',
 
         defaults: {
             chunkSize: 600,
-            chunkOverlap: 75,
             autoKeywords: true,
             scope: 'global',
             wikiType: 'fandom',
@@ -360,12 +375,11 @@ export const CONTENT_TYPES = {
             timestamps: true,
         },
 
-        chunkingStrategies: ['adaptive', 'paragraph', 'sliding'],
+        chunkingStrategies: ['adaptive', 'paragraph', 'dialogue'],
         defaultStrategy: 'adaptive',
 
         defaults: {
             chunkSize: 400,
-            chunkOverlap: 50,
             autoKeywords: true,
             scope: 'global',
         },

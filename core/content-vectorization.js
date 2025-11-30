@@ -395,7 +395,8 @@ function prepareCharacterContent(rawContent, settings) {
 }
 
 /**
- * Prepares chat content
+ * Prepares chat content for chunking
+ * Maps to the unified chunking strategies in chunking.js
  */
 function prepareChatContent(rawContent, settings) {
     const messages = rawContent.messages || rawContent.content;
@@ -407,58 +408,47 @@ function prepareChatContent(rawContent, settings) {
     // Filter out system messages and empty messages
     const validMessages = messages.filter(m => m.mes && !m.is_system);
 
-    // For by_message strategy, return individual messages
-    if (settings.strategy === 'by_message') {
+    // Normalize messages to have consistent properties for chunking.js
+    const normalizedMessages = validMessages.map((m, idx) => ({
+        text: m.mes,
+        mes: m.mes,
+        is_user: m.is_user,
+        name: m.name,
+        index: idx,
+        id: m.send_date || m.id || idx,
+    }));
+
+    // For per_message strategy - return array of messages for chunking.js
+    if (settings.strategy === 'per_message') {
         return {
-            text: validMessages.map(m => ({
-                text: m.mes,
-                metadata: {
-                    speaker: m.is_user ? 'user' : (m.name || 'assistant'),
-                    isUser: m.is_user,
-                    messageId: m.send_date || m.id,
-                },
-            })),
+            text: normalizedMessages,
             type: 'messages',
             messages: validMessages,
         };
     }
 
-    // For by_speaker strategy, group consecutive messages by same speaker
-    if (settings.strategy === 'by_speaker') {
-        const groups = [];
-        let currentGroup = null;
-
-        for (const msg of validMessages) {
-            const speaker = msg.is_user ? 'user' : (msg.name || 'assistant');
-
-            if (!currentGroup || currentGroup.speaker !== speaker) {
-                if (currentGroup) groups.push(currentGroup);
-                currentGroup = {
-                    speaker,
-                    messages: [msg],
-                    text: msg.mes,
-                };
-            } else {
-                currentGroup.messages.push(msg);
-                currentGroup.text += '\n' + msg.mes;
-            }
-        }
-        if (currentGroup) groups.push(currentGroup);
-
+    // For conversation_turns strategy - return array for chunking.js to pair
+    if (settings.strategy === 'conversation_turns') {
         return {
-            text: groups.map(g => ({
-                text: g.text,
-                metadata: { speaker: g.speaker, messageCount: g.messages.length },
-            })),
-            type: 'speaker_groups',
+            text: normalizedMessages,
+            type: 'messages',
             messages: validMessages,
         };
     }
 
-    // Default: combine all messages with speaker prefixes
+    // For message_batch strategy - return array for chunking.js to batch
+    if (settings.strategy === 'message_batch') {
+        return {
+            text: normalizedMessages,
+            type: 'messages',
+            messages: validMessages,
+        };
+    }
+
+    // For adaptive or other text strategies - combine into single text
     const combined = validMessages.map(m => {
-        const speaker = m.is_user ? 'You' : (m.name || 'Assistant');
-        return `${speaker}: ${m.mes}`;
+        const speaker = m.is_user ? 'User' : (m.name || 'Character');
+        return `[${speaker}]: ${m.mes}`;
     }).join('\n\n');
 
     return { text: combined, type: 'combined', messages: validMessages };

@@ -5,34 +5,49 @@
  * Unified chunking system for all content types.
  * Each strategy is a pure function that takes text and options, returns chunks.
  *
+ * CHAT STRATEGIES (unit-based, no size controls):
+ * - per_message: Each message = one chunk
+ * - conversation_turns: User+AI pairs = one chunk
+ * - message_batch: N messages = one chunk
+ *
+ * TEXT STRATEGIES (size-based):
+ * - adaptive: Smart splitting at natural boundaries
+ * - paragraph: Split on double newlines
+ * - section: Split on markdown headers
+ * - sentence: Group sentences to target size
+ *
+ * CONTENT STRATEGIES:
+ * - per_entry: Each lorebook entry = one chunk
+ * - per_field: Each character field = one chunk
+ * - combined: Merge then chunk with adaptive
+ *
  * @author Coneja Chibi
- * @version 2.0.0-alpha
+ * @version 3.0.0
  * ============================================================================
  */
 
-import { DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP, SENTENCE_SEARCH_WINDOW } from './constants.js';
+import { DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP } from './constants.js';
 
-// Note: Scenes are now stored as chunks directly in the vector DB with isScene:true metadata
-// The by_scene chunking strategy is deprecated - scenes are created via UI markers
+// Threshold for applying adaptive splitting to oversized messages
+const OVERSIZED_MESSAGE_THRESHOLD = 2000;
 
 /**
  * Main entry point - chunks text using specified strategy
- * @param {string} text - Text to chunk
+ * @param {string|Array|object} text - Text to chunk (format depends on strategy)
  * @param {object} options - Chunking options
  * @param {string} options.strategy - Strategy ID
- * @param {number} options.chunkSize - Target chunk size in characters
- * @param {number} options.chunkOverlap - Overlap between chunks
+ * @param {number} options.chunkSize - Target chunk size in characters (for text strategies)
+ * @param {number} options.batchSize - Messages per batch (for message_batch strategy)
  * @returns {Array<{text: string, metadata: object}>} Array of chunks
  */
 export async function chunkText(text, options = {}) {
     const {
-        strategy = 'paragraph',
+        strategy = 'adaptive',
         chunkSize = DEFAULT_CHUNK_SIZE,
         chunkOverlap = DEFAULT_CHUNK_OVERLAP,
+        batchSize = 4,
     } = options;
 
-    // Allow arrays for unit-based strategies (per_entry, by_message)
-    // Allow objects for per_field strategy (character fields)
     if (!text) {
         return [];
     }
@@ -44,8 +59,8 @@ export async function chunkText(text, options = {}) {
     }
 
     // Select strategy
-    const strategyFn = STRATEGIES[strategy] || STRATEGIES.paragraph;
-    const chunks = strategyFn(text, { chunkSize, chunkOverlap });
+    const strategyFn = STRATEGIES[strategy] || STRATEGIES.adaptive;
+    const chunks = strategyFn(text, { chunkSize, chunkOverlap, batchSize });
 
     // Add metadata to each chunk
     return chunks.map((chunk, index) => ({
@@ -63,31 +78,215 @@ export async function chunkText(text, options = {}) {
  * Strategy implementations
  */
 const STRATEGIES = {
+    // =========================================================================
+    // CHAT STRATEGIES (unit-based)
+    // =========================================================================
+
+    /**
+     * Per Message - each message becomes one chunk
+     * If a message is extremely long, splits it with adaptive strategy
+     * @param {Array} messages - Array of message objects with .text or .mes
+     */
+    per_message: (messages, options) => {
+        if (!Array.isArray(messages)) {
+            // Single text input - treat as one chunk, apply adaptive if oversized
+            const text = typeof messages === 'string' ? messages : (messages.text || messages.mes || String(messages));
+            if (text.length > OVERSIZED_MESSAGE_THRESHOLD) {
+                return adaptiveChunk(text, options);
+            }
+            return [text];
+        }
+
+        const chunks = [];
+        for (const msg of messages) {
+            const text = typeof msg === 'string' ? msg : (msg.text || msg.mes || '');
+            const speaker = msg.is_user ? 'User' : (msg.name || 'Character');
+            const isUser = msg.is_user || false;
+            const messageId = msg.index ?? msg.id ?? msg.send_date;
+
+            // If message is oversized, split it
+            if (text.length > OVERSIZED_MESSAGE_THRESHOLD) {
+                const subChunks = adaptiveChunk(text, options);
+                subChunks.forEach((subText, subIndex) => {
+                    chunks.push({
+                        text: subText,
+                        metadata: {
+                            speaker,
+                            isUser,
+                            messageId,
+                            isSubChunk: true,
+                            subChunkIndex: subIndex,
+                            subChunkTotal: subChunks.length,
+                        },
+                    });
+                });
+            } else {
+                chunks.push({
+                    text,
+                    metadata: {
+                        speaker,
+                        isUser,
+                        messageId,
+                    },
+                });
+            }
+        }
+        return chunks;
+    },
+
+    /**
+     * Conversation Turns - pairs user + AI messages together
+     * @param {Array} messages - Array of message objects
+     */
+    conversation_turns: (messages, options) => {
+        if (!Array.isArray(messages) || messages.length === 0) {
+            return [];
+        }
+
+        const chunks = [];
+        for (let i = 0; i < messages.length; i += 2) {
+            const pair = [messages[i]];
+            if (i + 1 < messages.length) {
+                pair.push(messages[i + 1]);
+            }
+
+            // Combine texts with speaker labels
+            const combinedText = pair.map(m => {
+                const role = m.is_user ? 'User' : (m.name || 'Character');
+                const text = m.text || m.mes || '';
+                return `[${role}]: ${text}`;
+            }).join('\n\n');
+
+            // If combined is oversized, split it
+            if (combinedText.length > OVERSIZED_MESSAGE_THRESHOLD) {
+                const subChunks = adaptiveChunk(combinedText, options);
+                subChunks.forEach((subText, subIndex) => {
+                    chunks.push({
+                        text: subText,
+                        metadata: {
+                            strategy: 'conversation_turns',
+                            messageIds: pair.map(m => m.index ?? m.id),
+                            startIndex: pair[0].index ?? pair[0].id,
+                            endIndex: pair[pair.length - 1].index ?? pair[pair.length - 1].id,
+                            isSubChunk: true,
+                            subChunkIndex: subIndex,
+                            subChunkTotal: subChunks.length,
+                        },
+                    });
+                });
+            } else {
+                chunks.push({
+                    text: combinedText,
+                    metadata: {
+                        strategy: 'conversation_turns',
+                        messageIds: pair.map(m => m.index ?? m.id),
+                        startIndex: pair[0].index ?? pair[0].id,
+                        endIndex: pair[pair.length - 1].index ?? pair[pair.length - 1].id,
+                    },
+                });
+            }
+        }
+        return chunks;
+    },
+
+    /**
+     * Message Batch - groups N messages together
+     * @param {Array} messages - Array of message objects
+     * @param {object} options - Must include batchSize
+     */
+    message_batch: (messages, options) => {
+        if (!Array.isArray(messages) || messages.length === 0) {
+            return [];
+        }
+
+        const batchSize = options.batchSize || 4;
+        const chunks = [];
+
+        for (let i = 0; i < messages.length; i += batchSize) {
+            const batch = messages.slice(i, i + batchSize);
+
+            // Combine texts with speaker labels
+            const combinedText = batch.map(m => {
+                const role = m.is_user ? 'User' : (m.name || 'Character');
+                const text = m.text || m.mes || '';
+                return `[${role}]: ${text}`;
+            }).join('\n\n');
+
+            // If combined is oversized, split it
+            if (combinedText.length > OVERSIZED_MESSAGE_THRESHOLD) {
+                const subChunks = adaptiveChunk(combinedText, options);
+                subChunks.forEach((subText, subIndex) => {
+                    chunks.push({
+                        text: subText,
+                        metadata: {
+                            strategy: 'message_batch',
+                            batchSize: batch.length,
+                            messageIds: batch.map(m => m.index ?? m.id),
+                            startIndex: batch[0].index ?? batch[0].id,
+                            endIndex: batch[batch.length - 1].index ?? batch[batch.length - 1].id,
+                            isSubChunk: true,
+                            subChunkIndex: subIndex,
+                            subChunkTotal: subChunks.length,
+                        },
+                    });
+                });
+            } else {
+                chunks.push({
+                    text: combinedText,
+                    metadata: {
+                        strategy: 'message_batch',
+                        batchSize: batch.length,
+                        messageIds: batch.map(m => m.index ?? m.id),
+                        startIndex: batch[0].index ?? batch[0].id,
+                        endIndex: batch[batch.length - 1].index ?? batch[batch.length - 1].id,
+                    },
+                });
+            }
+        }
+        return chunks;
+    },
+
+    /**
+     * Adaptive - intelligent splitting at natural boundaries
+     * Tries paragraphs first, then sentences, then words
+     */
+    adaptive: (text, options) => {
+        if (Array.isArray(text)) {
+            // If given array, treat as per_message
+            return STRATEGIES.per_message(text, options);
+        }
+        return adaptiveChunk(text, options);
+    },
+
+    // =========================================================================
+    // TEXT STRATEGIES (for documents, URLs, etc.)
+    // =========================================================================
+
     /**
      * Split on paragraph boundaries (double newlines)
-     * Each paragraph becomes its own chunk - no size-based splitting or merging
      */
     paragraph: (text, options) => {
-        // Split on double newlines OR horizontal rules (---)
+        if (typeof text !== 'string') {
+            return [String(text)];
+        }
         const paragraphs = text.split(/\n\n+|^---+$/m).filter(p => p.trim());
-
-        // Each paragraph is its own chunk - don't merge or split
         return paragraphs.map(p => p.trim());
     },
 
     /**
      * Split on markdown section headers
-     * Each section (from one header to the next) becomes its own chunk
      */
     section: (text, options) => {
-        // Match markdown headers (# to ######)
+        if (typeof text !== 'string') {
+            return [String(text)];
+        }
+
         const headerRegex = /^(#{1,6})\s+(.+)$/gm;
         const sections = [];
         let lastIndex = 0;
         let match;
 
         while ((match = headerRegex.exec(text)) !== null) {
-            // Get content before this header
             if (match.index > lastIndex) {
                 const beforeContent = text.slice(lastIndex, match.index).trim();
                 if (beforeContent) {
@@ -97,7 +296,6 @@ const STRATEGIES = {
             lastIndex = match.index;
         }
 
-        // Get remaining content
         if (lastIndex < text.length) {
             sections.push(text.slice(lastIndex).trim());
         }
@@ -107,21 +305,22 @@ const STRATEGIES = {
             return STRATEGIES.paragraph(text, options);
         }
 
-        // Each section is its own chunk - no splitting
         return sections.filter(s => s);
     },
 
     /**
-     * Split on sentence boundaries
+     * Split on sentence boundaries, grouping to target size
      */
     sentence: (text, options) => {
-        // Split on sentence-ending punctuation followed by space or newline
+        if (typeof text !== 'string') {
+            return [String(text)];
+        }
+
         const sentences = text
             .split(/(?<=[.!?])\s+/)
             .filter(s => s.trim())
             .map(s => s.trim());
 
-        // Group sentences to reach target chunk size
         const chunks = [];
         let currentChunk = '';
 
@@ -135,185 +334,84 @@ const STRATEGIES = {
         }
 
         if (currentChunk) chunks.push(currentChunk);
-
         return chunks;
     },
 
-    /**
-     * Smart size-based chunking with natural boundaries
-     */
-    natural: (text, options) => {
-        return naturalChunk(text, options);
-    },
+    // =========================================================================
+    // CONTENT STRATEGIES (lorebook, character, etc.)
+    // =========================================================================
 
     /**
-     * Adaptive chunking - alias for natural/recursive approach
-     * Intelligently splits at natural boundaries (paragraphs → sentences → words)
+     * Per Entry - each lorebook entry becomes one chunk
      */
-    adaptive: (text, options) => {
-        return naturalChunk(text, options);
-    },
-
-    /**
-     * Sliding window with overlap
-     */
-    sliding: (text, options) => {
-        const { chunkSize, chunkOverlap } = options;
-        const chunks = [];
-        let start = 0;
-
-        while (start < text.length) {
-            let end = start + chunkSize;
-
-            // Try to break at a natural boundary
-            if (end < text.length) {
-                // Look for sentence end
-                const searchStart = Math.max(end - SENTENCE_SEARCH_WINDOW, start);
-                const segment = text.slice(searchStart, end + SENTENCE_SEARCH_WINDOW);
-                const sentenceEnd = segment.search(/[.!?]\s/);
-
-                if (sentenceEnd !== -1) {
-                    end = searchStart + sentenceEnd + 1;
-                } else {
-                    // Look for word boundary
-                    const spaceIndex = text.lastIndexOf(' ', end);
-                    if (spaceIndex > start) {
-                        end = spaceIndex;
-                    }
-                }
-            } else {
-                end = text.length;
-            }
-
-            chunks.push(text.slice(start, end).trim());
-
-            // Move start, accounting for overlap
-            start = end - chunkOverlap;
-            if (start >= text.length) break;
+    per_entry: (entries, options) => {
+        if (!Array.isArray(entries)) {
+            return [typeof entries === 'string' ? entries : String(entries)];
         }
-
-        return chunks;
-    },
-
-    /**
-     * Per message (for chat) - expects array input
-     */
-    by_message: (text, options) => {
-        // If already split (array), return as-is
-        if (Array.isArray(text)) {
-            return text.map(t => typeof t === 'string' ? t : t.text || String(t));
-        }
-        // Otherwise treat as single chunk
-        return [text];
-    },
-
-    /**
-     * Per entry (for lorebook) - expects array input
-     */
-    per_entry: (text, options) => {
-        if (Array.isArray(text)) {
-            return text.map(t => typeof t === 'string' ? t : t.text || String(t));
-        }
-        return [text];
-    },
-
-    /**
-     * Per field (for character) - expects object input
-     */
-    per_field: (text, options) => {
-        if (typeof text === 'object' && !Array.isArray(text)) {
-            return Object.entries(text)
-                .filter(([, value]) => value && typeof value === 'string')
-                .map(([field, value]) => ({
-                    text: value,
-                    metadata: { field },
-                }));
-        }
-        return [text];
-    },
-
-    /**
-     * By speaker (for chat) - expects messages array
-     */
-    by_speaker: (messages, options) => {
-        if (!Array.isArray(messages)) return [messages];
-
-        const chunks = [];
-        let currentChunk = { speakers: [], messages: [], text: '' };
-
-        for (const msg of messages) {
-            const speaker = msg.name || msg.is_user ? 'user' : 'assistant';
-
-            // Check if same speaker or first message
-            if (currentChunk.messages.length === 0 ||
-                currentChunk.speakers[currentChunk.speakers.length - 1] === speaker) {
-                currentChunk.messages.push(msg);
-                currentChunk.text += (currentChunk.text ? '\n' : '') + `${speaker}: ${msg.mes || msg.text || ''}`;
-                if (!currentChunk.speakers.includes(speaker)) {
-                    currentChunk.speakers.push(speaker);
-                }
-            } else {
-                // Different speaker - start new chunk
-                if (currentChunk.text) {
-                    chunks.push({
-                        text: currentChunk.text,
-                        metadata: {
-                            speakers: currentChunk.speakers,
-                            messageCount: currentChunk.messages.length,
-                        },
-                    });
-                }
-                currentChunk = {
-                    speakers: [speaker],
-                    messages: [msg],
-                    text: `${speaker}: ${msg.mes || msg.text || ''}`,
-                };
-            }
-        }
-
-        // Push last chunk
-        if (currentChunk.text) {
-            chunks.push({
-                text: currentChunk.text,
+        return entries.map(e => {
+            const text = typeof e === 'string' ? e : (e.text || e.content || String(e));
+            return {
+                text,
                 metadata: {
-                    speakers: currentChunk.speakers,
-                    messageCount: currentChunk.messages.length,
+                    entryName: e.comment || e.name || e.key?.[0] || undefined,
+                    keys: e.key || e.keys || undefined,
                 },
-            });
-        }
-
-        return chunks;
+            };
+        });
     },
 
     /**
-     * By scene - DEPRECATED
-     * Scenes are now stored directly as chunks in the vector DB with isScene:true metadata.
-     * Scene chunks are created via the UI markers, not through this chunking strategy.
+     * Per Field - each character field becomes one chunk
      */
-    by_scene: (_messages, _options) => {
-        console.warn('by_scene chunking strategy is deprecated. Scenes are now created via UI markers and stored directly in the vector DB.');
-        return [];
+    per_field: (fields, options) => {
+        if (typeof fields !== 'object' || Array.isArray(fields)) {
+            return [String(fields)];
+        }
+        return Object.entries(fields)
+            .filter(([, value]) => value && typeof value === 'string' && value.trim())
+            .map(([field, value]) => ({
+                text: value,
+                metadata: { field },
+            }));
+    },
+
+    /**
+     * Combined - merge all content then chunk with adaptive
+     */
+    combined: (content, options) => {
+        let combined = '';
+
+        if (typeof content === 'object' && !Array.isArray(content)) {
+            combined = Object.values(content)
+                .filter(v => v && typeof v === 'string')
+                .join('\n\n');
+        } else if (Array.isArray(content)) {
+            combined = content.map(t => typeof t === 'string' ? t : (t.text || '')).join('\n\n');
+        } else {
+            combined = String(content);
+        }
+
+        return adaptiveChunk(combined, options);
     },
 
     /**
      * Dialogue-aware - keeps quoted speech intact
      */
     dialogue: (text, options) => {
-        // Split preserving dialogue blocks
-        const dialogueRegex = /"[^"]+"|'[^']+'|「[^」]+」|『[^』]+』/g;
+        if (typeof text !== 'string') {
+            return [String(text)];
+        }
 
+        const dialogueRegex = /"[^"]+"|'[^']+'|「[^」]+」|『[^』]+』/g;
         let chunks = [];
         let currentChunk = '';
         let lastIndex = 0;
 
-        // Find all dialogue sections
         let match;
         while ((match = dialogueRegex.exec(text)) !== null) {
-            // Add text before dialogue
             const before = text.slice(lastIndex, match.index);
             currentChunk += before;
 
-            // Add dialogue (try to keep with context)
             const dialogue = match[0];
 
             if (currentChunk.length + dialogue.length <= options.chunkSize) {
@@ -326,69 +424,48 @@ const STRATEGIES = {
             lastIndex = match.index + dialogue.length;
         }
 
-        // Add remaining text
         currentChunk += text.slice(lastIndex);
         if (currentChunk.trim()) chunks.push(currentChunk.trim());
 
-        // Further split any chunks that are too large
+        // Split any oversized chunks
         const finalChunks = [];
         for (const chunk of chunks) {
             if (chunk.length <= options.chunkSize) {
                 finalChunks.push(chunk);
             } else {
-                finalChunks.push(...naturalChunk(chunk, options));
+                finalChunks.push(...adaptiveChunk(chunk, options));
             }
         }
 
         return finalChunks;
     },
-
-    /**
-     * Combined - merge all content then chunk (for character cards)
-     */
-    combined: (text, options) => {
-        let combined = '';
-
-        if (typeof text === 'object' && !Array.isArray(text)) {
-            combined = Object.values(text)
-                .filter(v => v && typeof v === 'string')
-                .join('\n\n');
-        } else if (Array.isArray(text)) {
-            combined = text.map(t => typeof t === 'string' ? t : t.text || '').join('\n\n');
-        } else {
-            combined = String(text);
-        }
-
-        return STRATEGIES.natural(combined, options);
-    },
 };
 
 /**
- * Natural chunking - splits at natural boundaries respecting size limits
+ * Adaptive chunking - splits at natural boundaries respecting size limits
+ * Tries: paragraphs → sentences → words
  */
-function naturalChunk(text, options) {
-    const { chunkSize } = options;
-    const chunks = [];
+function adaptiveChunk(text, options) {
+    if (typeof text !== 'string') {
+        return [String(text)];
+    }
 
-    // First try paragraph splits
+    const chunkSize = options.chunkSize || DEFAULT_CHUNK_SIZE;
+    const chunks = [];
     const paragraphs = text.split(/\n\n+/).filter(p => p.trim());
 
     let currentChunk = '';
 
     for (const para of paragraphs) {
         const trimmedPara = para.trim();
-
         if (!trimmedPara) continue;
 
-        // If adding this paragraph exceeds limit
         if (currentChunk.length + trimmedPara.length + 2 > chunkSize) {
-            // If current chunk has content, push it
             if (currentChunk) {
                 chunks.push(currentChunk.trim());
                 currentChunk = '';
             }
 
-            // If paragraph itself is too big, split it
             if (trimmedPara.length > chunkSize) {
                 chunks.push(...splitLargeParagraph(trimmedPara, chunkSize));
             } else {
@@ -401,11 +478,11 @@ function naturalChunk(text, options) {
 
     if (currentChunk) chunks.push(currentChunk.trim());
 
-    return chunks;
+    return chunks.length > 0 ? chunks : [text];
 }
 
 /**
- * Splits a large paragraph at sentence boundaries
+ * Splits a large paragraph at sentence boundaries, then words if needed
  */
 function splitLargeParagraph(text, maxSize) {
     const sentences = text.split(/(?<=[.!?])\s+/);
@@ -418,8 +495,8 @@ function splitLargeParagraph(text, maxSize) {
         } else {
             if (currentChunk) chunks.push(currentChunk);
 
-            // If single sentence is too big, split by words
             if (sentence.length > maxSize) {
+                // Split by words
                 const words = sentence.split(/\s+/);
                 let wordChunk = '';
                 for (const word of words) {
@@ -438,30 +515,7 @@ function splitLargeParagraph(text, maxSize) {
     }
 
     if (currentChunk) chunks.push(currentChunk);
-
     return chunks;
-}
-
-/**
- * Merge very small chunks together
- */
-function mergeTinyChunks(chunks, targetSize) {
-    const minSize = Math.floor(targetSize * 0.3); // 30% of target
-    const merged = [];
-    let currentChunk = '';
-
-    for (const chunk of chunks) {
-        if (chunk.length < minSize && currentChunk.length + chunk.length < targetSize) {
-            currentChunk += (currentChunk ? '\n\n' : '') + chunk;
-        } else {
-            if (currentChunk) merged.push(currentChunk);
-            currentChunk = chunk;
-        }
-    }
-
-    if (currentChunk) merged.push(currentChunk);
-
-    return merged;
 }
 
 /**
@@ -469,4 +523,18 @@ function mergeTinyChunks(chunks, targetSize) {
  */
 export function getAvailableStrategies() {
     return Object.keys(STRATEGIES);
+}
+
+/**
+ * Check if a strategy is unit-based (doesn't use size controls)
+ */
+export function isUnitStrategy(strategyId) {
+    return ['per_message', 'conversation_turns', 'message_batch', 'per_entry', 'per_field'].includes(strategyId);
+}
+
+/**
+ * Get chat-specific strategies
+ */
+export function getChatStrategies() {
+    return ['per_message', 'conversation_turns', 'message_batch', 'adaptive'];
 }

@@ -77,15 +77,15 @@ const defaultSettings = {
 
     // Chat vectorization
     enabled_chats: false,
-    chunking_strategy: 'per_message',
-    batch_size: 4,
+    chunking_strategy: 'per_message', // per_message, conversation_turns, message_batch, adaptive
+    batch_size: 4, // Messages per batch for message_batch strategy
     template: 'Past events:\n{{text}}',
     depth: 2,
     position: extension_prompt_types.IN_PROMPT,
     protect: 5,
     insert: 3,
     query: 2,
-    message_chunk_size: 400,
+    chunk_size: 500, // For adaptive strategy only
     score_threshold: 0.25,
 
     // Advanced features

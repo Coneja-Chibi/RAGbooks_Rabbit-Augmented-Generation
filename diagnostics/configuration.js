@@ -82,10 +82,10 @@ export function checkChatEnabled(settings) {
 }
 
 /**
- * Check: Message chunk size
+ * Check: Chunk size (for adaptive strategy)
  */
 export function checkChunkSize(settings) {
-    const size = settings.message_chunk_size;
+    const size = settings.chunk_size || 500;
 
     if (size < 50) {
         return {

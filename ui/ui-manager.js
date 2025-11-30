@@ -1415,6 +1415,16 @@ function bindSettingsEvents(settings, callbacks) {
         });
     $('#vecthare_batch_size_value').text(settings.batch_size || 4);
 
+    // Chunk size (for adaptive strategy)
+    $('#vecthare_chunk_size')
+        .val(settings.chunk_size || 500)
+        .on('input', function() {
+            const value = Number($(this).val());
+            settings.chunk_size = value;
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+
     // Vector backend selection
     $('#vecthare_vector_backend')
         .val(settings.vector_backend || 'standard')
@@ -2350,7 +2360,7 @@ ${isFiltered ? `🔍 Filter: ${filterNames[filter]} (${filteredCount} of ${total
   Backend:           ${backend}${backend === 'qdrant' ? ` (${qdrantMode})` : ''}
   Embedding Source:  ${source}
   Model:             ${model}${providerUrl !== 'n/a' ? `\n  Provider URL:      ${providerUrl}` : ''}${qdrantUrl ? `\n  Qdrant URL:        ${qdrantUrl}` : ''}
-  Chunk Size:        ${settings.message_chunk_size || 400} chars
+  Chunk Size:        ${settings.chunk_size || 500} chars (adaptive only)
   Score Threshold:   ${settings.score_threshold || 0.5}
   Query Depth:       ${settings.query || 3}
   Chat Auto-Sync:    ${settings.enabled_chats ? 'enabled' : 'disabled'}
@@ -2528,6 +2538,11 @@ function handleDiagnosticFix(action, silent = false) {
                 $('#vecthare_query').val(2).trigger('change');
             }
             if (!silent) toastr.success('Insert/Query counts fixed');
+            break;
+
+        case 'fix_chunk_size':
+            $('#vecthare_chunk_size').val(500).trigger('input');
+            if (!silent) toastr.success('Chunk size reset to 500');
             break;
 
         case 'fix_qdrant_dimension':

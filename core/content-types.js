@@ -51,6 +51,15 @@ export const CHUNKING_STRATEGIES = {
         needsBatchSize: true,
         bestFor: ['chat'],
     },
+    per_scene: {
+        id: 'per_scene',
+        name: 'Per Scene',
+        description: 'Only vectorizes marked scenes. Mark scene boundaries in chat to create chunks.',
+        needsSize: false,
+        needsOverlap: false,
+        needsBatchSize: false,
+        bestFor: ['chat'],
+    },
 
     // =========================================================================
     // CONTENT STRATEGIES (unit-based, no size controls)
@@ -182,8 +191,8 @@ export const CONTENT_TYPES = {
             scenes: true,
         },
 
-        // Chat strategies: per_message, conversation_turns, message_batch, adaptive
-        chunkingStrategies: ['per_message', 'conversation_turns', 'message_batch', 'adaptive'],
+        // Chat strategies: per_message, conversation_turns, message_batch, per_scene, adaptive
+        chunkingStrategies: ['per_message', 'conversation_turns', 'message_batch', 'per_scene', 'adaptive'],
         defaultStrategy: 'per_message',
 
         defaults: {

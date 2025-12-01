@@ -222,6 +222,48 @@ export function extractTextKeywordsSimple(text, options = {}) {
 }
 
 /**
+ * Extract keywords from chat messages using proper noun detection
+ * Finds capitalized words mid-sentence (names, places, etc.)
+ *
+ * @param {string} text - Chat message text
+ * @param {object} options - Extraction options
+ * @param {number} options.baseWeight - Base weight for keywords (default 1.5)
+ * @param {number} options.maxKeywords - Maximum keywords to return (default 8)
+ * @returns {Array<{text: string, weight: number}>} Array of weighted keywords
+ */
+export function extractChatKeywords(text, options = {}) {
+    if (!text || typeof text !== 'string') return [];
+
+    const baseWeight = options.baseWeight || DEFAULT_BASE_WEIGHT;
+    const maxKeywords = options.maxKeywords || 8;
+
+    const keywords = [];
+    const seen = new Set();
+
+    // Find capitalized words that aren't at sentence start
+    // Looks for capital letter followed by lowercase, not preceded by sentence-ending punctuation
+    const properNounRegex = /(?<![.!?]\s*)(?<=\s|^"|^'|^\*|"|'|\*)\b([A-Z][a-z]{2,})\b/g;
+    let match;
+
+    while ((match = properNounRegex.exec(text)) !== null) {
+        const word = match[1].toLowerCase();
+
+        // Skip common words that happen to be capitalized
+        if (KEYWORD_STOP_WORDS.has(word)) continue;
+
+        // Skip if already seen
+        if (seen.has(word)) continue;
+        seen.add(word);
+
+        keywords.push({ text: word, weight: baseWeight });
+
+        if (keywords.length >= maxKeywords) break;
+    }
+
+    return keywords;
+}
+
+/**
  * Normalize a keyword to { text, weight } format
  * Handles both string and object formats
  * @param {string|object} kw - Keyword (string or { text, weight })

@@ -750,6 +750,9 @@ function updateOptionsSection(type) {
         html += renderFieldSelection();
     }
 
+    // Text Cleaning settings
+    html += renderTextCleaningOptions();
+
     // Keyword extraction settings
     html += `
         <div class="vecthare-cv-option-row vecthare-cv-keyword-settings">
@@ -931,6 +934,50 @@ function renderTemporalDecayOptions() {
     `;
 }
 
+/**
+ * Renders text cleaning options with preset dropdown and manage button
+ */
+function renderTextCleaningOptions() {
+    // Import dynamically to get current settings
+    const presets = [
+        { id: 'none', name: 'None', desc: 'No cleaning applied' },
+        { id: 'html_formatting', name: 'Strip HTML Formatting', desc: 'Removes font, color, bold/italic tags' },
+        { id: 'metadata_blocks', name: 'Strip Metadata Blocks', desc: 'Removes hidden divs, details sections' },
+        { id: 'ai_reasoning', name: 'Strip AI Reasoning Tags', desc: 'Removes thinking, tucao tags' },
+        { id: 'comprehensive', name: 'Comprehensive Clean', desc: 'All formatting + metadata + reasoning' },
+        { id: 'nuclear', name: 'Strip All HTML', desc: 'Plain text only' },
+        { id: 'custom', name: 'Custom', desc: 'Your own pattern selection' },
+    ];
+
+    const currentPreset = currentSettings.cleaningPreset || 'none';
+
+    return `
+        <div class="vecthare-cv-option-row vecthare-cv-cleaning-settings">
+            <div class="vecthare-cv-cleaning-header">
+                <span>Text Cleaning</span>
+                <button class="vecthare-btn-icon" id="vecthare_cv_manage_cleaning" title="Manage Cleaning Patterns">
+                    <i class="fa-solid fa-gear"></i>
+                </button>
+            </div>
+            <div class="vecthare-cv-cleaning-controls">
+                <div class="vecthare-cv-cleaning-preset">
+                    <label for="vecthare_cv_cleaning_preset">Preset:</label>
+                    <select id="vecthare_cv_cleaning_preset" class="vecthare-select">
+                        ${presets.map(p => `
+                            <option value="${p.id}" ${p.id === currentPreset ? 'selected' : ''}>
+                                ${p.name}
+                            </option>
+                        `).join('')}
+                    </select>
+                </div>
+            </div>
+            <span class="vecthare-cv-option-hint" id="vecthare_cv_cleaning_hint">
+                ${presets.find(p => p.id === currentPreset)?.desc || ''}
+            </span>
+        </div>
+    `;
+}
+
 // ============================================================================
 // EVENT BINDING
 // ============================================================================
@@ -1020,6 +1067,32 @@ function bindEvents() {
         const value = parseFloat($(this).val());
         currentSettings.keywordBaseWeight = isNaN(value) ? 1.5 : Math.min(3.0, Math.max(0.01, value));
         $(this).val(currentSettings.keywordBaseWeight);
+    });
+
+    // Cleaning preset dropdown
+    $(document).on('change', '#vecthare_cv_cleaning_preset', function() {
+        const presetId = $(this).val();
+        currentSettings.cleaningPreset = presetId;
+
+        // Update hint text
+        const hints = {
+            none: 'No cleaning applied',
+            html_formatting: 'Removes font, color, bold/italic tags',
+            metadata_blocks: 'Removes hidden divs, details sections',
+            ai_reasoning: 'Removes thinking, tucao tags',
+            comprehensive: 'All formatting + metadata + reasoning',
+            nuclear: 'Plain text only',
+            custom: 'Your own pattern selection',
+        };
+        $('#vecthare_cv_cleaning_hint').text(hints[presetId] || '');
+
+        // Save to extension settings
+        saveCleaningPresetToSettings(presetId);
+    });
+
+    // Manage cleaning patterns button
+    $(document).on('click', '#vecthare_cv_manage_cleaning', function() {
+        openTextCleaningModal();
     });
 
     // Preview button
@@ -2229,4 +2302,321 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// ============================================================================
+// TEXT CLEANING MANAGEMENT
+// ============================================================================
+
+/**
+ * Saves the cleaning preset to extension settings
+ */
+async function saveCleaningPresetToSettings(presetId) {
+    const { saveCleaningSettings, getCleaningSettings } = await import('../core/text-cleaning.js');
+    const settings = getCleaningSettings();
+    settings.selectedPreset = presetId;
+    saveCleaningSettings(settings);
+    saveSettingsDebounced();
+}
+
+/**
+ * Opens the text cleaning management modal
+ */
+async function openTextCleaningModal() {
+    const {
+        BUILTIN_PATTERNS,
+        CLEANING_PRESETS,
+        getCleaningSettings,
+        saveCleaningSettings,
+        addCustomPattern,
+        updateCustomPattern,
+        removeCustomPattern,
+        toggleBuiltinPattern,
+        exportPatterns,
+        importPatterns,
+        testPattern,
+    } = await import('../core/text-cleaning.js');
+
+    const settings = getCleaningSettings();
+
+    // Remove existing modal
+    $('#vecthare_cleaning_modal').remove();
+
+    const html = `
+        <div id="vecthare_cleaning_modal" class="vecthare-modal vecthare-cleaning-modal">
+            <div class="vecthare-modal-overlay"></div>
+            <div class="vecthare-modal-content">
+                <div class="vecthare-modal-header">
+                    <h3>
+                        <i class="fa-solid fa-broom"></i>
+                        Text Cleaning Patterns
+                    </h3>
+                    <button class="vecthare-modal-close" id="vecthare_cleaning_close">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+
+                <div class="vecthare-cleaning-body">
+                    <!-- Built-in Patterns Section -->
+                    <div class="vecthare-cleaning-section">
+                        <div class="vecthare-cleaning-section-header">
+                            <h4>Built-in Patterns</h4>
+                            <span class="vecthare-cleaning-hint">Enable patterns to use in Custom mode</span>
+                        </div>
+                        <div class="vecthare-cleaning-patterns-list" id="vecthare_builtin_patterns">
+                            ${Object.values(BUILTIN_PATTERNS).map(p => `
+                                <label class="vecthare-cleaning-pattern-item">
+                                    <input type="checkbox" data-id="${p.id}"
+                                           ${settings.enabledBuiltins?.includes(p.id) ? 'checked' : ''}>
+                                    <div class="vecthare-cleaning-pattern-info">
+                                        <span class="vecthare-cleaning-pattern-name">${p.name}</span>
+                                        <code class="vecthare-cleaning-pattern-regex">${escapeHtml(p.pattern)}</code>
+                                    </div>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Custom Patterns Section -->
+                    <div class="vecthare-cleaning-section">
+                        <div class="vecthare-cleaning-section-header">
+                            <h4>Custom Patterns</h4>
+                            <button class="vecthare-btn-secondary vecthare-btn-sm" id="vecthare_add_custom_pattern">
+                                <i class="fa-solid fa-plus"></i> Add Pattern
+                            </button>
+                        </div>
+                        <div class="vecthare-cleaning-patterns-list" id="vecthare_custom_patterns">
+                            ${(settings.customPatterns || []).map(p => renderCustomPatternItem(p)).join('')}
+                            ${(!settings.customPatterns || settings.customPatterns.length === 0) ? `
+                                <div class="vecthare-cleaning-empty">No custom patterns yet</div>
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Test Section -->
+                    <div class="vecthare-cleaning-section">
+                        <div class="vecthare-cleaning-section-header">
+                            <h4>Test Pattern</h4>
+                        </div>
+                        <div class="vecthare-cleaning-test">
+                            <div class="vecthare-cleaning-test-inputs">
+                                <input type="text" id="vecthare_test_pattern" placeholder="Regex pattern" class="vecthare-input">
+                                <input type="text" id="vecthare_test_flags" placeholder="gi" value="gi" class="vecthare-input vecthare-input-sm">
+                                <input type="text" id="vecthare_test_replacement" placeholder="Replacement" class="vecthare-input">
+                                <button class="vecthare-btn-secondary" id="vecthare_test_run">
+                                    <i class="fa-solid fa-play"></i>
+                                </button>
+                            </div>
+                            <textarea id="vecthare_test_input" placeholder="Paste sample text here..." rows="3" class="vecthare-textarea"></textarea>
+                            <div class="vecthare-cleaning-test-result" id="vecthare_test_result"></div>
+                        </div>
+                    </div>
+
+                    <!-- Import/Export Section -->
+                    <div class="vecthare-cleaning-section">
+                        <div class="vecthare-cleaning-section-header">
+                            <h4>Import / Export</h4>
+                        </div>
+                        <div class="vecthare-cleaning-io">
+                            <button class="vecthare-btn-secondary" id="vecthare_export_patterns">
+                                <i class="fa-solid fa-download"></i> Export Custom Patterns
+                            </button>
+                            <button class="vecthare-btn-secondary" id="vecthare_import_patterns">
+                                <i class="fa-solid fa-upload"></i> Import Patterns
+                            </button>
+                            <input type="file" id="vecthare_import_file" accept=".json" hidden>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="vecthare-modal-footer">
+                    <button class="vecthare-btn-secondary" id="vecthare_cleaning_cancel">Close</button>
+                    <button class="vecthare-btn-primary" id="vecthare_cleaning_save">
+                        <i class="fa-solid fa-save"></i> Save Changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    $('body').append(html);
+    $('#vecthare_cleaning_modal').fadeIn(200);
+
+    // Bind events for cleaning modal
+    bindCleaningModalEvents();
+}
+
+/**
+ * Renders a custom pattern item
+ */
+function renderCustomPatternItem(pattern) {
+    return `
+        <div class="vecthare-cleaning-pattern-item vecthare-cleaning-custom-item" data-id="${pattern.id}">
+            <input type="checkbox" ${pattern.enabled !== false ? 'checked' : ''}>
+            <div class="vecthare-cleaning-pattern-info">
+                <input type="text" class="vecthare-cleaning-pattern-name-input" value="${escapeHtml(pattern.name)}" placeholder="Pattern name">
+                <input type="text" class="vecthare-cleaning-pattern-regex-input" value="${escapeHtml(pattern.pattern)}" placeholder="Regex pattern">
+                <input type="text" class="vecthare-cleaning-pattern-replacement-input" value="${escapeHtml(pattern.replacement || '')}" placeholder="Replacement (empty to remove)">
+                <input type="text" class="vecthare-cleaning-pattern-flags-input" value="${pattern.flags || 'g'}" placeholder="gi">
+            </div>
+            <button class="vecthare-btn-icon vecthare-btn-danger" data-action="delete" title="Delete pattern">
+                <i class="fa-solid fa-trash"></i>
+            </button>
+        </div>
+    `;
+}
+
+/**
+ * Binds events for the cleaning modal
+ */
+function bindCleaningModalEvents() {
+    // Close handlers
+    $('#vecthare_cleaning_close, #vecthare_cleaning_cancel').on('click', () => {
+        $('#vecthare_cleaning_modal').fadeOut(200, function() { $(this).remove(); });
+    });
+    $('#vecthare_cleaning_modal .vecthare-modal-overlay').on('click', () => {
+        $('#vecthare_cleaning_modal').fadeOut(200, function() { $(this).remove(); });
+    });
+
+    // Add custom pattern
+    $('#vecthare_add_custom_pattern').on('click', async () => {
+        const { addCustomPattern, getCleaningSettings } = await import('../core/text-cleaning.js');
+        const newPattern = {
+            name: 'New Pattern',
+            pattern: '',
+            replacement: '',
+            flags: 'gi',
+        };
+        const id = addCustomPattern(newPattern);
+        newPattern.id = id;
+
+        // Add to UI
+        const container = $('#vecthare_custom_patterns');
+        container.find('.vecthare-cleaning-empty').remove();
+        container.append(renderCustomPatternItem(newPattern));
+    });
+
+    // Delete custom pattern
+    $(document).on('click', '#vecthare_cleaning_modal [data-action="delete"]', async function() {
+        const item = $(this).closest('.vecthare-cleaning-custom-item');
+        const id = item.data('id');
+
+        const { removeCustomPattern } = await import('../core/text-cleaning.js');
+        removeCustomPattern(id);
+        item.remove();
+
+        // Show empty message if no patterns left
+        if ($('#vecthare_custom_patterns .vecthare-cleaning-custom-item').length === 0) {
+            $('#vecthare_custom_patterns').html('<div class="vecthare-cleaning-empty">No custom patterns yet</div>');
+        }
+    });
+
+    // Test pattern
+    $('#vecthare_test_run').on('click', async () => {
+        const pattern = $('#vecthare_test_pattern').val();
+        const flags = $('#vecthare_test_flags').val() || 'g';
+        const replacement = $('#vecthare_test_replacement').val();
+        const sampleText = $('#vecthare_test_input').val();
+
+        if (!pattern || !sampleText) {
+            toastr.warning('Enter a pattern and sample text to test');
+            return;
+        }
+
+        const { testPattern } = await import('../core/text-cleaning.js');
+        const result = testPattern(pattern, flags, replacement, sampleText);
+
+        const resultEl = $('#vecthare_test_result');
+        if (result.success) {
+            resultEl.html(`<div class="vecthare-test-success"><strong>Result:</strong><pre>${escapeHtml(result.result)}</pre></div>`);
+        } else {
+            resultEl.html(`<div class="vecthare-test-error"><i class="fa-solid fa-times"></i> ${escapeHtml(result.error)}</div>`);
+        }
+    });
+
+    // Export patterns
+    $('#vecthare_export_patterns').on('click', async () => {
+        const { exportPatterns } = await import('../core/text-cleaning.js');
+        const json = exportPatterns();
+
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'vecthare-cleaning-patterns.json';
+        a.click();
+        URL.revokeObjectURL(url);
+
+        toastr.success('Custom patterns exported', 'VectHare');
+    });
+
+    // Import patterns
+    $('#vecthare_import_patterns').on('click', () => {
+        $('#vecthare_import_file').click();
+    });
+
+    $('#vecthare_import_file').on('change', async function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const { importPatterns, getCleaningSettings } = await import('../core/text-cleaning.js');
+            const result = importPatterns(event.target.result);
+
+            if (result.success) {
+                toastr.success(`Imported ${result.count} patterns`, 'VectHare');
+                // Refresh the modal
+                openTextCleaningModal();
+            } else {
+                toastr.error(`Import failed: ${result.error}`, 'VectHare');
+            }
+        };
+        reader.readAsText(file);
+
+        // Reset file input
+        $(this).val('');
+    });
+
+    // Save changes
+    $('#vecthare_cleaning_save').on('click', async () => {
+        const { getCleaningSettings, saveCleaningSettings, updateCustomPattern, toggleBuiltinPattern } = await import('../core/text-cleaning.js');
+
+        // Collect builtin toggles
+        const enabledBuiltins = [];
+        $('#vecthare_builtin_patterns input[type="checkbox"]').each(function() {
+            if ($(this).is(':checked')) {
+                enabledBuiltins.push($(this).data('id'));
+            }
+        });
+
+        // Collect custom pattern updates
+        const customUpdates = [];
+        $('#vecthare_custom_patterns .vecthare-cleaning-custom-item').each(function() {
+            const id = $(this).data('id');
+            customUpdates.push({
+                id,
+                enabled: $(this).find('input[type="checkbox"]').is(':checked'),
+                name: $(this).find('.vecthare-cleaning-pattern-name-input').val(),
+                pattern: $(this).find('.vecthare-cleaning-pattern-regex-input').val(),
+                replacement: $(this).find('.vecthare-cleaning-pattern-replacement-input').val(),
+                flags: $(this).find('.vecthare-cleaning-pattern-flags-input').val() || 'g',
+            });
+        });
+
+        // Save updates
+        const settings = getCleaningSettings();
+        settings.enabledBuiltins = enabledBuiltins;
+
+        // Update custom patterns
+        for (const update of customUpdates) {
+            updateCustomPattern(update.id, update);
+        }
+
+        saveCleaningSettings(settings);
+        saveSettingsDebounced();
+
+        toastr.success('Cleaning patterns saved', 'VectHare');
+        $('#vecthare_cleaning_modal').fadeOut(200, function() { $(this).remove(); });
+    });
 }

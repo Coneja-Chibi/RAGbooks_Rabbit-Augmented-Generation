@@ -13,6 +13,8 @@ import { getCurrentChatId, is_send_press, setExtensionPrompt, substituteParams, 
 import { getContext } from '../../../../extensions.js';
 import { getStringHash as calculateHash, waitUntilCondition, onlyUnique } from '../../../../utils.js';
 import { isUnitStrategy } from './chunking.js';
+import { extractChatKeywords } from './keyword-boost.js';
+import { cleanText } from './text-cleaning.js';
 import {
     getSavedHashes,
     insertVectorItems,
@@ -106,93 +108,19 @@ function getTextWithoutAttachments(message) {
     return String(message?.mes || '').substring(fileLength).trim();
 }
 
-// Threshold for applying adaptive splitting to oversized messages (matches chunking.js)
-const OVERSIZED_MESSAGE_THRESHOLD = 2000;
-
 /**
- * Applies adaptive splitting to oversized items
- * Only splits items that exceed the threshold - unit strategies keep items intact otherwise
+ * Prepares items for insertion by adding source metadata
  * @param {object[]} items Array of vector items
- * @returns {object[]} Items with oversized ones split
+ * @returns {object[]} Items with source metadata added
  */
-function splitOversizedItems(items) {
-    const result = [];
-    for (const item of items) {
-        if (item.text.length > OVERSIZED_MESSAGE_THRESHOLD) {
-            // Split oversized item using adaptive chunking
-            const subChunks = adaptiveSplit(item.text);
-            for (let i = 0; i < subChunks.length; i++) {
-                const chunkHash = getStringHash(subChunks[i]);
-                result.push({
-                    ...item,
-                    hash: chunkHash,
-                    text: subChunks[i],
-                    metadata: {
-                        ...item.metadata,
-                        source: 'chat',
-                        isSubChunk: true,
-                        subChunkIndex: i,
-                        subChunkTotal: subChunks.length,
-                        originalHash: item.hash
-                    }
-                });
-            }
-        } else {
-            // Keep item as-is
-            result.push({
-                ...item,
-                metadata: {
-                    ...item.metadata,
-                    source: 'chat',
-                }
-            });
+function prepareItemsForInsertion(items) {
+    return items.map(item => ({
+        ...item,
+        metadata: {
+            ...item.metadata,
+            source: 'chat',
         }
-    }
-    return result;
-}
-
-/**
- * Simple adaptive splitting for oversized text
- * Splits at paragraphs first, then sentences, then words
- * @param {string} text Text to split
- * @param {number} maxSize Maximum chunk size
- * @returns {string[]} Array of chunks
- */
-function adaptiveSplit(text, maxSize = 500) {
-    const chunks = [];
-    const paragraphs = text.split(/\n\n+/).filter(p => p.trim());
-    let currentChunk = '';
-
-    for (const para of paragraphs) {
-        const trimmed = para.trim();
-        if (!trimmed) continue;
-
-        if (currentChunk.length + trimmed.length + 2 > maxSize) {
-            if (currentChunk) {
-                chunks.push(currentChunk.trim());
-                currentChunk = '';
-            }
-            if (trimmed.length > maxSize) {
-                // Split large paragraph by sentences
-                const sentences = trimmed.split(/(?<=[.!?])\s+/);
-                for (const sentence of sentences) {
-                    if (currentChunk.length + sentence.length + 1 <= maxSize) {
-                        currentChunk += (currentChunk ? ' ' : '') + sentence;
-                    } else {
-                        if (currentChunk) chunks.push(currentChunk);
-                        currentChunk = sentence.length > maxSize ? sentence.substring(0, maxSize) : sentence;
-                    }
-                }
-            } else {
-                currentChunk = trimmed;
-            }
-        } else {
-            currentChunk += (currentChunk ? '\n\n' : '') + trimmed;
-        }
-    }
-
-    if (currentChunk) chunks.push(currentChunk.trim());
-    return chunks.length > 0 ? chunks : [text];
+    }));
 }
 
 /**
@@ -232,6 +160,7 @@ function groupMessagesByStrategy(messages, strategy, batchSize = 4) {
                     text: combinedText,
                     hash: getStringHash(combinedText),
                     index: messages[i].index,
+                    keywords: extractChatKeywords(combinedText),
                     metadata: {
                         strategy: 'conversation_turns',
                         messageIds: pair.map(m => m.index),
@@ -259,6 +188,7 @@ function groupMessagesByStrategy(messages, strategy, batchSize = 4) {
                     text: combinedText,
                     hash: getStringHash(combinedText),
                     index: batch[0].index,
+                    keywords: extractChatKeywords(combinedText),
                     metadata: {
                         strategy: 'message_batch',
                         batchSize: batch.length,
@@ -280,6 +210,7 @@ function groupMessagesByStrategy(messages, strategy, batchSize = 4) {
                 hash: m.hash,
                 index: m.index,
                 is_user: m.is_user,
+                keywords: extractChatKeywords(m.text),
                 metadata: {
                     strategy: 'per_message',
                     messageId: m.index,
@@ -490,7 +421,9 @@ export async function synchronizeChat(settings, batchSize = 5) {
         const allMessages = [];
         for (const msg of context.chat) {
             if (msg.is_system) continue;
-            const text = String(substituteParams(msg.mes));
+            // Apply text cleaning to remove HTML tags, metadata blocks, etc.
+            const rawText = String(substituteParams(msg.mes));
+            const text = cleanText(rawText);
             allMessages.push({
                 text,
                 hash: getStringHash(substituteParams(getTextWithoutAttachments(msg))),
@@ -523,8 +456,8 @@ export async function synchronizeChat(settings, batchSize = 5) {
             const item = queue.dequeue();
 
             try {
-                // Process item - only split if oversized (unit strategies keep items intact)
-                const chunks = splitOversizedItems([item]);
+                // Prepare item for insertion (add source metadata)
+                const chunks = prepareItemsForInsertion([item]);
 
                 // Insert chunks (insertVectorItems handles duplicates at DB level)
                 if (chunks.length > 0) {

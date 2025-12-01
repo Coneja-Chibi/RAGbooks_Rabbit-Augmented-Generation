@@ -23,7 +23,8 @@ import {
     buildDocumentCollectionId,
     COLLECTION_PREFIXES,
 } from './collection-ids.js';
-import { extractLorebookKeywords, extractTextKeywords, EXTRACTION_LEVELS, DEFAULT_EXTRACTION_LEVEL, DEFAULT_BASE_WEIGHT } from './keyword-boost.js';
+import { extractLorebookKeywords, extractTextKeywords, extractChatKeywords, EXTRACTION_LEVELS, DEFAULT_EXTRACTION_LEVEL, DEFAULT_BASE_WEIGHT } from './keyword-boost.js';
+import { cleanText, cleanMessages } from './text-cleaning.js';
 import { progressTracker } from '../ui/progress-tracker.js';
 import { extension_settings, getContext } from '../../../../extensions.js';
 import { getStringHash } from '../../../../utils.js';
@@ -326,8 +327,10 @@ function prepareLorebookContent(rawContent, settings) {
         return { text: '', type: 'empty' };
     }
 
-    // Filter to entries that have content
-    const validEntries = entries.filter(e => e && e.content);
+    // Filter to entries that have content, and apply text cleaning
+    const validEntries = entries
+        .filter(e => e && e.content)
+        .map(e => ({ ...e, content: cleanText(e.content) }));
 
     if (settings.strategy === 'per_entry') {
         // Each entry becomes its own chunk - return array of content strings
@@ -372,7 +375,7 @@ function prepareCharacterContent(rawContent, settings) {
         const fields = {};
         for (const [fieldId, enabled] of Object.entries(selectedFields)) {
             if (enabled && FIELD_MAP[fieldId] && character[FIELD_MAP[fieldId].key]) {
-                fields[FIELD_MAP[fieldId].label] = character[FIELD_MAP[fieldId].key];
+                fields[FIELD_MAP[fieldId].label] = cleanText(character[FIELD_MAP[fieldId].key]);
             }
         }
         return { text: fields, type: 'fields', character: character };
@@ -384,7 +387,7 @@ function prepareCharacterContent(rawContent, settings) {
         .map(([fieldId]) => {
             const field = FIELD_MAP[fieldId];
             if (field && character[field.key]) {
-                return `## ${field.label}\n${character[field.key]}`;
+                return `## ${field.label}\n${cleanText(character[field.key])}`;
             }
             return null;
         })
@@ -402,14 +405,17 @@ function prepareChatContent(rawContent, settings) {
     const messages = rawContent.messages || rawContent.content;
 
     if (!Array.isArray(messages)) {
-        return { text: String(messages), type: 'text' };
+        return { text: cleanText(String(messages)), type: 'text' };
     }
 
     // Filter out system messages and empty messages
     const validMessages = messages.filter(m => m.mes && !m.is_system);
 
+    // Apply text cleaning to messages
+    const cleanedMessages = cleanMessages(validMessages);
+
     // Normalize messages to have consistent properties for chunking.js
-    const normalizedMessages = validMessages.map((m, idx) => ({
+    const normalizedMessages = cleanedMessages.map((m, idx) => ({
         text: m.mes,
         mes: m.mes,
         is_user: m.is_user,
@@ -446,12 +452,12 @@ function prepareChatContent(rawContent, settings) {
     }
 
     // For adaptive or other text strategies - combine into single text
-    const combined = validMessages.map(m => {
+    const combined = cleanedMessages.map(m => {
         const speaker = m.is_user ? 'User' : (m.name || 'Character');
         return `[${speaker}]: ${m.mes}`;
     }).join('\n\n');
 
-    return { text: combined, type: 'combined', messages: validMessages };
+    return { text: combined, type: 'combined', messages: cleanedMessages };
 }
 
 /**
@@ -462,6 +468,8 @@ function prepareUrlContent(rawContent, settings) {
 
     // Basic text cleaning for web content
     if (typeof text === 'string') {
+        // Apply user's cleaning patterns first
+        text = cleanText(text);
         // Remove excessive whitespace
         text = text.replace(/\n{3,}/g, '\n\n');
         // Remove common web artifacts
@@ -482,6 +490,8 @@ function prepareDocumentContent(rawContent, settings) {
 
     // Basic text cleaning
     if (typeof text === 'string') {
+        // Apply user's cleaning patterns first
+        text = cleanText(text);
         // Remove excessive whitespace
         text = text.replace(/\n{3,}/g, '\n\n');
         // Trim
@@ -499,6 +509,8 @@ function prepareWikiContent(rawContent, settings) {
 
     // Wiki content is already formatted with headers from scraper
     if (typeof text === 'string') {
+        // Apply user's cleaning patterns first
+        text = cleanText(text);
         // Remove excessive whitespace
         text = text.replace(/\n{3,}/g, '\n\n');
         // Trim
@@ -509,7 +521,7 @@ function prepareWikiContent(rawContent, settings) {
     if (settings.strategy === 'per_page' && rawContent.pages) {
         return {
             text: rawContent.pages.map(p => ({
-                text: `# ${p.title}\n\n${p.content}`,
+                text: cleanText(`# ${p.title}\n\n${p.content}`),
                 metadata: {
                     pageTitle: p.title,
                 },
@@ -537,6 +549,8 @@ function prepareYouTubeContent(rawContent, settings) {
 
     // Clean up transcript text
     if (typeof text === 'string') {
+        // Apply user's cleaning patterns first
+        text = cleanText(text);
         // Remove excessive whitespace
         text = text.replace(/\n{3,}/g, '\n\n');
         // Trim
@@ -657,8 +671,15 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent) {
                 });
                 keywords = keywords.concat(autoKeywords);
             }
+        } else if (contentType === 'chat') {
+            // For chat, use proper noun detection (capitalized words mid-sentence)
+            if (keywordLevel !== 'off') {
+                keywords = extractChatKeywords(chunkText, {
+                    baseWeight: keywordBaseWeight,
+                });
+            }
         } else {
-            // For other content, extract from text with level settings
+            // For other content (url, wiki, document, youtube), use frequency-based extraction
             if (keywordLevel !== 'off') {
                 keywords = extractTextKeywords(chunkText, {
                     level: keywordLevel,
@@ -672,6 +693,14 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent) {
             keywords.push({
                 text: preparedContent.character.name.toLowerCase(),
                 weight: keywordBaseWeight + 0.5, // Character name gets bonus weight
+            });
+        }
+
+        // Add speaker name as keyword for chat messages
+        if (contentType === 'chat' && chunk.metadata?.speakerName) {
+            keywords.push({
+                text: chunk.metadata.speakerName.toLowerCase(),
+                weight: keywordBaseWeight,
             });
         }
 

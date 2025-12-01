@@ -28,9 +28,6 @@
 
 import { DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP } from './constants.js';
 
-// Threshold for applying adaptive splitting to oversized messages
-const OVERSIZED_MESSAGE_THRESHOLD = 2000;
-
 /**
  * Main entry point - chunks text using specified strategy
  * @param {string|Array|object} text - Text to chunk (format depends on strategy)
@@ -84,16 +81,12 @@ const STRATEGIES = {
 
     /**
      * Per Message - each message becomes one chunk
-     * If a message is extremely long, splits it with adaptive strategy
      * @param {Array} messages - Array of message objects with .text or .mes
      */
     per_message: (messages, options) => {
         if (!Array.isArray(messages)) {
-            // Single text input - treat as one chunk, apply adaptive if oversized
+            // Single text input - treat as one chunk
             const text = typeof messages === 'string' ? messages : (messages.text || messages.mes || String(messages));
-            if (text.length > OVERSIZED_MESSAGE_THRESHOLD) {
-                return adaptiveChunk(text, options);
-            }
             return [text];
         }
 
@@ -104,32 +97,14 @@ const STRATEGIES = {
             const isUser = msg.is_user || false;
             const messageId = msg.index ?? msg.id ?? msg.send_date;
 
-            // If message is oversized, split it
-            if (text.length > OVERSIZED_MESSAGE_THRESHOLD) {
-                const subChunks = adaptiveChunk(text, options);
-                subChunks.forEach((subText, subIndex) => {
-                    chunks.push({
-                        text: subText,
-                        metadata: {
-                            speaker,
-                            isUser,
-                            messageId,
-                            isSubChunk: true,
-                            subChunkIndex: subIndex,
-                            subChunkTotal: subChunks.length,
-                        },
-                    });
-                });
-            } else {
-                chunks.push({
-                    text,
-                    metadata: {
-                        speaker,
-                        isUser,
-                        messageId,
-                    },
-                });
-            }
+            chunks.push({
+                text,
+                metadata: {
+                    speaker,
+                    isUser,
+                    messageId,
+                },
+            });
         }
         return chunks;
     },
@@ -157,34 +132,15 @@ const STRATEGIES = {
                 return `[${role}]: ${text}`;
             }).join('\n\n');
 
-            // If combined is oversized, split it
-            if (combinedText.length > OVERSIZED_MESSAGE_THRESHOLD) {
-                const subChunks = adaptiveChunk(combinedText, options);
-                subChunks.forEach((subText, subIndex) => {
-                    chunks.push({
-                        text: subText,
-                        metadata: {
-                            strategy: 'conversation_turns',
-                            messageIds: pair.map(m => m.index ?? m.id),
-                            startIndex: pair[0].index ?? pair[0].id,
-                            endIndex: pair[pair.length - 1].index ?? pair[pair.length - 1].id,
-                            isSubChunk: true,
-                            subChunkIndex: subIndex,
-                            subChunkTotal: subChunks.length,
-                        },
-                    });
-                });
-            } else {
-                chunks.push({
-                    text: combinedText,
-                    metadata: {
-                        strategy: 'conversation_turns',
-                        messageIds: pair.map(m => m.index ?? m.id),
-                        startIndex: pair[0].index ?? pair[0].id,
-                        endIndex: pair[pair.length - 1].index ?? pair[pair.length - 1].id,
-                    },
-                });
-            }
+            chunks.push({
+                text: combinedText,
+                metadata: {
+                    strategy: 'conversation_turns',
+                    messageIds: pair.map(m => m.index ?? m.id),
+                    startIndex: pair[0].index ?? pair[0].id,
+                    endIndex: pair[pair.length - 1].index ?? pair[pair.length - 1].id,
+                },
+            });
         }
         return chunks;
     },
@@ -212,38 +168,30 @@ const STRATEGIES = {
                 return `[${role}]: ${text}`;
             }).join('\n\n');
 
-            // If combined is oversized, split it
-            if (combinedText.length > OVERSIZED_MESSAGE_THRESHOLD) {
-                const subChunks = adaptiveChunk(combinedText, options);
-                subChunks.forEach((subText, subIndex) => {
-                    chunks.push({
-                        text: subText,
-                        metadata: {
-                            strategy: 'message_batch',
-                            batchSize: batch.length,
-                            messageIds: batch.map(m => m.index ?? m.id),
-                            startIndex: batch[0].index ?? batch[0].id,
-                            endIndex: batch[batch.length - 1].index ?? batch[batch.length - 1].id,
-                            isSubChunk: true,
-                            subChunkIndex: subIndex,
-                            subChunkTotal: subChunks.length,
-                        },
-                    });
-                });
-            } else {
-                chunks.push({
-                    text: combinedText,
-                    metadata: {
-                        strategy: 'message_batch',
-                        batchSize: batch.length,
-                        messageIds: batch.map(m => m.index ?? m.id),
-                        startIndex: batch[0].index ?? batch[0].id,
-                        endIndex: batch[batch.length - 1].index ?? batch[batch.length - 1].id,
-                    },
-                });
-            }
+            chunks.push({
+                text: combinedText,
+                metadata: {
+                    strategy: 'message_batch',
+                    batchSize: batch.length,
+                    messageIds: batch.map(m => m.index ?? m.id),
+                    startIndex: batch[0].index ?? batch[0].id,
+                    endIndex: batch[batch.length - 1].index ?? batch[batch.length - 1].id,
+                },
+            });
         }
         return chunks;
+    },
+
+    /**
+     * Per Scene - scenes are vectorized via UI markers, not this function
+     * This strategy returns empty because scenes are created by createSceneChunk()
+     * when the user marks a scene end. Auto-sync skips processing for this strategy.
+     */
+    per_scene: (_messages, _options) => {
+        // Scenes are created via scene-markers.js when user marks scene boundaries
+        // This strategy intentionally returns empty - auto-sync is bypassed for per_scene
+        // See chat-vectorization.js which checks for this strategy and skips processing
+        return [];
     },
 
     /**

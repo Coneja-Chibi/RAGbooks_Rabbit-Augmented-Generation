@@ -296,15 +296,21 @@ export function addCustomPattern(pattern) {
  */
 export function updateCustomPattern(id, updates) {
     const settings = getCleaningSettings();
-    const index = settings.customPatterns?.findIndex(p => p.id === id);
+    if (!settings.customPatterns || !Array.isArray(settings.customPatterns)) {
+        return false;
+    }
 
-    if (index !== -1) {
+    const index = settings.customPatterns.findIndex(p => p.id === id);
+
+    if (index !== -1 && index !== undefined) {
         settings.customPatterns[index] = {
             ...settings.customPatterns[index],
             ...updates,
         };
         saveCleaningSettings(settings);
+        return true;
     }
+    return false;
 }
 
 /**

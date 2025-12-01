@@ -204,6 +204,23 @@ function escapeHtml(text) {
 }
 
 /**
+ * Rebinds delete handlers for custom patterns (scoped to modal, not document)
+ */
+function rebindDeleteHandlers() {
+    // Remove old handlers and bind new ones scoped to the modal
+    $('#vecthare_tcm_custom_patterns [data-action="delete"]').off('click').on('click', function() {
+        const id = $(this).closest('.vecthare-tcm-custom-item').data('id');
+        removeCustomPattern(id);
+
+        // Refresh the list
+        const settings = getCleaningSettings();
+        $('#vecthare_tcm_custom_patterns').html(renderCustomPatterns(settings.customPatterns));
+        rebindDeleteHandlers();
+        saveSettingsDebounced();
+    });
+}
+
+/**
  * Binds event handlers
  */
 function bindEvents() {
@@ -219,7 +236,7 @@ function bindEvents() {
 
     // Add custom pattern
     $('#vecthare_tcm_add_pattern').on('click', () => {
-        const id = addCustomPattern({
+        addCustomPattern({
             name: 'New Pattern',
             pattern: '',
             replacement: '',
@@ -229,17 +246,12 @@ function bindEvents() {
         // Refresh the list
         const settings = getCleaningSettings();
         $('#vecthare_tcm_custom_patterns').html(renderCustomPatterns(settings.customPatterns));
+        rebindDeleteHandlers();
+        saveSettingsDebounced();
     });
 
-    // Delete custom pattern
-    $(document).on('click', '#vecthare_tcm_custom_patterns [data-action="delete"]', function() {
-        const id = $(this).closest('.vecthare-tcm-custom-item').data('id');
-        removeCustomPattern(id);
-
-        // Refresh the list
-        const settings = getCleaningSettings();
-        $('#vecthare_tcm_custom_patterns').html(renderCustomPatterns(settings.customPatterns));
-    });
+    // Initial bind for delete handlers
+    rebindDeleteHandlers();
 
     // Import patterns
     $('#vecthare_tcm_import').on('click', () => {
@@ -255,8 +267,13 @@ function bindEvents() {
             const result = importPatterns(event.target.result);
             if (result.success) {
                 toastr.success(`Imported ${result.count} patterns`, 'VectHare');
-                const settings = getCleaningSettings();
-                $('#vecthare_tcm_custom_patterns').html(renderCustomPatterns(settings.customPatterns));
+                // Check if modal still exists before updating DOM
+                if ($('#vecthare_text_cleaning_modal').length) {
+                    const settings = getCleaningSettings();
+                    $('#vecthare_tcm_custom_patterns').html(renderCustomPatterns(settings.customPatterns));
+                    rebindDeleteHandlers();
+                }
+                saveSettingsDebounced();
             } else {
                 toastr.error(`Import failed: ${result.error}`, 'VectHare');
             }
@@ -322,18 +339,42 @@ function bindEvents() {
             settings.enabledBuiltins.push($(this).data('id'));
         });
 
-        // Get custom pattern updates
+        // Validate and get custom pattern updates
+        let hasInvalidPattern = false;
         $('#vecthare_tcm_custom_patterns .vecthare-tcm-custom-item').each(function() {
             const id = $(this).data('id');
+            const patternStr = $(this).find('.vecthare-tcm-custom-pattern').val();
+            const flags = $(this).find('.vecthare-tcm-custom-flags').val() || 'gi';
+            const enabled = $(this).find('.vecthare-tcm-custom-enabled').is(':checked');
+
+            // Validate regex if pattern is enabled and has content
+            if (enabled && patternStr) {
+                try {
+                    new RegExp(patternStr, flags);
+                } catch (e) {
+                    hasInvalidPattern = true;
+                    $(this).find('.vecthare-tcm-custom-pattern').css('border-color', 'var(--vecthare-danger)');
+                    toastr.error(`Invalid regex: ${e.message}`, 'VectHare');
+                    return false; // break out of .each()
+                }
+            }
+
+            // Reset border
+            $(this).find('.vecthare-tcm-custom-pattern').css('border-color', '');
+
             const update = {
-                enabled: $(this).find('.vecthare-tcm-custom-enabled').is(':checked'),
+                enabled: enabled,
                 name: $(this).find('.vecthare-tcm-custom-name').val(),
-                pattern: $(this).find('.vecthare-tcm-custom-pattern').val(),
+                pattern: patternStr,
                 replacement: $(this).find('.vecthare-tcm-custom-replacement').val(),
-                flags: $(this).find('.vecthare-tcm-custom-flags').val() || 'gi',
+                flags: flags,
             };
             updateCustomPattern(id, update);
         });
+
+        if (hasInvalidPattern) {
+            return; // Don't save if there's an invalid pattern
+        }
 
         saveCleaningSettings(settings);
         saveSettingsDebounced();

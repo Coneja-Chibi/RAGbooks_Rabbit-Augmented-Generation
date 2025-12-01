@@ -415,7 +415,7 @@ async function createBananaBreadEmbeddings(items, settings) {
                 }),
             });
 
-            const response = await AsyncUtils.timeout(fetchPromise, API_TIMEOUT_MS, 'BananaBread embedding request timed out');
+            const response = await AsyncUtils.timeout(fetchPromise, API_TIMEOUT_MS * 20, 'BananaBread embedding request timed out');
 
             if (!response.ok) {
                 throw new Error(`Failed to get BananaBread embeddings: ${response.status} ${response.statusText}`);

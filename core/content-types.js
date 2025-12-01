@@ -14,6 +14,8 @@
  * ============================================================================
  */
 
+import { DEFAULT_EXTRACTION_LEVEL, DEFAULT_BASE_WEIGHT } from './keyword-boost.js';
+
 /**
  * Chunking strategy metadata
  * needsSize: whether chunk size slider should appear
@@ -428,7 +430,7 @@ export function getChunkingStrategies(typeId) {
 }
 
 /**
- * Get default settings for a content type (includes defaultStrategy)
+ * Get default settings for a content type (includes defaultStrategy and keyword settings)
  */
 export function getContentTypeDefaults(typeId) {
     const type = CONTENT_TYPES[typeId];
@@ -436,6 +438,9 @@ export function getContentTypeDefaults(typeId) {
     return {
         ...type.defaults,
         strategy: type.defaultStrategy,
+        // Always include keyword extraction defaults
+        keywordLevel: DEFAULT_EXTRACTION_LEVEL,
+        keywordBaseWeight: DEFAULT_BASE_WEIGHT,
     };
 }
 

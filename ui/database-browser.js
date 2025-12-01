@@ -1676,6 +1676,7 @@ function createActivationEditorModal() {
                         <div class="vecthare-section-header">
                             <h4>⏳ Temporal Weighting</h4>
                             <small>Adjust chunk relevance based on message age</small>
+                            <span id="vecthare_decay_source_indicator" class="vecthare-settings-source"></span>
                         </div>
 
                         <div class="vecthare-decay-settings">
@@ -1970,6 +1971,20 @@ function renderActivationEditor() {
     $('#vecthare_decay_min').val(decay.minRelevance);
     $('#vecthare_decay_max_boost').val(decay.maxBoost || 1.2);
     $('#vecthare_decay_scene_aware').prop('checked', decay.sceneAware);
+
+    // Show decay source indicator (custom vs type default)
+    const isCustomDecay = hasCustomDecaySettings(state.collectionId);
+    const typeDefaults = getDefaultDecayForType(state.collectionType);
+    if (isCustomDecay) {
+        $('#vecthare_decay_source_indicator')
+            .html('<span style="color: var(--SmartThemeQuoteColor);">✏️ Custom settings</span>')
+            .attr('title', 'These settings were customized for this collection');
+    } else {
+        const defaultLabel = typeDefaults.enabled ? 'enabled' : 'disabled';
+        $('#vecthare_decay_source_indicator')
+            .html(`<span style="color: var(--SmartThemeBotMesColorLightMode, #666);">📋 ${state.collectionType} defaults (${defaultLabel})</span>`)
+            .attr('title', `Using default settings for ${state.collectionType} collections`);
+    }
 
     // Show/hide advanced decay settings based on enabled
     $('#vecthare_decay_advanced').toggle(decay.enabled);

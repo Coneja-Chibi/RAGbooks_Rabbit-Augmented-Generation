@@ -69,8 +69,9 @@ class DynamicRateLimiter {
      * @returns {Promise<any>} Result of the function
      */
     async execute(fn, settings) {
-        const maxCalls = settings.rate_limit_calls || 0; // 0 = disabled
-        const intervalMs = (settings.rate_limit_interval || 60) * 1000;
+        // Use constants as fallbacks when settings are undefined/missing
+        const maxCalls = settings?.rate_limit_calls ?? RATE_LIMIT_CALLS;
+        const intervalMs = (settings?.rate_limit_interval ?? (RATE_LIMIT_WINDOW_MS / 1000)) * 1000;
 
         if (maxCalls <= 0) {
             return await fn();
@@ -605,14 +606,16 @@ export async function insertVectorItems(collectionId, items, settings) {
     }
 
     // If rate limiting is enabled, batch execution
-    if (settings.rate_limit_calls > 0) {
+    const rateLimitCalls = settings?.rate_limit_calls ?? RATE_LIMIT_CALLS;
+    if (rateLimitCalls > 0) {
         // Batch size depends on provider - some need smaller batches
         // Ollama and Transformers work best with batch size of 1 (like Stock ST)
         const smallBatchProviders = ['transformers', 'ollama'];
         const BATCH_SIZE = smallBatchProviders.includes(settings.source) ? 1 : 10;
         const batches = chunkArray(items, BATCH_SIZE);
+        const rateLimitInterval = settings?.rate_limit_interval ?? (RATE_LIMIT_WINDOW_MS / 1000);
 
-        console.log(`VectHare: Processing ${items.length} items in ${batches.length} batches with rate limit (Max ${settings.rate_limit_calls} calls / ${settings.rate_limit_interval}s)`);
+        console.log(`VectHare: Processing ${items.length} items in ${batches.length} batches with rate limit (Max ${rateLimitCalls} calls / ${rateLimitInterval}s)`);
 
         for (let i = 0; i < batches.length; i++) {
             await dynamicRateLimiter.execute(async () => {

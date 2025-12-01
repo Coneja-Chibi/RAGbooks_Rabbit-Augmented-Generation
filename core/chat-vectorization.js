@@ -1295,42 +1295,127 @@ function buildNestedInjectionText(chunks, settings) {
 }
 
 /**
+ * Resolves the effective injection position for a chunk using cascade:
+ * chunk → collection → global
+ * @param {object} chunk Chunk with collectionId
+ * @param {object} settings VectHare settings
+ * @returns {{position: number, depth: number}} Resolved position and depth
+ */
+function resolveChunkInjectionPosition(chunk, settings) {
+    const chunkMeta = getChunkMetadata(chunk.hash) || {};
+    const collMeta = getCollectionMeta(chunk.collectionId) || {};
+
+    // Cascade: chunk → collection → global
+    const position = chunkMeta.position ?? collMeta.position ?? settings.position ?? 0;
+    const depth = chunkMeta.depth ?? collMeta.depth ?? settings.depth ?? 2;
+
+    return { position, depth };
+}
+
+/**
  * Stage 8: Format and inject chunks into prompt
+ * Supports per-chunk/per-collection injection positions via cascade resolution.
+ * Groups chunks by their resolved position+depth and creates separate injections.
+ *
  * @param {object[]} chunksToInject Chunks to inject
  * @param {object} settings VectHare settings
  * @param {object} debugData Debug tracking object
  * @returns {{verified: boolean, text: string}} Injection result
  */
 function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
-    // Build nested structure with context/XML wrapping
-    // (includes global rag_context and rag_xml_tag from buildNestedInjectionText)
-    const insertedText = buildNestedInjectionText(chunksToInject, settings);
+    // Group chunks by resolved injection position+depth
+    const positionGroups = new Map(); // "position:depth" → chunks[]
 
-    setExtensionPrompt(EXTENSION_PROMPT_TAG, insertedText, settings.position, settings.depth, false);
+    for (const chunk of chunksToInject) {
+        const { position, depth } = resolveChunkInjectionPosition(chunk, settings);
+        const key = `${position}:${depth}`;
 
-    // Verify injection
-    const verifiedPrompt = extension_prompts[EXTENSION_PROMPT_TAG];
-    const injectionVerified = verifiedPrompt && verifiedPrompt.value === insertedText;
-
-    if (!injectionVerified) {
-        console.warn('VectHare: ⚠️ Injection verification failed!', {
-            expected: insertedText.substring(0, 100) + '...',
-            actual: verifiedPrompt?.value?.substring(0, 100) + '...',
-            promptExists: !!verifiedPrompt
-        });
+        if (!positionGroups.has(key)) {
+            positionGroups.set(key, { position, depth, chunks: [] });
+        }
+        positionGroups.get(key).chunks.push(chunk);
     }
 
-    // Record final fate for injected chunks
-    chunksToInject.forEach(chunk => {
-        recordChunkFate(debugData, chunk.hash, 'final', 'injected', null, {
-            score: chunk.score,
-            collectionId: chunk.collectionId
+    // If all chunks go to the same position, use the simple single-injection path
+    if (positionGroups.size === 1) {
+        const [_, group] = [...positionGroups.entries()][0];
+        const insertedText = buildNestedInjectionText(group.chunks, settings);
+
+        setExtensionPrompt(EXTENSION_PROMPT_TAG, insertedText, group.position, group.depth, false);
+
+        // Verify injection
+        const verifiedPrompt = extension_prompts[EXTENSION_PROMPT_TAG];
+        const injectionVerified = verifiedPrompt && verifiedPrompt.value === insertedText;
+
+        if (!injectionVerified) {
+            console.warn('VectHare: ⚠️ Injection verification failed!', {
+                expected: insertedText.substring(0, 100) + '...',
+                actual: verifiedPrompt?.value?.substring(0, 100) + '...',
+                promptExists: !!verifiedPrompt
+            });
+        }
+
+        // Record final fate for injected chunks
+        group.chunks.forEach(chunk => {
+            recordChunkFate(debugData, chunk.hash, 'final', 'injected', null, {
+                score: chunk.score,
+                collectionId: chunk.collectionId
+            });
         });
-    });
+
+        return { verified: injectionVerified, text: insertedText };
+    }
+
+    // Multiple injection positions - create separate extension prompts for each
+    console.log(`VectHare: Injecting to ${positionGroups.size} different positions`);
+
+    // Clear the main tag first (will be unused when multi-position)
+    setExtensionPrompt(EXTENSION_PROMPT_TAG, '', settings.position, settings.depth, false);
+
+    let allVerified = true;
+    const allTexts = [];
+    let groupIndex = 0;
+
+    for (const [key, group] of positionGroups) {
+        // Build text for this position group (no global wrapper - that goes on outermost only)
+        const groupSettings = { ...settings, rag_context: '', rag_xml_tag: '' };
+        const groupText = buildNestedInjectionText(group.chunks, groupSettings);
+
+        // Use unique tag per position group
+        const tag = `${EXTENSION_PROMPT_TAG}_pos${groupIndex}`;
+
+        setExtensionPrompt(tag, groupText, group.position, group.depth, false);
+
+        // Verify
+        const verifiedPrompt = extension_prompts[tag];
+        const verified = verifiedPrompt && verifiedPrompt.value === groupText;
+
+        if (!verified) {
+            console.warn(`VectHare: ⚠️ Injection verification failed for position ${key}`, {
+                tag,
+                expected: groupText.substring(0, 100) + '...',
+                actual: verifiedPrompt?.value?.substring(0, 100) + '...'
+            });
+            allVerified = false;
+        }
+
+        // Record fates
+        group.chunks.forEach(chunk => {
+            recordChunkFate(debugData, chunk.hash, 'final', 'injected', null, {
+                score: chunk.score,
+                collectionId: chunk.collectionId,
+                position: group.position,
+                depth: group.depth
+            });
+        });
+
+        allTexts.push(groupText);
+        groupIndex++;
+    }
 
     return {
-        verified: injectionVerified,
-        text: insertedText
+        verified: allVerified,
+        text: allTexts.join('\n\n---\n\n') // Combine for debug output
     };
 }
 
@@ -1355,8 +1440,15 @@ export async function rearrangeChat(chat, settings, type) {
             return;
         }
 
-        // Clear extension prompt
+        // Clear extension prompts (main + any position-specific tags from previous run)
         setExtensionPrompt(EXTENSION_PROMPT_TAG, '', settings.position, settings.depth, false);
+        // Clear position-specific tags (max 10 should be more than enough)
+        for (let i = 0; i < 10; i++) {
+            const posTag = `${EXTENSION_PROMPT_TAG}_pos${i}`;
+            if (extension_prompts[posTag]) {
+                setExtensionPrompt(posTag, '', 0, 0, false);
+            }
+        }
 
         if (!getCurrentChatId() || !Array.isArray(chat)) {
             console.debug('VectHare: No chat selected');

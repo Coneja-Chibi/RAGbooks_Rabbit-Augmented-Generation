@@ -132,6 +132,12 @@ function getChunkData(chunk) {
         summaries: stored.summaries || [],
         temporallyBlind: stored.temporallyBlind || false,
         name: stored.name || null,
+        // Prompt context (existing)
+        context: stored.context || '',
+        xmlTag: stored.xmlTag || '',
+        // Injection position/depth (null = use collection/global default)
+        position: stored.position ?? null,
+        depth: stored.depth ?? null,
     };
 }
 
@@ -1386,6 +1392,20 @@ function renderDetailPanel() {
                         <input type="text" class="vecthare-chunk-xmltag-input" id="vecthare_chunk_xmltag"
                                placeholder="e.g., secret" value="${escapeHtml(data.xmlTag || '')}">
                     </div>
+                    <div class="vecthare-context-injection-row">
+                        <label>Injection position:</label>
+                        <select id="vecthare_chunk_position" class="vecthare-chunk-position-select">
+                            <option value="" ${data.position == null ? 'selected' : ''}>Use default</option>
+                            <option value="2" ${data.position === 2 ? 'selected' : ''}>Before Main Prompt</option>
+                            <option value="0" ${data.position === 0 ? 'selected' : ''}>After Main Prompt</option>
+                            <option value="1" ${data.position === 1 ? 'selected' : ''}>In-Chat @ Depth</option>
+                        </select>
+                    </div>
+                    <div class="vecthare-context-depth-row" id="vecthare_chunk_depth_row" style="display: ${data.position === 1 ? 'flex' : 'none'};">
+                        <label>Depth: <span id="vecthare_chunk_depth_value">${data.depth ?? 2}</span></label>
+                        <input type="range" id="vecthare_chunk_depth" class="vecthare-chunk-depth-slider"
+                               min="0" max="50" step="1" value="${data.depth ?? 2}">
+                    </div>
                     <div class="vecthare-context-hint">Supports {{user}} and {{char}}. XML tag wraps just this chunk.</div>
                 </div>
             </div>
@@ -1705,6 +1725,24 @@ function bindDetailEvents() {
         chunk.data.xmlTag = sanitized || '';
         updateChunkData(chunk.hash, { xmlTag: chunk.data.xmlTag });
     }, 300));
+
+    // Injection position select
+    $('#vecthare_chunk_position').on('change', function() {
+        const val = $(this).val();
+        const position = val === '' ? null : parseInt(val);
+        chunk.data.position = position;
+        updateChunkData(chunk.hash, { position: chunk.data.position });
+        // Show/hide depth row
+        $('#vecthare_chunk_depth_row').toggle(position === 1);
+    });
+
+    // Injection depth slider
+    $('#vecthare_chunk_depth').on('input', function() {
+        const depth = parseInt($(this).val()) || 2;
+        $('#vecthare_chunk_depth_value').text(depth);
+        chunk.data.depth = depth;
+        updateChunkData(chunk.hash, { depth: chunk.data.depth });
+    });
 
     // Delete chunk
     $('#vecthare_delete_chunk').on('click', () => deleteChunk(chunk));

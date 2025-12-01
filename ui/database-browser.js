@@ -1497,7 +1497,10 @@ let activationEditorState = {
         linearRate: 0.01,
         minRelevance: 0.3,
         sceneAware: false
-    }
+    },
+    // Injection settings (position/depth)
+    position: null,  // null = use global default
+    depth: null      // null = use global default
 };
 
 /**
@@ -1534,7 +1537,10 @@ function openActivationEditor(collectionId, collectionName) {
         },
         // Prompt context
         context: meta.context || '',
-        xmlTag: meta.xmlTag || ''
+        xmlTag: meta.xmlTag || '',
+        // Injection position/depth (null = use global default)
+        position: meta.position ?? null,
+        depth: meta.depth ?? null
     };
 
     // Create modal if needed
@@ -1736,6 +1742,23 @@ function createActivationEditorModal() {
                                 <input type="text" id="vecthare_collection_xml_tag" placeholder="e.g., memories">
                                 <small>Wraps this collection's chunks in &lt;tag&gt;...&lt;/tag&gt;</small>
                             </div>
+
+                            <div class="vecthare-option-row vecthare-injection-row">
+                                <label>Injection position:</label>
+                                <select id="vecthare_collection_position">
+                                    <option value="">Use global default</option>
+                                    <option value="2">Before Main Prompt</option>
+                                    <option value="0">After Main Prompt</option>
+                                    <option value="1">In-Chat @ Depth</option>
+                                </select>
+                                <small>Where this collection's chunks appear in the prompt</small>
+                            </div>
+
+                            <div class="vecthare-option-row vecthare-depth-row" id="vecthare_collection_depth_row" style="display: none;">
+                                <label>Injection depth: <span id="vecthare_collection_depth_value">2</span></label>
+                                <input type="range" id="vecthare_collection_depth" min="0" max="50" step="1" value="2">
+                                <small>Messages from end of chat to insert at</small>
+                            </div>
                         </div>
                     </div>
 
@@ -1817,6 +1840,20 @@ function bindActivationEditorEvents() {
         $('.vecthare-decay-exponential').toggle(mode === 'exponential');
         $('.vecthare-decay-linear').toggle(mode === 'linear');
     });
+
+    // Injection position toggle shows/hides depth row
+    $('#vecthare_collection_position').on('change', function(e) {
+        e.stopPropagation();
+        const position = $(this).val();
+        // Show depth row only if "In-Chat @ Depth" (value 1) is selected
+        $('#vecthare_collection_depth_row').toggle(position === '1');
+    });
+
+    // Injection depth slider updates label
+    $('#vecthare_collection_depth').on('input', function(e) {
+        e.stopPropagation();
+        $('#vecthare_collection_depth_value').text($(this).val());
+    });
 }
 
 /**
@@ -1859,6 +1896,14 @@ function renderActivationEditor() {
     $('#vecthare_collection_context').val(state.context || '');
     $('#vecthare_collection_xml_tag').val(state.xmlTag || '');
 
+    // Injection position/depth
+    const posValue = state.position !== null ? String(state.position) : '';
+    $('#vecthare_collection_position').val(posValue);
+    $('#vecthare_collection_depth').val(state.depth ?? 2);
+    $('#vecthare_collection_depth_value').text(state.depth ?? 2);
+    // Show depth row only if position is "In-Chat @ Depth" (value 1)
+    $('#vecthare_collection_depth_row').toggle(state.position === 1);
+
     // Disable sections if always active
     const isAlwaysActive = state.alwaysActive;
     $('.vecthare-triggers-section, .vecthare-conditions-section').toggleClass('vecthare-disabled', isAlwaysActive);
@@ -1894,6 +1939,11 @@ function saveActivation() {
     const xmlTagRaw = $('#vecthare_collection_xml_tag').val() || '';
     const xmlTag = xmlTagRaw.replace(/[^a-zA-Z0-9_-]/g, '');
 
+    // Get injection position/depth (empty string = use global default = null)
+    const positionRaw = $('#vecthare_collection_position').val();
+    const position = positionRaw === '' ? null : parseInt(positionRaw);
+    const depth = position === 1 ? (parseInt($('#vecthare_collection_depth').val()) || 2) : null;
+
     // Update metadata (all in one call)
     setCollectionMeta(state.collectionId, {
         alwaysActive: $('#vecthare_always_active').prop('checked'),
@@ -1904,6 +1954,8 @@ function saveActivation() {
         temporalDecay: temporalDecay,
         context: contextPrompt,
         xmlTag: xmlTag,
+        position: position,
+        depth: depth,
     });
 
     // Save conditions

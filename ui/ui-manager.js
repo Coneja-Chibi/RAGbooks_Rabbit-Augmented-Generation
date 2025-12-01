@@ -387,6 +387,24 @@ export function renderSettings(containerId, settings, callbacks) {
                             <input type="range" id="vecthare_query_depth" class="vecthare-slider" min="1" max="20" step="1" />
                             <small class="vecthare_hint">How many recent messages to include in search query</small>
 
+                            <label style="margin-top: 16px;">
+                                <small>Injection Position</small>
+                            </label>
+                            <select id="vecthare_injection_position" class="vecthare-select">
+                                <option value="2">Before Main Prompt</option>
+                                <option value="0">After Main Prompt</option>
+                                <option value="1">In-Chat @ Depth</option>
+                            </select>
+                            <small class="vecthare_hint">Where retrieved chunks appear in the prompt</small>
+
+                            <div id="vecthare_injection_depth_row" style="margin-top: 12px; display: none;">
+                                <label for="vecthare_injection_depth">
+                                    <small>Injection Depth: <span id="vecthare_injection_depth_value">2</span></small>
+                                </label>
+                                <input type="range" id="vecthare_injection_depth" class="vecthare-slider" min="0" max="50" step="1" />
+                                <small class="vecthare_hint">Messages from end of chat to insert at</small>
+                            </div>
+
                         </div>
                     </div>
 
@@ -1615,6 +1633,33 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
     $('#vecthare_query_depth_value').text(settings.query || 2);
+
+    // Injection position (where chunks appear in prompt)
+    $('#vecthare_injection_position')
+        .val(settings.position ?? 0)
+        .on('change', function() {
+            const value = parseInt($(this).val());
+            settings.position = value;
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+            // Show/hide depth slider based on position
+            $('#vecthare_injection_depth_row').toggle(value === 1);
+        });
+    // Initialize depth row visibility
+    $('#vecthare_injection_depth_row').toggle((settings.position ?? 0) === 1);
+
+    // Injection depth (for in-chat position)
+    $('#vecthare_injection_depth')
+        .val(settings.depth ?? 2)
+        .on('input', function() {
+            const value = parseInt($(this).val());
+            const safeValue = isNaN(value) ? 2 : value;
+            $('#vecthare_injection_depth_value').text(safeValue);
+            settings.depth = safeValue;
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+    $('#vecthare_injection_depth_value').text(settings.depth ?? 2);
 
     // RAG Context settings
     $('#vecthare_rag_context')

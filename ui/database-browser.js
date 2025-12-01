@@ -1489,13 +1489,15 @@ let activationEditorState = {
     triggerCaseSensitive: false,
     triggerScanDepth: 5,
     conditions: null,
-    // Temporal Decay
+    // Temporal Weighting (decay or nostalgia)
     temporalDecay: {
         enabled: false,
+        type: 'decay',        // 'decay' or 'nostalgia'
         mode: 'exponential',
         halfLife: 50,
         linearRate: 0.01,
         minRelevance: 0.3,
+        maxBoost: 1.2,
         sceneAware: false
     },
     // Injection settings (position/depth)
@@ -1529,10 +1531,12 @@ function openActivationEditor(collectionId, collectionName) {
         conditions,
         temporalDecay: {
             enabled: decaySettings.enabled,
+            type: decaySettings.type || 'decay',
             mode: decaySettings.mode,
             halfLife: decaySettings.halfLife,
             linearRate: decaySettings.linearRate,
             minRelevance: decaySettings.minRelevance,
+            maxBoost: decaySettings.maxBoost || 1.2,
             sceneAware: decaySettings.sceneAware
         },
         // Prompt context
@@ -1669,21 +1673,30 @@ function createActivationEditorModal() {
                     <!-- ========================================== -->
                     <div class="vecthare-activation-section vecthare-decay-section">
                         <div class="vecthare-section-header">
-                            <h4>⏳ Temporal Decay</h4>
-                            <small>Reduce relevance of older chunks over time (chat collections default to enabled)</small>
+                            <h4>⏳ Temporal Weighting</h4>
+                            <small>Adjust chunk relevance based on message age</small>
                         </div>
 
                         <div class="vecthare-decay-settings">
                             <div class="vecthare-option-row">
                                 <label class="vecthare-checkbox-label">
                                     <input type="checkbox" id="vecthare_decay_enabled">
-                                    <strong>Enable temporal decay</strong>
+                                    <strong>Enable temporal weighting</strong>
                                 </label>
                             </div>
 
                             <div class="vecthare-decay-advanced" id="vecthare_decay_advanced">
                                 <div class="vecthare-option-row">
-                                    <label>Decay mode:</label>
+                                    <label>Weighting type:</label>
+                                    <select id="vecthare_decay_type">
+                                        <option value="decay">Decay (recency bias)</option>
+                                        <option value="nostalgia">Nostalgia (history bias)</option>
+                                    </select>
+                                    <small id="vecthare_decay_type_hint">Newer messages score higher</small>
+                                </div>
+
+                                <div class="vecthare-option-row">
+                                    <label>Curve:</label>
                                     <select id="vecthare_decay_mode">
                                         <option value="exponential">Exponential (half-life)</option>
                                         <option value="linear">Linear (fixed rate)</option>
@@ -1693,27 +1706,33 @@ function createActivationEditorModal() {
                                 <div class="vecthare-option-row vecthare-decay-exponential">
                                     <label>Half-life:</label>
                                     <input type="number" id="vecthare_decay_halflife" min="1" max="500" value="50">
-                                    <small>messages until 50% relevance</small>
+                                    <small id="vecthare_halflife_hint">messages until 50% effect</small>
                                 </div>
 
                                 <div class="vecthare-option-row vecthare-decay-linear" style="display: none;">
-                                    <label>Decay rate:</label>
+                                    <label>Rate:</label>
                                     <input type="number" id="vecthare_decay_rate" min="0.001" max="0.5" step="0.001" value="0.01">
                                     <small>per message (0.01 = 1%)</small>
                                 </div>
 
-                                <div class="vecthare-option-row">
-                                    <label>Minimum relevance:</label>
-                                    <input type="number" id="vecthare_decay_min" min="0" max="1" step="0.05" value="0.3">
-                                    <small>never decay below this (0-1)</small>
+                                <div class="vecthare-option-row vecthare-decay-floor">
+                                    <label id="vecthare_limit_label">Min relevance:</label>
+                                    <input type="number" id="vecthare_decay_min" min="0" max="2" step="0.05" value="0.3">
+                                    <small id="vecthare_limit_hint">floor for decay (0-1)</small>
+                                </div>
+
+                                <div class="vecthare-option-row vecthare-nostalgia-ceiling" style="display: none;">
+                                    <label>Max boost:</label>
+                                    <input type="number" id="vecthare_decay_max_boost" min="1" max="3" step="0.1" value="1.2">
+                                    <small>ceiling for nostalgia (1.2 = 20% max boost)</small>
                                 </div>
 
                                 <div class="vecthare-option-row">
                                     <label class="vecthare-checkbox-label">
                                         <input type="checkbox" id="vecthare_decay_scene_aware">
-                                        Scene-aware decay
+                                        Scene-aware
                                     </label>
-                                    <small>Reset decay at scene boundaries</small>
+                                    <small>Reset weighting at scene boundaries</small>
                                 </div>
                             </div>
                         </div>
@@ -1787,6 +1806,20 @@ function createActivationEditorModal() {
 }
 
 /**
+ * Updates hint text based on decay vs nostalgia mode
+ * @param {boolean} isNostalgia True if nostalgia mode
+ */
+function updateTemporalWeightingHints(isNostalgia) {
+    if (isNostalgia) {
+        $('#vecthare_decay_type_hint').text('Older messages score higher');
+        $('#vecthare_halflife_hint').text('messages until 50% of max boost');
+    } else {
+        $('#vecthare_decay_type_hint').text('Newer messages score higher');
+        $('#vecthare_halflife_hint').text('messages until 50% relevance');
+    }
+}
+
+/**
  * Binds event handlers for activation editor
  */
 function bindActivationEditorEvents() {
@@ -1841,6 +1874,15 @@ function bindActivationEditorEvents() {
         $('.vecthare-decay-linear').toggle(mode === 'linear');
     });
 
+    // Decay type toggle shows/hides decay-specific vs nostalgia-specific fields
+    $('#vecthare_decay_type').on('change', function(e) {
+        e.stopPropagation();
+        const isNostalgia = $(this).val() === 'nostalgia';
+        $('.vecthare-decay-floor').toggle(!isNostalgia);
+        $('.vecthare-nostalgia-ceiling').toggle(isNostalgia);
+        updateTemporalWeightingHints(isNostalgia);
+    });
+
     // Injection position toggle shows/hides depth row
     $('#vecthare_collection_position').on('change', function(e) {
         e.stopPropagation();
@@ -1876,13 +1918,15 @@ function renderActivationEditor() {
     $('#vecthare_conditions_enabled').prop('checked', state.conditions.enabled);
     $('#vecthare_conditions_logic').val(state.conditions.logic || 'AND');
 
-    // Temporal Decay
+    // Temporal Weighting (decay or nostalgia)
     const decay = state.temporalDecay;
     $('#vecthare_decay_enabled').prop('checked', decay.enabled);
+    $('#vecthare_decay_type').val(decay.type || 'decay');
     $('#vecthare_decay_mode').val(decay.mode);
     $('#vecthare_decay_halflife').val(decay.halfLife);
     $('#vecthare_decay_rate').val(decay.linearRate);
     $('#vecthare_decay_min').val(decay.minRelevance);
+    $('#vecthare_decay_max_boost').val(decay.maxBoost || 1.2);
     $('#vecthare_decay_scene_aware').prop('checked', decay.sceneAware);
 
     // Show/hide advanced decay settings based on enabled
@@ -1891,6 +1935,12 @@ function renderActivationEditor() {
     // Show correct decay mode fields
     $('.vecthare-decay-exponential').toggle(decay.mode === 'exponential');
     $('.vecthare-decay-linear').toggle(decay.mode === 'linear');
+
+    // Show/hide type-specific fields and update hints
+    const isNostalgia = (decay.type || 'decay') === 'nostalgia';
+    $('.vecthare-decay-floor').toggle(!isNostalgia);
+    $('.vecthare-nostalgia-ceiling').toggle(isNostalgia);
+    updateTemporalWeightingHints(isNostalgia);
 
     // Prompt Context
     $('#vecthare_collection_context').val(state.context || '');
@@ -1924,13 +1974,15 @@ function saveActivation() {
         .map(t => t.trim())
         .filter(t => t.length > 0);
 
-    // Build temporal decay settings
+    // Build temporal weighting settings (decay or nostalgia)
     const temporalDecay = {
         enabled: $('#vecthare_decay_enabled').prop('checked'),
+        type: $('#vecthare_decay_type').val() || 'decay',
         mode: $('#vecthare_decay_mode').val(),
         halfLife: parseInt($('#vecthare_decay_halflife').val()) || 50,
         linearRate: parseFloat($('#vecthare_decay_rate').val()) || 0.01,
         minRelevance: parseFloat($('#vecthare_decay_min').val()) || 0.3,
+        maxBoost: parseFloat($('#vecthare_decay_max_boost').val()) || 1.2,
         sceneAware: $('#vecthare_decay_scene_aware').prop('checked'),
     };
 

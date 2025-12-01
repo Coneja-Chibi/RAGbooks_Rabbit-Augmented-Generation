@@ -782,7 +782,7 @@ function updateOptionsSection(type) {
                     <input type="number" id="vecthare_cv_keyword_weight"
                            min="0.01" max="3.0" step="0.01"
                            value="${currentSettings.keywordBaseWeight || 1.5}"
-                           class="vecthare-number-input">
+                           class="vecthare-input-number">
                     <span class="vecthare-cv-weight-hint">×</span>
                 </div>
             </div>

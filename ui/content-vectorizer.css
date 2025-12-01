@@ -707,10 +707,7 @@
     min-width: 180px;
 }
 
-.vecthare-cv-keyword-weight input {
-    width: 60px;
-    text-align: center;
-}
+/* Input styling now handled by .vecthare-input-number in forms.css */
 
 .vecthare-cv-weight-hint {
     font-size: 0.9em;
@@ -1392,23 +1389,6 @@
 }
 
 .vecthare-textarea:focus {
-    outline: none;
-    border-color: var(--vecthare-primary);
-}
-
-/* Number input styling for keyword weight */
-.vecthare-number-input {
-    padding: 8px 12px;
-    border: 1px solid var(--SmartThemeBorderColor);
-    border-radius: 8px;
-    background: var(--SmartThemeBlurTintColor);
-    color: var(--SmartThemeBodyColor);
-    font-size: 0.9em;
-    width: 70px;
-    text-align: center;
-}
-
-.vecthare-number-input:focus {
     outline: none;
     border-color: var(--vecthare-primary);
 }

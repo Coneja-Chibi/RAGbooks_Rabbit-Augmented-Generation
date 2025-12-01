@@ -69,10 +69,10 @@ export const DEFAULT_CHUNK_OVERLAP = 50;
 export const SENTENCE_SEARCH_WINDOW = 50;
 
 // =============================================================================
-// TEMPORAL DECAY DEFAULTS
+// TEMPORAL WEIGHTING DEFAULTS
 // =============================================================================
 
-/** Default half-life for temporal decay (messages until 50% relevance) */
+/** Default half-life for temporal effects (messages until 50% effect) */
 export const DEFAULT_DECAY_HALF_LIFE = 50;
 
 /** Default floor for temporal decay (minimum score multiplier) */
@@ -80,6 +80,9 @@ export const DEFAULT_DECAY_FLOOR = 0.3;
 
 /** Default decay strength/rate */
 export const DEFAULT_DECAY_STRENGTH = 0.5;
+
+/** Default max boost for nostalgia mode (1.2 = 20% boost for old chunks) */
+export const DEFAULT_NOSTALGIA_MAX_BOOST = 1.2;
 
 // =============================================================================
 // CONDITIONAL ACTIVATION DEFAULTS

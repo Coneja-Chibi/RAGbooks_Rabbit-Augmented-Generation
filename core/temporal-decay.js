@@ -7,11 +7,7 @@
 // =============================================================================
 
 import { isChunkTemporallyBlind } from './collection-metadata.js';
-import { DEFAULT_DECAY_HALF_LIFE, DEFAULT_DECAY_FLOOR } from './constants.js';
-
-// Nostalgia defaults
-const DEFAULT_NOSTALGIA_HALF_LIFE = 50;  // Messages until 50% boost reached
-const DEFAULT_NOSTALGIA_MAX_BOOST = 1.5; // Maximum multiplier for old chunks
+import { DEFAULT_DECAY_HALF_LIFE, DEFAULT_DECAY_FLOOR, DEFAULT_NOSTALGIA_MAX_BOOST } from './constants.js';
 
 /**
  * Calculates exponential decay multiplier

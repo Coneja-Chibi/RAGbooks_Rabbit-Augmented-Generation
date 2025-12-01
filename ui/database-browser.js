@@ -107,6 +107,10 @@ let browserState = {
     pendingPngExport: null,
 };
 
+// Event binding flags (module-level for proper reset on modal close)
+let searchEventsBound = false;
+let bulkEventsBound = false;
+
 /**
  * Initializes the database browser
  * @param {object} settings VectHare settings
@@ -164,7 +168,18 @@ function updatePluginWarningBanner() {
 export function closeDatabaseBrowser() {
     $('#vecthare_database_browser_modal').fadeOut(200);
     browserState.isOpen = false;
+    // Reset event bound flags for clean rebind on next open
+    resetEventFlags();
     console.log('VectHare Database Browser: Closed');
+}
+
+/**
+ * Resets event bound flags (called on modal close)
+ */
+function resetEventFlags() {
+    // Reset flags so events rebind properly on next modal open
+    bulkEventsBound = false;
+    searchEventsBound = false;
 }
 
 /**
@@ -2330,8 +2345,6 @@ function addConditionRule() {
 // SEARCH TAB FUNCTIONS
 // ============================================================================
 
-let searchEventsBound = false;
-
 /**
  * Binds search tab events
  */
@@ -2479,8 +2492,6 @@ function renderSearchResults(results, query) {
 // ============================================================================
 // BULK OPERATIONS TAB FUNCTIONS
 // ============================================================================
-
-let bulkEventsBound = false;
 
 /**
  * Renders bulk operations list

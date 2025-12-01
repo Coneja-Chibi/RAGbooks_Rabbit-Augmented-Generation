@@ -116,19 +116,7 @@
     overflow: hidden;
 }
 
-.vecthare_provider_setting::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 60px;
-    height: 60px;
-    background: radial-gradient(circle,
-        color-mix(in srgb, var(--vecthare-primary) 15%, transparent) 0%,
-        transparent 70%);
-    opacity: 0.5;
-    pointer-events: none;
-}
+/* Decorative glow removed for compatibility */
 
 .vecthare_provider_setting:hover {
     background: linear-gradient(135deg,

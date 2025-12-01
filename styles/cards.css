@@ -57,19 +57,7 @@
     overflow: hidden;
 }
 
-.vecthare-card-header::after {
-    content: '';
-    position: absolute;
-    top: -50%;
-    right: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(circle,
-        color-mix(in srgb, var(--vecthare-primary) 8%, transparent) 0%,
-        transparent 70%);
-    opacity: 0.5;
-    pointer-events: none;
-}
+/* Decorative glow removed for compatibility */
 
 .vecthare-card-title {
     margin: 0;

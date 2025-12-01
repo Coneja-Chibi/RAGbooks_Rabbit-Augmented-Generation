@@ -208,29 +208,68 @@
     padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
 }
 
-.vecthare-tcm-tester-inputs {
+.vecthare-tcm-tester-row {
     display: flex;
-    gap: 8px;
+    align-items: center;
+    gap: 10px;
     flex-wrap: wrap;
 }
 
-.vecthare-tcm-tester-inputs .vecthare-input {
-    flex: 1;
-    min-width: 120px;
-    padding: 8px 12px;
-    border: 1px solid var(--SmartThemeBorderColor);
-    border-radius: 6px;
-    background: var(--SmartThemeBlurTintColor);
+.vecthare-tcm-tester-row label {
+    font-size: 0.9em;
+    font-weight: 500;
+    min-width: 85px;
     color: var(--SmartThemeBodyColor);
 }
 
-.vecthare-tcm-tester-inputs .vecthare-input-xs {
+.vecthare-tcm-tester-row .vecthare-input {
+    flex: 1;
+    min-width: 150px;
+    padding: 10px 12px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.9em;
+}
+
+.vecthare-tcm-tester-row .vecthare-input:focus {
+    border-color: var(--vecthare-primary);
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--vecthare-primary) 20%, transparent);
+}
+
+.vecthare-tcm-tester-row .vecthare-input-xs {
     flex: 0;
-    width: 60px;
-    min-width: 60px;
+    width: 50px;
+    min-width: 50px;
+    text-align: center;
+}
+
+.vecthare-tcm-tester-row .vecthare-textarea {
+    flex: 1;
+    min-height: 80px;
+    padding: 10px 12px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.9em;
+    resize: vertical;
+}
+
+.vecthare-tcm-tester-row .vecthare-textarea:focus {
+    border-color: var(--vecthare-primary);
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--vecthare-primary) 20%, transparent);
+}
+
+.vecthare-tcm-tester-actions {
+    display: flex;
+    justify-content: flex-end;
 }
 
 .vecthare-tcm-test-result {
@@ -292,12 +331,17 @@
         grid-template-columns: 1fr;
     }
 
-    .vecthare-tcm-tester-inputs {
+    .vecthare-tcm-tester-row {
         flex-direction: column;
+        align-items: stretch;
     }
 
-    .vecthare-tcm-tester-inputs .vecthare-input,
-    .vecthare-tcm-tester-inputs .vecthare-input-xs {
+    .vecthare-tcm-tester-row label {
+        min-width: auto;
+    }
+
+    .vecthare-tcm-tester-row .vecthare-input,
+    .vecthare-tcm-tester-row .vecthare-input-xs {
         width: 100%;
         min-width: 100%;
     }

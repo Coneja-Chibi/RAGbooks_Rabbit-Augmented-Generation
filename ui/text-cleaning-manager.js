@@ -124,17 +124,28 @@ export function openTextCleaningManager() {
                     <div class="vecthare-tcm-section">
                         <div class="vecthare-tcm-section-header">
                             <h4>Pattern Tester</h4>
+                            <span class="vecthare-tcm-hint">Test regex patterns before adding them</span>
                         </div>
                         <div class="vecthare-tcm-tester">
-                            <div class="vecthare-tcm-tester-inputs">
-                                <input type="text" id="vecthare_tcm_test_pattern" placeholder="Regex pattern" class="vecthare-input">
-                                <input type="text" id="vecthare_tcm_test_flags" value="gi" placeholder="Flags" class="vecthare-input vecthare-input-xs">
-                                <input type="text" id="vecthare_tcm_test_replacement" placeholder="Replacement (empty = remove)" class="vecthare-input">
-                                <button class="vecthare-btn-secondary" id="vecthare_tcm_test_run">
-                                    <i class="fa-solid fa-play"></i> Test
+                            <div class="vecthare-tcm-tester-row">
+                                <label>Pattern:</label>
+                                <input type="text" id="vecthare_tcm_test_pattern" placeholder="e.g. <font[^>]*>|</font>" class="vecthare-input">
+                                <label>Flags:</label>
+                                <input type="text" id="vecthare_tcm_test_flags" value="gi" placeholder="gi" class="vecthare-input vecthare-input-xs">
+                            </div>
+                            <div class="vecthare-tcm-tester-row">
+                                <label>Replace with:</label>
+                                <input type="text" id="vecthare_tcm_test_replacement" placeholder="Leave empty to remove matched text" class="vecthare-input">
+                            </div>
+                            <div class="vecthare-tcm-tester-row">
+                                <label>Sample text:</label>
+                                <textarea id="vecthare_tcm_test_input" rows="3" placeholder="Paste or type text to test the pattern against..." class="vecthare-textarea"></textarea>
+                            </div>
+                            <div class="vecthare-tcm-tester-actions">
+                                <button class="vecthare-btn-primary" id="vecthare_tcm_test_run">
+                                    <i class="fa-solid fa-play"></i> Run Test
                                 </button>
                             </div>
-                            <textarea id="vecthare_tcm_test_input" rows="3" placeholder="Paste sample text to test against..." class="vecthare-textarea"></textarea>
                             <div class="vecthare-tcm-test-result" id="vecthare_tcm_test_result"></div>
                         </div>
                     </div>

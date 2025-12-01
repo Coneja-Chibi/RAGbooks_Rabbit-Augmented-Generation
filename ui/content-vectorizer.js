@@ -1092,7 +1092,9 @@ function bindEvents() {
     });
 
     // Manage cleaning patterns button - opens the standalone Text Cleaning Manager
-    $(document).on('click', '#vecthare_cv_manage_cleaning', function() {
+    $('#vecthare_cv_manage_cleaning').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
         openTextCleaningManager();
     });
 

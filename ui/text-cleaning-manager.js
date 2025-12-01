@@ -103,6 +103,9 @@ export function openTextCleaningManager() {
                                 <button class="vecthare-btn-sm vecthare-btn-secondary" id="vecthare_tcm_add_pattern">
                                     <i class="fa-solid fa-plus"></i> Add
                                 </button>
+                                <button class="vecthare-btn-sm vecthare-btn-secondary" id="vecthare_tcm_save_template">
+                                    <i class="fa-solid fa-bookmark"></i> Save Template
+                                </button>
                                 <button class="vecthare-btn-sm vecthare-btn-secondary" id="vecthare_tcm_import">
                                     <i class="fa-solid fa-upload"></i> Import
                                 </button>
@@ -266,10 +269,28 @@ function bindEvents() {
         reader.onload = (event) => {
             const result = importPatterns(event.target.result);
             if (result.success) {
-                toastr.success(`Imported ${result.count} patterns`, 'VectHare');
                 // Check if modal still exists before updating DOM
                 if ($('#vecthare_text_cleaning_modal').length) {
                     const settings = getCleaningSettings();
+
+                    // If template was imported, also update preset and built-in checkboxes
+                    if (result.isTemplate) {
+                        toastr.success(`Template "${result.templateName}" loaded (${result.count} new patterns)`, 'VectHare');
+
+                        // Update preset dropdown
+                        $('#vecthare_tcm_preset').val(settings.selectedPreset);
+                        $('#vecthare_tcm_preset_desc').text(getPresetDescription(settings.selectedPreset));
+
+                        // Update built-in pattern checkboxes
+                        $('#vecthare_tcm_builtin_patterns input').each(function() {
+                            const id = $(this).data('id');
+                            $(this).prop('checked', settings.enabledBuiltins?.includes(id));
+                        });
+                    } else {
+                        toastr.success(`Imported ${result.count} patterns`, 'VectHare');
+                    }
+
+                    // Update custom patterns list
                     $('#vecthare_tcm_custom_patterns').html(renderCustomPatterns(settings.customPatterns));
                     rebindDeleteHandlers();
                 }
@@ -282,7 +303,41 @@ function bindEvents() {
         $(this).val('');
     });
 
-    // Export patterns
+    // Save as template (prompts for name, saves full config)
+    $('#vecthare_tcm_save_template').on('click', () => {
+        const templateName = prompt('Enter a name for this template:', 'My Cleaning Template');
+        if (!templateName) return;
+
+        const settings = getCleaningSettings();
+
+        // Gather current UI state
+        const currentPreset = $('#vecthare_tcm_preset').val();
+        const enabledBuiltins = [];
+        $('#vecthare_tcm_builtin_patterns input:checked').each(function() {
+            enabledBuiltins.push($(this).data('id'));
+        });
+
+        const template = {
+            name: templateName,
+            version: '1.0',
+            createdAt: new Date().toISOString(),
+            preset: currentPreset,
+            enabledBuiltins: enabledBuiltins,
+            customPatterns: settings.customPatterns || [],
+        };
+
+        const json = JSON.stringify(template, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `vecthare-template-${templateName.toLowerCase().replace(/\s+/g, '-')}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toastr.success(`Template "${templateName}" saved`, 'VectHare');
+    });
+
+    // Export patterns (custom patterns only)
     $('#vecthare_tcm_export').on('click', () => {
         const json = exportPatterns();
         const blob = new Blob([json], { type: 'application/json' });

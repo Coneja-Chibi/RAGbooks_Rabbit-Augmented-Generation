@@ -355,22 +355,56 @@ export function exportPatterns() {
 }
 
 /**
- * Imports patterns from JSON
- * @param {string} json - JSON string of patterns
- * @returns {{success: boolean, count: number, error?: string}}
+ * Imports patterns from JSON (supports both pattern arrays and full templates)
+ * @param {string} json - JSON string of patterns or template
+ * @returns {{success: boolean, count: number, isTemplate?: boolean, templateName?: string, error?: string}}
  */
 export function importPatterns(json) {
     try {
-        const patterns = JSON.parse(json);
-        if (!Array.isArray(patterns)) {
-            return { success: false, count: 0, error: 'Invalid format - expected array' };
-        }
-
+        const data = JSON.parse(json);
         const settings = getCleaningSettings();
         settings.customPatterns = settings.customPatterns || [];
 
+        // Check if this is a full template (has preset/enabledBuiltins/customPatterns)
+        if (data.customPatterns && !Array.isArray(data)) {
+            // Template format
+            if (data.preset) {
+                settings.selectedPreset = data.preset;
+            }
+            if (Array.isArray(data.enabledBuiltins)) {
+                settings.enabledBuiltins = data.enabledBuiltins;
+            }
+
+            let count = 0;
+            for (const pattern of (data.customPatterns || [])) {
+                if (!pattern.pattern) continue;
+
+                const exists = settings.customPatterns.some(p => p.pattern === pattern.pattern);
+                if (!exists) {
+                    settings.customPatterns.push({
+                        id: uuidv4(),
+                        name: pattern.name || 'Imported Pattern',
+                        pattern: pattern.pattern,
+                        replacement: pattern.replacement || '',
+                        flags: pattern.flags || 'g',
+                        enabled: pattern.enabled !== false,
+                        builtin: false,
+                    });
+                    count++;
+                }
+            }
+
+            saveCleaningSettings(settings);
+            return { success: true, count, isTemplate: true, templateName: data.name || 'Unnamed Template' };
+        }
+
+        // Array format (just patterns)
+        if (!Array.isArray(data)) {
+            return { success: false, count: 0, error: 'Invalid format - expected array or template object' };
+        }
+
         let count = 0;
-        for (const pattern of patterns) {
+        for (const pattern of data) {
             if (!pattern.pattern) continue;
 
             // Check for duplicates by pattern string

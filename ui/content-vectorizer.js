@@ -25,7 +25,7 @@ import {
     CHARACTER_FIELDS,
 } from '../core/content-types.js';
 import { extension_settings, getContext } from '../../../../extensions.js';
-import { saveSettingsDebounced } from '../../../../../script.js';
+import { saveSettingsDebounced, chat_metadata } from '../../../../../script.js';
 import { getChatUUID } from '../core/chat-vectorization.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { openTextCleaningManager } from './text-cleaning-manager.js';
@@ -789,8 +789,8 @@ function updateOptionsSection(type) {
             </div>
             <span class="vecthare-cv-option-hint">
                 ${type.id === 'lorebook'
-                    ? 'WI trigger keys always included. Auto-extraction adds more based on text frequency.'
-                    : 'Higher frequency words get higher weights. Base weight applies to all extracted keywords.'}
+        ? 'WI trigger keys always included. Auto-extraction adds more based on text frequency.'
+        : 'Higher frequency words get higher weights. Base weight applies to all extracted keywords.'}
             </span>
         </div>
     `;
@@ -837,7 +837,7 @@ function renderScopeOptions(type) {
     let chatName = 'No chat';
     if (hasChat) {
         // Try to get a meaningful chat name
-        if (typeof chat_metadata !== 'undefined' && chat_metadata?.chat_name) {
+        if (chat_metadata?.chat_name) {
             chatName = chat_metadata.chat_name;
         } else {
             chatName = `Chat #${context.chatId}`;
@@ -1605,7 +1605,7 @@ async function handleCharacterPngUpload(file) {
         const filledFields = fields.filter(f => characterData[f]?.trim());
         const totalChars = fields.reduce((sum, f) => sum + (characterData[f]?.length || 0), 0);
 
-        toastr.success(`Loaded character: ${characterData.name} (${filledFields.length} fields, ${(totalChars/1000).toFixed(1)}k chars)`, 'VectHare');
+        toastr.success(`Loaded character: ${characterData.name} (${filledFields.length} fields, ${(totalChars / 1000).toFixed(1)}k chars)`, 'VectHare');
 
     } catch (err) {
         console.error('VectHare: PNG parse error:', err);
@@ -1639,7 +1639,7 @@ function extractCharaFromPng(bytes) {
 
         // Read chunk type (4 bytes ASCII)
         const type = String.fromCharCode(bytes[offset], bytes[offset + 1],
-                                         bytes[offset + 2], bytes[offset + 3]);
+            bytes[offset + 2], bytes[offset + 3]);
         offset += 4;
 
         if (type === 'tEXt') {
@@ -1875,7 +1875,7 @@ async function scrapeWiki() {
 
         // Combine pages into content
         const combinedContent = pages.map(page =>
-            `# ${String(page.title).trim()}\n\n${String(page.content).trim()}`
+            `# ${String(page.title).trim()}\n\n${String(page.content).trim()}`,
         ).join('\n\n---\n\n');
 
         sourceData = {
@@ -2258,14 +2258,14 @@ async function previewChunks() {
             </div>
             <div class="vecthare-cv-preview-list">
                 ${chunks.slice(0, 10).map((chunk, i) => {
-                    const chunkText = chunk.text || chunk;
-                    return `
+        const chunkText = chunk.text || chunk;
+        return `
                     <div class="vecthare-cv-preview-chunk">
                         <span class="vecthare-cv-preview-num">#${i + 1}</span>
                         <span class="vecthare-cv-preview-text">${escapeHtml(chunkText.substring(0, 150))}${chunkText.length > 150 ? '...' : ''}</span>
                         <span class="vecthare-cv-preview-size">${chunkText.length} chars</span>
                     </div>
-                `}).join('')}
+                `;}).join('')}
                 ${chunks.length > 10 ? `<div class="vecthare-cv-preview-more">...and ${chunks.length - 10} more</div>` : ''}
             </div>
         `);
@@ -2409,7 +2409,7 @@ async function startVectorization() {
                     {
                         okButton: 'Replace All',
                         cancelButton: 'Cancel',
-                    }
+                    },
                 );
 
                 if (!confirmed) {

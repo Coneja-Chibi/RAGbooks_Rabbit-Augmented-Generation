@@ -176,7 +176,7 @@ function getPresetDescription(presetId) {
  */
 function renderCustomPatterns(patterns) {
     if (!patterns || patterns.length === 0) {
-        return `<div class="vecthare-tcm-empty">No custom patterns. Click "Add" or "Import" to create patterns.</div>`;
+        return '<div class="vecthare-tcm-empty">No custom patterns. Click "Add" or "Import" to create patterns.</div>';
     }
 
     return patterns.map(p => {

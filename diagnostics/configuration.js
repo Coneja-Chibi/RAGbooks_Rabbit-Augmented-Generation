@@ -58,7 +58,7 @@ export function checkChatEnabled(settings) {
             status: 'warning',
             message: 'No collections enabled for querying. Enable chat vectorization or enable other collections in the Database Browser.',
             fixable: true,
-            fixAction: 'enable_chats'
+            fixAction: 'enable_chats',
         };
     }
 
@@ -77,7 +77,7 @@ export function checkChatEnabled(settings) {
     return {
         name: 'RAG Query Status',
         status: 'pass',
-        message: parts.join(' | ')
+        message: parts.join(' | '),
     };
 }
 
@@ -93,7 +93,7 @@ export function checkChunkSize(settings) {
             status: 'fail',
             message: `Chunk size too small (${size} chars). Minimum: 50`,
             fixable: true,
-            fixAction: 'fix_chunk_size'
+            fixAction: 'fix_chunk_size',
         };
     }
 
@@ -101,7 +101,7 @@ export function checkChunkSize(settings) {
         return {
             name: 'Chunk Size',
             status: 'warning',
-            message: `Chunk size is very small (${size} chars). Recommended: 200-800`
+            message: `Chunk size is very small (${size} chars). Recommended: 200-800`,
         };
     }
 
@@ -109,14 +109,14 @@ export function checkChunkSize(settings) {
         return {
             name: 'Chunk Size',
             status: 'warning',
-            message: `Chunk size is very large (${size} chars). May cause context issues`
+            message: `Chunk size is very large (${size} chars). May cause context issues`,
         };
     }
 
     return {
         name: 'Chunk Size',
         status: 'pass',
-        message: `${size} characters`
+        message: `${size} characters`,
     };
 }
 
@@ -132,7 +132,7 @@ export function checkScoreThreshold(settings) {
             status: 'fail',
             message: `Invalid threshold (${threshold}). Must be 0.0-1.0`,
             fixable: true,
-            fixAction: 'fix_threshold'
+            fixAction: 'fix_threshold',
         };
     }
 
@@ -140,7 +140,7 @@ export function checkScoreThreshold(settings) {
         return {
             name: 'Score Threshold',
             status: 'warning',
-            message: `Very low threshold (${threshold}). May retrieve irrelevant results`
+            message: `Very low threshold (${threshold}). May retrieve irrelevant results`,
         };
     }
 
@@ -148,14 +148,14 @@ export function checkScoreThreshold(settings) {
         return {
             name: 'Score Threshold',
             status: 'warning',
-            message: `Very high threshold (${threshold}). May retrieve nothing`
+            message: `Very high threshold (${threshold}). May retrieve nothing`,
         };
     }
 
     return {
         name: 'Score Threshold',
         status: 'pass',
-        message: `${threshold}`
+        message: `${threshold}`,
     };
 }
 
@@ -172,7 +172,7 @@ export function checkInsertQueryCounts(settings) {
             status: 'fail',
             message: `Invalid counts (insert: ${insert}, query: ${query}). Must be >= 1`,
             fixable: true,
-            fixAction: 'fix_counts'
+            fixAction: 'fix_counts',
         };
     }
 
@@ -180,14 +180,14 @@ export function checkInsertQueryCounts(settings) {
         return {
             name: 'Insert/Query Counts',
             status: 'warning',
-            message: `High counts (insert: ${insert}, query: ${query}). May use too much context`
+            message: `High counts (insert: ${insert}, query: ${query}). May use too much context`,
         };
     }
 
     return {
         name: 'Insert/Query Counts',
         status: 'pass',
-        message: `Insert: ${insert}, Query: ${query}`
+        message: `Insert: ${insert}, Query: ${query}`,
     };
 }
 
@@ -199,7 +199,7 @@ export async function checkChatVectors(settings) {
         return {
             name: 'Chat Vectors',
             status: 'warning',
-            message: 'No chat selected'
+            message: 'No chat selected',
         };
     }
 
@@ -209,7 +209,7 @@ export async function checkChatVectors(settings) {
             return {
                 name: 'Chat Vectors',
                 status: 'warning',
-                message: 'Could not get collection ID'
+                message: 'Could not get collection ID',
             };
         }
         const hashes = await getSavedHashes(collectionId, settings);
@@ -219,19 +219,19 @@ export async function checkChatVectors(settings) {
                 status: 'warning',
                 message: 'Current chat has no vectorized chunks',
                 fixable: true,
-                fixAction: 'vectorize_all'
+                fixAction: 'vectorize_all',
             };
         }
         return {
             name: 'Chat Vectors',
             status: 'pass',
-            message: `${hashes.length} vectorized chunks`
+            message: `${hashes.length} vectorized chunks`,
         };
     } catch (error) {
         return {
             name: 'Chat Vectors',
             status: 'fail',
-            message: `Failed to check vectors: ${error.message}`
+            message: `Failed to check vectors: ${error.message}`,
         };
     }
 }
@@ -247,7 +247,7 @@ export function checkTemporalDecaySettings(settings) {
     return {
         name: 'Temporal Decay',
         status: 'pass',
-        message: `Per-collection decay active. ${blindCount} chunk(s) temporally blind.`
+        message: `Per-collection decay active. ${blindCount} chunk(s) temporally blind.`,
     };
 }
 
@@ -260,7 +260,7 @@ export async function checkTemporallyBlindChunks(settings) {
             name: 'Temporally Blind Chunks',
             status: 'pass',
             message: 'No chat selected - cannot verify',
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -273,7 +273,7 @@ export async function checkTemporallyBlindChunks(settings) {
                 name: 'Temporally Blind Chunks',
                 status: 'pass',
                 message: 'No chunks marked as temporally blind',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -284,7 +284,7 @@ export async function checkTemporallyBlindChunks(settings) {
                 name: 'Temporally Blind Chunks',
                 status: 'warning',
                 message: 'Could not get collection ID',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
         const hashes = await getSavedHashes(collectionId, settings);
@@ -294,14 +294,14 @@ export async function checkTemporallyBlindChunks(settings) {
             name: 'Temporally Blind Chunks',
             status: 'pass',
             message: `${blindCount} total blind chunk(s), ${blindInChat.length} in current chat`,
-            category: 'configuration'
+            category: 'configuration',
         };
     } catch (error) {
         return {
             name: 'Temporally Blind Chunks',
             status: 'warning',
             message: `Could not verify: ${error.message}`,
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 }
@@ -319,7 +319,7 @@ export function checkVisualizerApiReadiness(settings) {
             name: 'Visualizer API',
             status: 'fail',
             message: 'No settings available for visualizer operations',
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -329,7 +329,7 @@ export function checkVisualizerApiReadiness(settings) {
             name: 'Visualizer API',
             status: 'fail',
             message: 'No embedding source configured - cannot create/edit vectors',
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -339,7 +339,7 @@ export function checkVisualizerApiReadiness(settings) {
             name: 'Visualizer API',
             status: 'warning',
             message: 'No backend database specified (using default)',
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -347,7 +347,7 @@ export function checkVisualizerApiReadiness(settings) {
         name: 'Visualizer API',
         status: 'pass',
         message: `Ready for vector operations (source: ${settings.source}, backend: ${settings.vector_backend || 'standard'})`,
-        category: 'configuration'
+        category: 'configuration',
     };
 }
 
@@ -361,7 +361,7 @@ export function checkCollectionIdFormat() {
             name: 'Collection ID Format',
             status: 'pass',
             message: 'No chat selected - cannot verify UUID',
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -376,7 +376,7 @@ export function checkCollectionIdFormat() {
             name: 'Collection ID Format',
             status: 'warning',
             message: `Using chatId fallback (integrity UUID not available). Collection: ${collectionId || 'null'}`,
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -387,7 +387,7 @@ export function checkCollectionIdFormat() {
             name: 'Collection ID Format',
             status: 'fail',
             message: `Invalid collection ID format: ${collectionId}`,
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -396,7 +396,7 @@ export function checkCollectionIdFormat() {
             name: 'Collection ID Format',
             status: 'fail',
             message: `Collection ID missing 'vh' prefix: ${collectionId}`,
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -408,7 +408,7 @@ export function checkCollectionIdFormat() {
         name: 'Collection ID Format',
         status: 'pass',
         message: `${parsed.type}:${parsed.sourceId.substring(0, 8)}... (${isValidUUID ? 'UUID' : 'fallback ID'})`,
-        category: 'configuration'
+        category: 'configuration',
     };
 }
 
@@ -422,7 +422,7 @@ export function checkConditionalActivationModule() {
                 name: 'Conditional Activation',
                 status: 'fail',
                 message: 'VALID_EMOTIONS not loaded correctly',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -431,7 +431,7 @@ export function checkConditionalActivationModule() {
                 name: 'Conditional Activation',
                 status: 'fail',
                 message: 'VALID_GENERATION_TYPES not loaded correctly',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -440,7 +440,7 @@ export function checkConditionalActivationModule() {
                 name: 'Conditional Activation',
                 status: 'fail',
                 message: 'Validation functions not available',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -448,14 +448,14 @@ export function checkConditionalActivationModule() {
             name: 'Conditional Activation',
             status: 'pass',
             message: `Module loaded (${VALID_EMOTIONS.length} emotions, ${VALID_GENERATION_TYPES.length} gen types)`,
-            category: 'configuration'
+            category: 'configuration',
         };
     } catch (error) {
         return {
             name: 'Conditional Activation',
             status: 'fail',
             message: `Module error: ${error.message}`,
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 }
@@ -471,7 +471,7 @@ export async function checkHashCollisionRate(settings) {
             name: 'Hash Collision Rate',
             status: 'pass',
             message: 'No chat selected',
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -482,7 +482,7 @@ export async function checkHashCollisionRate(settings) {
                 name: 'Hash Collision Rate',
                 status: 'pass',
                 message: 'Could not get collection ID',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -492,7 +492,7 @@ export async function checkHashCollisionRate(settings) {
                 name: 'Hash Collision Rate',
                 status: 'pass',
                 message: 'No chunks to analyze',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -510,7 +510,7 @@ export async function checkHashCollisionRate(settings) {
                 name: 'Hash Collision Rate',
                 status: 'warning',
                 message: `High deduplication: ${(collisionRate * 100).toFixed(1)}% (${duplicates}/${totalChunks} chunks). Chat may have very repetitive content.`,
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -519,7 +519,7 @@ export async function checkHashCollisionRate(settings) {
                 name: 'Hash Collision Rate',
                 status: 'pass',
                 message: `${uniqueCount} unique chunks, ${duplicates} deduplicated (${(collisionRate * 100).toFixed(1)}% - normal)`,
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -527,14 +527,14 @@ export async function checkHashCollisionRate(settings) {
             name: 'Hash Collision Rate',
             status: 'pass',
             message: `${uniqueCount} chunks, all unique hashes`,
-            category: 'configuration'
+            category: 'configuration',
         };
     } catch (error) {
         return {
             name: 'Hash Collision Rate',
             status: 'warning',
             message: `Could not analyze: ${error.message}`,
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 }
@@ -552,7 +552,7 @@ export function checkChatMetadataIntegrity() {
             name: 'Chat Metadata Integrity',
             status: 'skipped',
             message: 'No chat selected',
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -563,7 +563,7 @@ export function checkChatMetadataIntegrity() {
             name: 'Chat Metadata Integrity',
             status: 'warning',
             message: 'Chat is missing integrity UUID. This can cause collection ID mismatches. Re-opening the chat should fix this.',
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -574,7 +574,7 @@ export function checkChatMetadataIntegrity() {
             name: 'Chat Metadata Integrity',
             status: 'warning',
             message: `Chat UUID has non-standard format: ${uuid.substring(0, 20)}...`,
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -582,7 +582,7 @@ export function checkChatMetadataIntegrity() {
         name: 'Chat Metadata Integrity',
         status: 'pass',
         message: `UUID: ${uuid.substring(0, 8)}...`,
-        category: 'configuration'
+        category: 'configuration',
     };
 }
 
@@ -598,7 +598,7 @@ export async function checkConditionRuleValidity(settings) {
                 name: 'Condition Rules',
                 status: 'skipped',
                 message: 'No chat collection',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -609,12 +609,12 @@ export async function checkConditionRuleValidity(settings) {
                 name: 'Condition Rules',
                 status: 'pass',
                 message: 'No chunks with conditions',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
         const chunksWithConditions = hashesResult.filter(item =>
-            item.metadata?.conditions && Object.keys(item.metadata.conditions).length > 0
+            item.metadata?.conditions && Object.keys(item.metadata.conditions).length > 0,
         );
 
         if (chunksWithConditions.length === 0) {
@@ -622,7 +622,7 @@ export async function checkConditionRuleValidity(settings) {
                 name: 'Condition Rules',
                 status: 'pass',
                 message: 'No conditional chunks configured',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -636,7 +636,7 @@ export async function checkConditionRuleValidity(settings) {
                     invalidConditions.push({
                         hash: chunk.hash,
                         rule: ruleType,
-                        error: validation.errors?.join(', ') || 'Invalid rule'
+                        error: validation.errors?.join(', ') || 'Invalid rule',
                     });
                 }
             }
@@ -648,7 +648,7 @@ export async function checkConditionRuleValidity(settings) {
                 status: 'warning',
                 message: `${invalidConditions.length} invalid condition(s) found. Check chunk conditions in the visualizer.`,
                 category: 'configuration',
-                data: { invalidConditions }
+                data: { invalidConditions },
             };
         }
 
@@ -656,14 +656,14 @@ export async function checkConditionRuleValidity(settings) {
             name: 'Condition Rules',
             status: 'pass',
             message: `${chunksWithConditions.length} conditional chunks, all valid`,
-            category: 'configuration'
+            category: 'configuration',
         };
     } catch (error) {
         return {
             name: 'Condition Rules',
             status: 'warning',
             message: `Could not validate: ${error.message}`,
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 }
@@ -687,7 +687,7 @@ export async function checkCollectionRegistryStatus(settings) {
                 name: 'Collection Registry',
                 status: 'warning',
                 message: 'Registry empty. Collections will auto-discover on first message. Open Database Browser to populate now.',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -695,7 +695,7 @@ export async function checkCollectionRegistryStatus(settings) {
             name: 'Collection Registry',
             status: 'pass',
             message: 'Registry empty (no collections vectorized yet)',
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -706,7 +706,7 @@ export async function checkCollectionRegistryStatus(settings) {
         name: 'Collection Registry',
         status: 'pass',
         message: `${registryCount} collection(s) registered, ${enabledCount} enabled for querying`,
-        category: 'configuration'
+        category: 'configuration',
     };
 }
 
@@ -724,7 +724,7 @@ export async function checkChunkGroupsModule() {
                 name: 'Chunk Groups Module',
                 status: 'fail',
                 message: 'validateGroup function not available',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -733,7 +733,7 @@ export async function checkChunkGroupsModule() {
                 name: 'Chunk Groups Module',
                 status: 'fail',
                 message: 'createGroup function not available',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -744,7 +744,7 @@ export async function checkChunkGroupsModule() {
                 name: 'Chunk Groups Module',
                 status: 'fail',
                 message: 'createGroup returned invalid result',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -752,14 +752,14 @@ export async function checkChunkGroupsModule() {
             name: 'Chunk Groups Module',
             status: 'pass',
             message: 'Module loaded and functional',
-            category: 'configuration'
+            category: 'configuration',
         };
     } catch (error) {
         return {
             name: 'Chunk Groups Module',
             status: 'fail',
             message: `Module error: ${error.message}`,
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 }
@@ -779,7 +779,7 @@ export async function checkChunkGroupsValidity(settings) {
                 name: 'Chunk Groups Validity',
                 status: 'pass',
                 message: 'No collections to check',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -804,7 +804,7 @@ export async function checkChunkGroupsValidity(settings) {
                     invalidDetails.push({
                         collectionId: collectionId.substring(0, 20),
                         groupName: group.name || 'unnamed',
-                        errors: validation.errors
+                        errors: validation.errors,
                     });
                 }
             }
@@ -815,7 +815,7 @@ export async function checkChunkGroupsValidity(settings) {
                 name: 'Chunk Groups Validity',
                 status: 'pass',
                 message: 'No groups configured',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -825,7 +825,7 @@ export async function checkChunkGroupsValidity(settings) {
                 status: 'warning',
                 message: `${invalidGroups}/${totalGroups} groups have invalid configuration`,
                 category: 'configuration',
-                data: { invalidDetails }
+                data: { invalidDetails },
             };
         }
 
@@ -833,14 +833,14 @@ export async function checkChunkGroupsValidity(settings) {
             name: 'Chunk Groups Validity',
             status: 'pass',
             message: `${totalGroups} group(s) configured, all valid`,
-            category: 'configuration'
+            category: 'configuration',
         };
     } catch (error) {
         return {
             name: 'Chunk Groups Validity',
             status: 'warning',
             message: `Could not validate: ${error.message}`,
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 }
@@ -859,7 +859,7 @@ export async function checkChunkGroupMemberIntegrity(settings) {
                 name: 'Group Member Integrity',
                 status: 'pass',
                 message: 'No collections to check',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -895,7 +895,7 @@ export async function checkChunkGroupMemberIntegrity(settings) {
                         if (orphanedDetails.length < 5) {
                             orphanedDetails.push({
                                 groupName: group.name,
-                                hash: String(memberHash).substring(0, 8)
+                                hash: String(memberHash).substring(0, 8),
                             });
                         }
                     }
@@ -908,7 +908,7 @@ export async function checkChunkGroupMemberIntegrity(settings) {
                 name: 'Group Member Integrity',
                 status: 'pass',
                 message: 'No group members to check',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -920,7 +920,7 @@ export async function checkChunkGroupMemberIntegrity(settings) {
                 category: 'configuration',
                 fixable: true,
                 fixAction: 'cleanOrphanedGroupMembers',
-                data: { orphanedDetails, orphanedCount: orphanedMembers }
+                data: { orphanedDetails, orphanedCount: orphanedMembers },
             };
         }
 
@@ -928,14 +928,14 @@ export async function checkChunkGroupMemberIntegrity(settings) {
             name: 'Group Member Integrity',
             status: 'pass',
             message: `${totalMembers} group member(s), all reference valid chunks`,
-            category: 'configuration'
+            category: 'configuration',
         };
     } catch (error) {
         return {
             name: 'Group Member Integrity',
             status: 'warning',
             message: `Could not verify: ${error.message}`,
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 }
@@ -982,7 +982,7 @@ export async function checkPromptContextConfig(settings) {
                 name: 'Prompt Context',
                 status: 'pass',
                 message: 'No prompt context configured (chunks inject as plain text)',
-                category: 'configuration'
+                category: 'configuration',
             };
         }
 
@@ -990,14 +990,14 @@ export async function checkPromptContextConfig(settings) {
             name: 'Prompt Context',
             status: 'pass',
             message: parts.join(' | '),
-            category: 'configuration'
+            category: 'configuration',
         };
     } catch (error) {
         return {
             name: 'Prompt Context',
             status: 'warning',
             message: `Could not check: ${error.message}`,
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 }
@@ -1023,7 +1023,7 @@ export function checkPNGExportCapability() {
             name: 'PNG Export Capability',
             status: 'warning',
             message: `Missing browser APIs: ${missing.join(', ')}. PNG export may not work.`,
-            category: 'configuration'
+            category: 'configuration',
         };
     }
 
@@ -1042,6 +1042,6 @@ export function checkPNGExportCapability() {
         message: deflateRawSupported
             ? 'Full PNG export support (native deflate-raw)'
             : 'PNG export supported (using deflate fallback)',
-        category: 'configuration'
+        category: 'configuration',
     };
 }

@@ -91,7 +91,7 @@ export class QdrantBackend extends VectorBackend {
         if (parts.length >= 3 && parts[0] === 'vh') {
             return {
                 type: parts[1],
-                sourceId: parts.slice(2).join(':') // Handle UUIDs that might have colons
+                sourceId: parts.slice(2).join(':'), // Handle UUIDs that might have colons
             };
         }
 
@@ -101,7 +101,7 @@ export class QdrantBackend extends VectorBackend {
             console.warn('VectHare: Legacy collection ID format detected:', collectionId);
             return {
                 type: legacyParts[1],
-                sourceId: legacyParts.slice(2).join('_')
+                sourceId: legacyParts.slice(2).join('_'),
             };
         }
 
@@ -109,7 +109,7 @@ export class QdrantBackend extends VectorBackend {
         console.warn('VectHare: Unknown collection ID format:', collectionId);
         return {
             type: 'chat',
-            sourceId: collectionId
+            sourceId: collectionId,
         };
     }
 
@@ -166,7 +166,7 @@ export class QdrantBackend extends VectorBackend {
                         summary: item.summary,
                         isSummaryChunk: item.isSummaryChunk,
                         parentHash: item.parentHash,
-                    }
+                    },
                 })),
                 source: settings.source || 'transformers',
                 model: getModelFromSettings(settings),
@@ -258,7 +258,7 @@ export class QdrantBackend extends VectorBackend {
                         topK: topK,
                         threshold: threshold,
                         source: settings.source || 'transformers',
-                model: getModelFromSettings(settings),
+                        model: getModelFromSettings(settings),
                         filters: { type, sourceId },
                     }),
                 });
@@ -350,7 +350,7 @@ export class QdrantBackend extends VectorBackend {
             backend: BACKEND_TYPE,
             collectionId: 'vecthare_main',
             source: settings.source || 'transformers',
-                model: getModelFromSettings(settings),
+            model: getModelFromSettings(settings),
         }), {
             headers: getRequestHeaders(),
         });

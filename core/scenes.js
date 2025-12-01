@@ -26,7 +26,9 @@ import { getStringHash } from '../../../../utils.js';
 import {
     insertVectorItems,
     deleteVectorItems,
+    getSavedHashes,
 } from './core-vector-api.js';
+import { extension_settings } from '../../../../extensions.js';
 import { getChatCollectionId } from './chat-vectorization.js';
 import {
     getChunkMetadata,
@@ -169,7 +171,7 @@ export async function createSceneChunk(start, end, sceneData, settings) {
             keywords: sceneData.keywords || [],
             messageCount: end - start + 1,
             createdAt: Date.now(),
-        }
+        },
     };
 
     try {
@@ -324,7 +326,7 @@ export function findSceneAtMessage(sceneChunks, messageId) {
     return sceneChunks.find(chunk =>
         chunk.metadata?.isScene &&
         messageId >= chunk.metadata.sceneStart &&
-        messageId <= chunk.metadata.sceneEnd
+        messageId <= chunk.metadata.sceneEnd,
     ) || null;
 }
 
@@ -371,4 +373,175 @@ export function setPendingSceneStart(messageId) {
 
 export function clearPendingScene() {
     pendingSceneStart = null;
+}
+
+// ============================================================================
+// SCENE LIST MANAGEMENT
+// ============================================================================
+
+/**
+ * Gets VectHare settings
+ * @returns {object}
+ */
+function getSettings() {
+    return extension_settings?.vecthare || {};
+}
+
+/**
+ * Gets all scenes from the current chat's collection
+ * Scenes are chunks with isScene: true metadata
+ * @returns {Promise<object[]>} Array of scene objects
+ */
+export async function getScenes() {
+    const collectionId = getCurrentCollectionId();
+    if (!collectionId) {
+        return [];
+    }
+
+    const settings = getSettings();
+
+    try {
+        const result = await getSavedHashes(collectionId, settings, true);
+
+        if (!result.metadata) {
+            return [];
+        }
+
+        // Filter for scene chunks and transform to scene objects
+        const scenes = result.metadata
+            .filter(item => item.isScene === true)
+            .map(item => ({
+                hash: item.hash,
+                start: item.sceneStart,
+                end: item.sceneEnd,
+                title: item.title || '',
+                summary: item.summary || '',
+                keywords: item.keywords || [],
+                containedHashes: item.containedHashes || [],
+                messageCount: item.messageCount || (item.sceneEnd - item.sceneStart + 1),
+                createdAt: item.createdAt,
+            }))
+            .sort((a, b) => a.start - b.start);
+
+        return scenes;
+    } catch (error) {
+        console.error('VectHare Scenes: Failed to get scenes', error);
+        return [];
+    }
+}
+
+/**
+ * Gets statistics about scenes in the current collection
+ * @returns {Promise<{total: number, open: number, closed: number}>}
+ */
+export async function getSceneStats() {
+    const scenes = await getScenes();
+
+    const open = scenes.filter(s => s.end === null).length;
+    const closed = scenes.filter(s => s.end !== null).length;
+
+    return {
+        total: scenes.length,
+        open,
+        closed,
+    };
+}
+
+/**
+ * Gets only closed scenes (where end !== null)
+ * @returns {Promise<object[]>}
+ */
+export async function getClosedScenes() {
+    const scenes = await getScenes();
+    return scenes.filter(s => s.end !== null);
+}
+
+/**
+ * Gets only open scenes (where end === null)
+ * @returns {Promise<object[]>}
+ */
+export async function getOpenScenes() {
+    const scenes = await getScenes();
+    return scenes.filter(s => s.end === null);
+}
+
+/**
+ * Updates a scene's metadata (title, summary, keywords)
+ * @param {number} sceneHash - Hash of the scene chunk
+ * @param {object} updates - Fields to update
+ * @returns {Promise<boolean>} Success
+ */
+export async function updateScene(sceneHash, updates) {
+    const settings = getSettings();
+
+    try {
+        await updateSceneChunkMetadata(sceneHash, updates, settings);
+        console.log(`VectHare Scenes: Updated scene ${sceneHash}`);
+        return true;
+    } catch (error) {
+        console.error('VectHare Scenes: Failed to update scene', error);
+        return false;
+    }
+}
+
+/**
+ * Deletes a scene and re-enables its contained chunks
+ * @param {number} sceneHash - Hash of the scene to delete
+ * @returns {Promise<boolean>} Success
+ */
+export async function deleteScene(sceneHash) {
+    const collectionId = getCurrentCollectionId();
+    if (!collectionId) {
+        return false;
+    }
+
+    const settings = getSettings();
+
+    // Get the scene's contained hashes before deleting
+    const scenes = await getScenes();
+    const scene = scenes.find(s => s.hash === sceneHash);
+
+    if (!scene) {
+        console.warn(`VectHare Scenes: Scene ${sceneHash} not found`);
+        return false;
+    }
+
+    try {
+        await deleteSceneChunk(sceneHash, scene.containedHashes, settings);
+        console.log(`VectHare Scenes: Deleted scene ${sceneHash}`);
+        return true;
+    } catch (error) {
+        console.error('VectHare Scenes: Failed to delete scene', error);
+        return false;
+    }
+}
+
+/**
+ * Deletes all scenes in the current collection
+ * @returns {Promise<{success: boolean, deleted: number}>}
+ */
+export async function clearAllScenes() {
+    const scenes = await getScenes();
+
+    if (scenes.length === 0) {
+        return { success: true, deleted: 0 };
+    }
+
+    const settings = getSettings();
+    let deleted = 0;
+
+    for (const scene of scenes) {
+        try {
+            await deleteSceneChunk(scene.hash, scene.containedHashes, settings);
+            deleted++;
+        } catch (error) {
+            console.error(`VectHare Scenes: Failed to delete scene ${scene.hash}`, error);
+        }
+    }
+
+    console.log(`VectHare Scenes: Cleared ${deleted}/${scenes.length} scenes`);
+    return {
+        success: deleted === scenes.length,
+        deleted,
+    };
 }

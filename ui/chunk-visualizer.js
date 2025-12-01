@@ -220,7 +220,7 @@ function discardAllChanges() {
     // Reload chunk data from stored metadata
     allChunks = allChunks.map(chunk => ({
         ...chunk,
-        data: getChunkData(chunk)
+        data: getChunkData(chunk),
     }));
     renderChunkList();
     renderDetailPanel();
@@ -247,7 +247,7 @@ export function openVisualizer(results, collectionId, settings) {
     allChunks = (results?.chunks || []).map((chunk, idx) => ({
         ...chunk,
         uniqueId: `chunk_${idx}_${chunk.hash}`, // Create truly unique ID
-        data: getChunkData(chunk)
+        data: getChunkData(chunk),
     }));
 
 
@@ -280,13 +280,19 @@ export function closeVisualizer() {
 function applyFilters() {
     let chunks = [...allChunks];
 
+    // In the Chunks tab, exclude scene chunks by default (they have their own Scenes tab)
+    // Unless user explicitly selects 'scenes' filter to see them here
+    if (filterBy !== 'scenes') {
+        chunks = filterNonSceneChunks(chunks);
+    }
+
     // Search
     if (searchQuery) {
         const q = searchQuery.toLowerCase();
         chunks = chunks.filter(c =>
             c.text.toLowerCase().includes(q) ||
             c.data.name?.toLowerCase().includes(q) ||
-            c.data.keywords.some(k => k.text.toLowerCase().includes(q))
+            c.data.keywords.some(k => k.text.toLowerCase().includes(q)),
         );
     }
 
@@ -306,6 +312,10 @@ function applyFilters() {
             break;
         case 'keywords':
             chunks = chunks.filter(c => c.data.keywords?.length > 0);
+            break;
+        case 'scenes':
+            // Show only scene chunks (in case user wants to see them in Chunks tab)
+            chunks = filterSceneChunks(allChunks);
             break;
     }
 
@@ -357,6 +367,9 @@ function createModal() {
                         <span>${escapeHtml(collectionName)}</span>
                     </div>
                     <div class="vecthare-visualizer-header-actions">
+                        <button class="vecthare-visualizer-discard" id="vecthare_visualizer_discard" title="Discard unsaved changes">
+                            <i class="fa-solid fa-rotate-left"></i> Discard
+                        </button>
                         <button class="vecthare-visualizer-save" id="vecthare_visualizer_save" title="Save changes">
                             <i class="fa-solid fa-floppy-disk"></i> Save
                         </button>
@@ -400,6 +413,7 @@ function createModal() {
                                     <option value="keywords">Has Keywords</option>
                                     <option value="conditions">Has Conditions</option>
                                     <option value="blind">Decay Immune</option>
+                                    ${isChat ? '<option value="scenes">Scene Chunks</option>' : ''}
                                 </select>
                             </div>
                         </div>
@@ -521,7 +535,7 @@ function renderSceneList() {
 
     // Sort scenes by start index
     const sortedScenes = [...sceneChunks].sort((a, b) =>
-        (a.metadata?.sceneStart || 0) - (b.metadata?.sceneStart || 0)
+        (a.metadata?.sceneStart || 0) - (b.metadata?.sceneStart || 0),
     );
 
     sortedScenes.forEach((scene, index) => {
@@ -805,7 +819,7 @@ function renderGroupsTab() {
                <span>${stats.inclusiveGroups} inclusive</span>
                <span class="vecthare-stat-divider">|</span>
                <span>${stats.exclusiveGroups} exclusive</span>`
-            : ''
+            : '',
     );
 
     if (groups.length === 0) {
@@ -946,11 +960,11 @@ function renderGroupDetailPanel() {
                         <div class="vecthare-group-member" data-hash="${hash}">
                             <div class="vecthare-group-member-info">
                                 ${chunk
-                                    ? `<span class="vecthare-member-preview">${escapeHtml((chunk.data?.text || '').substring(0, 60))}...</span>
+        ? `<span class="vecthare-member-preview">${escapeHtml((chunk.data?.text || '').substring(0, 60))}...</span>
                                        <span class="vecthare-member-hash">#${String(hash).substring(0, 8)}</span>`
-                                    : `<span class="vecthare-member-missing">Chunk not found</span>
+        : `<span class="vecthare-member-missing">Chunk not found</span>
                                        <span class="vecthare-member-hash">#${String(hash).substring(0, 8)}</span>`
-                                }
+}
                             </div>
                             <button class="vecthare-member-remove" data-hash="${hash}" title="Remove from group">
                                 <i class="fa-solid fa-times"></i>
@@ -1023,7 +1037,7 @@ function openAddMemberDialog() {
         const query = $(this).val().toLowerCase();
         const filtered = availableChunks.filter(c =>
             (c.data?.text || '').toLowerCase().includes(query) ||
-            String(c.hash).includes(query)
+            String(c.hash).includes(query),
         );
 
         $('#vecthare_available_members').html(
@@ -1034,7 +1048,7 @@ function openAddMemberDialog() {
                 </div>
             `).join('') +
             (filtered.length > 50 ? `<div class="vecthare-member-more">${filtered.length - 50} more results</div>` : '') +
-            (filtered.length === 0 ? '<div class="vecthare-empty-hint">No matching chunks</div>' : '')
+            (filtered.length === 0 ? '<div class="vecthare-empty-hint">No matching chunks</div>' : ''),
         );
     });
 
@@ -1248,7 +1262,7 @@ function renderChunkItem(chunk, listIndex) {
     const featureBadges = [];
     if (hasConditions) featureBadges.push(`<span class="vecthare-chunk-item-badge conditions" title="Has ${data.conditions.rules.length} condition(s)">⚡${data.conditions.rules.length}</span>`);
     if (hasKeywords) featureBadges.push(`<span class="vecthare-chunk-item-badge keywords" title="Has ${data.keywords.length} keyword(s)">🏷️${data.keywords.length}</span>`);
-    if (data.temporallyBlind) featureBadges.push(`<span class="vecthare-chunk-item-badge blind" title="Immune to temporal decay">🛡️</span>`);
+    if (data.temporallyBlind) featureBadges.push('<span class="vecthare-chunk-item-badge blind" title="Immune to temporal decay">🛡️</span>');
 
     return `
         <div class="vecthare-chunk-item ${isSelected ? 'selected' : ''} ${!data.enabled ? 'disabled' : ''}"
@@ -1350,6 +1364,9 @@ function renderDetailPanel() {
                 <div class="vecthare-detail-text" id="vecthare_chunk_text" contenteditable="true">${escapeHtml(data.text)}</div>
                 <div class="vecthare-detail-text-meta">
                     <span>${wordCount} words • ~${tokenEstimate} tokens</span>
+                    <button class="vecthare-detail-expand-btn" id="vecthare_expand_text" title="Open in full editor">
+                        <i class="fa-solid fa-expand"></i>
+                    </button>
                     <button class="vecthare-detail-save-btn vecthare-hidden" id="vecthare_save_text">
                         <i class="fa-solid fa-save"></i> Save & Re-embed
                     </button>
@@ -1497,8 +1514,8 @@ function renderDetailPanel() {
                     </div>
                     <div class="vecthare-summaries-list" id="vecthare_summaries_list">
                         ${(data.summaries || []).map((summary, i) => {
-                            const summaryHash = getStringHash(summary);
-                            return `
+        const summaryHash = getStringHash(summary);
+        return `
                             <div class="vecthare-summary-item" data-index="${i}">
                                 <div class="vecthare-summary-item-content">
                                     <span class="vecthare-summary-item-text">${escapeHtml(summary)}</span>
@@ -1506,7 +1523,7 @@ function renderDetailPanel() {
                                 </div>
                                 <i class="fa-solid fa-xmark vecthare-summary-item-remove"></i>
                             </div>
-                        `}).join('')}
+                        `;}).join('')}
                     </div>
                     <button class="vecthare-add-summary-btn" id="vecthare_add_summary">+ Add Summary</button>
                 </div>
@@ -1536,6 +1553,9 @@ function formatConditionRule(rule) {
 function bindEvents() {
     // Save
     $('#vecthare_visualizer_save').on('click', saveAllChanges);
+
+    // Discard
+    $('#vecthare_visualizer_discard').on('click', discardAllChanges);
 
     // Close
     $('#vecthare_visualizer_close').on('click', closeVisualizer);
@@ -1653,6 +1673,14 @@ function bindDetailEvents() {
         }
     });
 
+    // Expand to full text editor
+    $('#vecthare_expand_text').on('click', function() {
+        const chunk = allChunks.find(c => c.uniqueId === selectedChunkId);
+        if (chunk) {
+            openTextEditor(chunk);
+        }
+    });
+
     // Save text changes
     $('#vecthare_save_text').on('click', async function() {
         const newText = $('#vecthare_chunk_text').text().trim();
@@ -1669,7 +1697,7 @@ function bindDetailEvents() {
             await insertVectorItems(currentCollectionId, [{
                 hash: newHash,
                 text: newText,
-                index: chunk.index
+                index: chunk.index,
             }], currentSettings);
 
             // Update metadata
@@ -1928,7 +1956,7 @@ function openTextEditor(chunk) {
             await insertVectorItems(currentCollectionId, [{
                 hash: newHash,
                 text: newText,
-                index: chunk.index
+                index: chunk.index,
             }], currentSettings);
 
             // Update metadata
@@ -2024,7 +2052,7 @@ function openConditionEditor(chunk) {
         const rule = {
             type,
             negated,
-            settings: { value }
+            settings: { value },
         };
 
         if (!chunk.data.conditions.rules) {
@@ -2081,10 +2109,10 @@ function openLinkEditor(chunk) {
                         <label>Target Chunk</label>
                         <select id="vecthare_link_target" class="vecthare-editor-select">
                             ${availableChunks.map(c => {
-                                const preview = c.data.text.substring(0, 40).replace(/\s+/g, ' ') + '...';
-                                const name = c.data.name || preview;
-                                return `<option value="${c.hash}">[Msg #${c.index}] ${escapeHtml(name)}</option>`;
-                            }).join('')}
+        const preview = c.data.text.substring(0, 40).replace(/\s+/g, ' ') + '...';
+        const name = c.data.name || preview;
+        return `<option value="${c.hash}">[Msg #${c.index}] ${escapeHtml(name)}</option>`;
+    }).join('')}
                         </select>
                     </div>
                 </div>

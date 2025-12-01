@@ -21,7 +21,7 @@ import {
     getSecretKey,
     requiresApiKey,
     requiresUrl,
-    getUrlProviders
+    getUrlProviders,
 } from '../core/providers.js';
 
 /**
@@ -73,8 +73,8 @@ export async function checkVectorsExtension() {
             headers: getRequestHeaders(),
             body: JSON.stringify({
                 collectionId: 'test',
-                source: 'transformers'
-            })
+                source: 'transformers',
+            }),
         });
 
         if (response.status === 404) {
@@ -83,7 +83,7 @@ export async function checkVectorsExtension() {
                 status: 'fail',
                 message: 'ST vector API not available - check SillyTavern installation',
                 fixable: false,
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
 
@@ -91,7 +91,7 @@ export async function checkVectorsExtension() {
             name: 'ST Vectra (Standard)',
             status: 'pass',
             message: 'Standard file-based vector storage ready',
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     } catch (error) {
         return {
@@ -99,7 +99,7 @@ export async function checkVectorsExtension() {
             status: 'fail',
             message: 'Cannot reach ST vector API',
             fixable: false,
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 }
@@ -147,7 +147,7 @@ export async function checkBackendEndpoints(settings) {
     const failed = results.filter(r => !r.ok);
 
     const formatResults = results.map(r =>
-        `${r.name} ${r.ok ? '✓' : `✗(${r.status || r.error})`}`
+        `${r.name} ${r.ok ? '✓' : `✗(${r.status || r.error})`}`,
     ).join(', ');
 
     if (failed.length === 0) {
@@ -182,7 +182,7 @@ export async function checkServerPlugin() {
     try {
         const response = await fetch('/api/plugins/similharity/health', {
             method: 'GET',
-            headers: getRequestHeaders()
+            headers: getRequestHeaders(),
         });
 
         if (!response.ok) {
@@ -191,7 +191,7 @@ export async function checkServerPlugin() {
                 status: 'warning',
                 message: 'Plugin not installed (optional - enables LanceDB, Qdrant, advanced features)',
                 fixable: false,
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
 
@@ -202,7 +202,7 @@ export async function checkServerPlugin() {
                 name: 'VectHare Plugin',
                 status: 'warning',
                 message: `Plugin unhealthy: ${data.status}`,
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
 
@@ -211,14 +211,14 @@ export async function checkServerPlugin() {
             name: 'VectHare Plugin',
             status: 'pass',
             message: `v${data.version} - Features: ${features}`,
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     } catch (error) {
         return {
             name: 'VectHare Plugin',
             status: 'warning',
             message: 'Plugin not available (standard mode only)',
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 }
@@ -235,7 +235,7 @@ export async function checkPluginEndpoints() {
     try {
         const healthResponse = await fetch('/api/plugins/similharity/health', {
             method: 'GET',
-            headers: getRequestHeaders()
+            headers: getRequestHeaders(),
         });
 
         if (!healthResponse.ok) {
@@ -243,7 +243,7 @@ export async function checkPluginEndpoints() {
                 name: 'Plugin API Endpoints',
                 status: 'skipped',
                 message: 'Plugin not installed - endpoints not available',
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
         results.push({ name: 'health', ok: true });
@@ -252,18 +252,18 @@ export async function checkPluginEndpoints() {
             name: 'Plugin API Endpoints',
             status: 'skipped',
             message: 'Plugin not available',
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 
     // Test each plugin endpoint (unified API)
     const pluginEndpoints = [
-        { name: 'collections', method: 'GET', url: `/api/plugins/similharity/collections` },
+        { name: 'collections', method: 'GET', url: '/api/plugins/similharity/collections' },
         { name: 'sources', method: 'GET', url: '/api/plugins/similharity/sources' },
         { name: 'chunks/list', method: 'POST', url: '/api/plugins/similharity/chunks/list',
-          body: { backend: 'vectra', collectionId: 'vecthare_diag', source: testSource, limit: 1 } },
+            body: { backend: 'vectra', collectionId: 'vecthare_diag', source: testSource, limit: 1 } },
         { name: 'chunks/query', method: 'POST', url: '/api/plugins/similharity/chunks/query',
-          body: { backend: 'vectra', collectionId: 'vecthare_diag', searchText: 'test', topK: 1, source: testSource } },
+            body: { backend: 'vectra', collectionId: 'vecthare_diag', searchText: 'test', topK: 1, source: testSource } },
         { name: 'backend/health', method: 'GET', url: '/api/plugins/similharity/backend/health/vectra' },
     ];
 
@@ -291,21 +291,21 @@ export async function checkPluginEndpoints() {
             name: 'Plugin API Endpoints',
             status: 'pass',
             message: `${passed.length} endpoints: ${summary}`,
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     } else if (passed.length > 0) {
         return {
             name: 'Plugin API Endpoints',
             status: 'warning',
             message: `${passed.length}/${results.length}: ${summary}`,
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     } else {
         return {
             name: 'Plugin API Endpoints',
             status: 'fail',
             message: `All failed: ${summary}`,
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 }
@@ -322,14 +322,14 @@ export async function checkLanceDBBackend(settings) {
             name: backendName,
             status: 'skipped',
             message: `Not selected (using: ${settings.vector_backend || 'standard'})`,
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 
     try {
         const healthResponse = await fetch('/api/plugins/similharity/backend/health/lancedb', {
             method: 'GET',
-            headers: getRequestHeaders()
+            headers: getRequestHeaders(),
         });
 
         if (!healthResponse.ok) {
@@ -339,7 +339,7 @@ export async function checkLanceDBBackend(settings) {
                 message: 'LanceDB plugin not installed. Run: cd plugins/similharity && npm install vectordb',
                 category: 'infrastructure',
                 fixable: true,
-                fixAction: 'install_lancedb'
+                fixAction: 'install_lancedb',
             };
         }
 
@@ -350,14 +350,14 @@ export async function checkLanceDBBackend(settings) {
                 name: backendName,
                 status: 'pass',
                 message: 'LanceDB ready - disk-based vector storage active',
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         } else {
             return {
                 name: backendName,
                 status: 'warning',
                 message: `LanceDB not initialized: ${healthData.message || 'Run "Vectorize All" to create tables'}`,
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
     } catch (error) {
@@ -365,7 +365,7 @@ export async function checkLanceDBBackend(settings) {
             name: backendName,
             status: 'fail',
             message: `LanceDB unavailable: ${error.message}`,
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 }
@@ -384,7 +384,7 @@ export async function checkQdrantBackend(settings) {
             name: 'Qdrant (Production)',
             status: 'skipped',
             message: `Not selected (using: ${settings.vector_backend || 'standard'})`,
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 
@@ -397,7 +397,7 @@ export async function checkQdrantBackend(settings) {
                 message: 'Qdrant Cloud URL not configured',
                 fixable: true,
                 fixAction: 'configure_qdrant',
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
         if (!settings.qdrant_api_key) {
@@ -407,7 +407,7 @@ export async function checkQdrantBackend(settings) {
                 message: 'Qdrant Cloud API key not configured',
                 fixable: true,
                 fixAction: 'configure_qdrant',
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
     } else {
@@ -418,7 +418,7 @@ export async function checkQdrantBackend(settings) {
                 message: 'Qdrant local host/port not configured (default: localhost:6333)',
                 fixable: true,
                 fixAction: 'configure_qdrant',
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
     }
@@ -435,7 +435,7 @@ export async function checkQdrantBackend(settings) {
         const initResponse = await fetch('/api/plugins/similharity/backend/init/qdrant', {
             method: 'POST',
             headers: getRequestHeaders(),
-            body: JSON.stringify(initConfig)
+            body: JSON.stringify(initConfig),
         });
 
         if (!initResponse.ok) {
@@ -446,7 +446,7 @@ export async function checkQdrantBackend(settings) {
                 message: `Qdrant init failed: ${errorText}`,
                 fixable: true,
                 fixAction: 'configure_qdrant',
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
     } catch (error) {
@@ -456,7 +456,7 @@ export async function checkQdrantBackend(settings) {
             message: `Qdrant init error: ${error.message}`,
             fixable: true,
             fixAction: 'configure_qdrant',
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 
@@ -464,7 +464,7 @@ export async function checkQdrantBackend(settings) {
     try {
         const healthResponse = await fetch('/api/plugins/similharity/backend/health/qdrant', {
             method: 'GET',
-            headers: getRequestHeaders()
+            headers: getRequestHeaders(),
         });
 
         if (!healthResponse.ok) {
@@ -474,7 +474,7 @@ export async function checkQdrantBackend(settings) {
                 message: 'Qdrant plugin health check failed',
                 category: 'infrastructure',
                 fixable: true,
-                fixAction: 'configure_qdrant'
+                fixAction: 'configure_qdrant',
             };
         }
 
@@ -486,7 +486,7 @@ export async function checkQdrantBackend(settings) {
                 name: backendName,
                 status: 'pass',
                 message: `Connected to ${target}`,
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         } else {
             const error = healthData.message || 'Connection failed';
@@ -507,7 +507,7 @@ export async function checkQdrantBackend(settings) {
                 message: `Qdrant error: ${error}${suggestion}`,
                 fixable: true,
                 fixAction: 'configure_qdrant',
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
     } catch (error) {
@@ -515,7 +515,7 @@ export async function checkQdrantBackend(settings) {
             name: backendName,
             status: 'fail',
             message: `Qdrant unavailable: ${error.message}`,
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 }
@@ -530,7 +530,7 @@ export async function checkQdrantDimensionMatch(settings) {
             name: 'Qdrant Dimensions',
             status: 'skipped',
             message: 'Not using Qdrant backend',
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 
@@ -538,7 +538,7 @@ export async function checkQdrantDimensionMatch(settings) {
         // Get collection info from Qdrant
         const infoResponse = await fetch('/api/plugins/similharity/backend/qdrant/collection-info', {
             method: 'GET',
-            headers: getRequestHeaders()
+            headers: getRequestHeaders(),
         });
 
         if (!infoResponse.ok) {
@@ -547,7 +547,7 @@ export async function checkQdrantDimensionMatch(settings) {
                 name: 'Qdrant Dimensions',
                 status: 'skipped',
                 message: 'Qdrant not initialized',
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
 
@@ -558,7 +558,7 @@ export async function checkQdrantDimensionMatch(settings) {
                 name: 'Qdrant Dimensions',
                 status: 'pass',
                 message: 'No collection yet - will be created on first vectorization',
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
 
@@ -572,7 +572,7 @@ export async function checkQdrantDimensionMatch(settings) {
                 model: getModelFromSettings(settings),
                 // Include provider-specific params (apiUrl, apiKey for BananaBread, etc.)
                 ...getPluginProviderParams(settings),
-            })
+            }),
         });
 
         if (!testResponse.ok) {
@@ -580,7 +580,7 @@ export async function checkQdrantDimensionMatch(settings) {
                 name: 'Qdrant Dimensions',
                 status: 'warning',
                 message: 'Could not test embedding dimension - check embedding provider',
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
 
@@ -592,7 +592,7 @@ export async function checkQdrantDimensionMatch(settings) {
                 name: 'Qdrant Dimensions',
                 status: 'warning',
                 message: 'Could not determine current embedding dimension',
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
 
@@ -618,7 +618,7 @@ export async function checkQdrantDimensionMatch(settings) {
                     collectionSources: info.embeddingSources,
                     collectionModels: info.embeddingModels,
                     pointsCount: info.pointsCount,
-                }
+                },
             };
         }
 
@@ -626,7 +626,7 @@ export async function checkQdrantDimensionMatch(settings) {
             name: 'Qdrant Dimensions',
             status: 'pass',
             message: `Dimensions match (${info.dimension}-dim, ${info.pointsCount} vectors)`,
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
 
     } catch (error) {
@@ -634,7 +634,7 @@ export async function checkQdrantDimensionMatch(settings) {
             name: 'Qdrant Dimensions',
             status: 'warning',
             message: `Could not check dimensions: ${error.message}`,
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 }
@@ -659,7 +659,7 @@ export async function checkEmbeddingProvider(settings) {
             status: 'fail',
             message: 'No embedding provider selected',
             fixable: true,
-            fixAction: 'configure_provider'
+            fixAction: 'configure_provider',
         };
     }
 
@@ -670,7 +670,7 @@ export async function checkEmbeddingProvider(settings) {
             status: 'fail',
             message: `Unknown provider: ${source}`,
             fixable: true,
-            fixAction: 'configure_provider'
+            fixAction: 'configure_provider',
         };
     }
 
@@ -681,7 +681,7 @@ export async function checkEmbeddingProvider(settings) {
             status: 'fail',
             message: `${config.name} selected but no model configured`,
             fixable: true,
-            fixAction: 'configure_provider'
+            fixAction: 'configure_provider',
         };
     }
 
@@ -689,7 +689,7 @@ export async function checkEmbeddingProvider(settings) {
     return {
         name: 'Embedding Provider',
         status: 'pass',
-        message: `Using ${config.name}${modelInfo}`
+        message: `Using ${config.name}${modelInfo}`,
     };
 }
 
@@ -704,7 +704,7 @@ export function checkTransformersMemoryLimits(settings) {
         return {
             name: 'WASM Memory',
             status: 'skipped',
-            message: 'Not using local Transformers'
+            message: 'Not using local Transformers',
         };
     }
 
@@ -713,7 +713,7 @@ export function checkTransformersMemoryLimits(settings) {
     return {
         name: 'WASM Memory',
         status: 'info',
-        message: 'Transformers uses WASM with 4GB memory limit. For large documents, consider using Ollama or an API provider instead.'
+        message: 'Transformers uses WASM with 4GB memory limit. For large documents, consider using Ollama or an API provider instead.',
     };
 }
 
@@ -727,7 +727,7 @@ export function checkApiKeys(settings) {
         return {
             name: 'API Key',
             status: 'skipped',
-            message: 'No API key required for this provider'
+            message: 'No API key required for this provider',
         };
     }
 
@@ -741,14 +741,14 @@ export function checkApiKeys(settings) {
             status: 'fail',
             message: `${config?.name || source} requires an API key`,
             fixable: true,
-            fixAction: 'configure_api_key'
+            fixAction: 'configure_api_key',
         };
     }
 
     return {
         name: 'API Key',
         status: 'pass',
-        message: 'API key configured'
+        message: 'API key configured',
     };
 }
 
@@ -762,7 +762,7 @@ export function checkApiUrls(settings) {
         return {
             name: 'API URL',
             status: 'skipped',
-            message: 'No custom URL required'
+            message: 'No custom URL required',
         };
     }
 
@@ -773,13 +773,13 @@ export function checkApiUrls(settings) {
                 status: 'fail',
                 message: 'Alternative endpoint enabled but no URL configured',
                 fixable: true,
-                fixAction: 'configure_url'
+                fixAction: 'configure_url',
             };
         }
         return {
             name: 'API URL',
             status: 'pass',
-            message: `Custom: ${settings.alt_endpoint_url}`
+            message: `Custom: ${settings.alt_endpoint_url}`,
         };
     }
 
@@ -787,7 +787,7 @@ export function checkApiUrls(settings) {
         'ollama': textgen_types.OLLAMA,
         'vllm': textgen_types.VLLM,
         'llamacpp': textgen_types.LLAMACPP,
-        'koboldcpp': textgen_types.KOBOLDCPP
+        'koboldcpp': textgen_types.KOBOLDCPP,
     };
 
     const config = getProviderConfig(source);
@@ -799,14 +799,14 @@ export function checkApiUrls(settings) {
             status: 'fail',
             message: `${config?.name || source} requires a server URL`,
             fixable: true,
-            fixAction: 'configure_url'
+            fixAction: 'configure_url',
         };
     }
 
     return {
         name: 'API URL',
         status: 'pass',
-        message: `${url}`
+        message: `${url}`,
     };
 }
 
@@ -820,7 +820,7 @@ export async function checkProviderConnectivity(settings) {
             status: 'fail',
             message: `Unknown provider: ${settings.source}`,
             fixable: true,
-            fixAction: 'configure_provider'
+            fixAction: 'configure_provider',
         };
     }
 
@@ -828,7 +828,7 @@ export async function checkProviderConnectivity(settings) {
     return {
         name: 'Provider Connectivity',
         status: 'pass',
-        message: `Provider ${config.name} is recognized`
+        message: `Provider ${config.name} is recognized`,
     };
 }
 
@@ -843,7 +843,7 @@ export function checkWebLlmExtension(settings) {
             name: 'WebLLM Extension',
             status: 'skipped',
             message: 'WebLLM not selected as provider',
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 
@@ -854,7 +854,7 @@ export function checkWebLlmExtension(settings) {
             status: 'fail',
             message: 'Browser does not support WebGPU. Use Chrome 113+, Edge 113+, or another WebGPU-compatible browser.',
             fixable: false,
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 
@@ -866,7 +866,7 @@ export function checkWebLlmExtension(settings) {
             message: 'WebLLM extension is not installed. Install from: github.com/SillyTavern/Extension-WebLLM',
             fixable: true,
             fixAction: 'install_webllm',
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 
@@ -878,7 +878,7 @@ export function checkWebLlmExtension(settings) {
             message: 'WebLLM extension is outdated and does not support embeddings. Please update the extension.',
             fixable: true,
             fixAction: 'update_webllm',
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 
@@ -889,7 +889,7 @@ export function checkWebLlmExtension(settings) {
             status: 'warning',
             message: 'WebLLM extension is installed but no model is selected. Select a model in VectHare settings.',
             fixable: false,
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 
@@ -897,7 +897,7 @@ export function checkWebLlmExtension(settings) {
         name: 'WebLLM Extension',
         status: 'pass',
         message: `WebLLM ready with model: ${settings.webllm_model}`,
-        category: 'infrastructure'
+        category: 'infrastructure',
     };
 }
 
@@ -911,7 +911,7 @@ export async function checkBananaBreadConnection(settings) {
             name: 'BananaBread Connection',
             status: 'skipped',
             message: 'BananaBread not selected as provider',
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 
@@ -930,30 +930,30 @@ export async function checkBananaBreadConnection(settings) {
 
         const response = await fetch(`${cleanUrl}/v1/models`, {
             method: 'GET',
-            headers: headers
+            headers: headers,
         });
 
         if (!response.ok) {
             if (response.status === 401 || response.status === 403) {
-                 return {
+                return {
                     name: 'BananaBread Connection',
                     status: 'fail',
                     message: `Authentication failed (${response.status}). Check API key.`,
                     fixable: true,
                     fixAction: 'configure_api_key',
-                    category: 'infrastructure'
+                    category: 'infrastructure',
                 };
             }
-             return {
+            return {
                 name: 'BananaBread Connection',
                 status: 'fail',
                 message: `Connection failed: ${response.status} ${response.statusText}`,
                 fixable: true,
                 fixAction: 'configure_url',
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
-        
+
         const data = await response.json();
         const modelCount = data.data?.length || 0;
 
@@ -962,14 +962,14 @@ export async function checkBananaBreadConnection(settings) {
                 name: 'BananaBread Connection',
                 status: 'pass',
                 message: `Connected to ${cleanUrl} (${modelCount} models available)`,
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         } else {
-             return {
+            return {
                 name: 'BananaBread Connection',
                 status: 'warning',
                 message: `Connected to ${cleanUrl} but no models found`,
-                category: 'infrastructure'
+                category: 'infrastructure',
             };
         }
 
@@ -980,7 +980,7 @@ export async function checkBananaBreadConnection(settings) {
             message: `Connection error: ${error.message}`,
             fixable: true,
             fixAction: 'configure_url',
-            category: 'infrastructure'
+            category: 'infrastructure',
         };
     }
 }

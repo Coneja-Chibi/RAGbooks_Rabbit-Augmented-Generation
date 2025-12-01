@@ -701,8 +701,8 @@ export async function filterActiveCollections(collectionIds, context) {
     const results = await Promise.all(
         collectionIds.map(async (id) => ({
             id,
-            active: await shouldCollectionActivate(id, context)
-        }))
+            active: await shouldCollectionActivate(id, context),
+        })),
     );
 
     const activeIds = results.filter(r => r.active).map(r => r.id);

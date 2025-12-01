@@ -24,7 +24,7 @@ import {
     checkApiUrls,
     checkProviderConnectivity,
     checkWebLlmExtension,
-    checkBananaBreadConnection
+    checkBananaBreadConnection,
 } from './infrastructure.js';
 
 import {
@@ -45,7 +45,7 @@ import {
     checkChunkGroupsValidity,
     checkChunkGroupMemberIntegrity,
     checkPromptContextConfig,
-    checkPNGExportCapability
+    checkPNGExportCapability,
 } from './configuration.js';
 
 import {
@@ -59,7 +59,7 @@ import {
     testDuplicateHashes,
     testPluginEmbeddingGeneration,
     fixOrphanedMetadata,
-    fixDuplicateHashes
+    fixDuplicateHashes,
 } from './production-tests.js';
 
 import { testConditionalActivation } from './activation-tests.js';
@@ -86,7 +86,7 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
         infrastructure: [],
         configuration: [],
         visualizer: [],
-        production: []
+        production: [],
     };
 
     // ========== INFRASTRUCTURE CHECKS ==========
@@ -196,7 +196,7 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
         ...categories.infrastructure,
         ...categories.configuration,
         ...categories.visualizer,
-        ...categories.production
+        ...categories.production,
     ];
 
     // Determine overall status
@@ -209,7 +209,7 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
         categories,
         checks: allChecks,
         overall,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
     };
 
     console.log('VectHare Diagnostics: Complete', results);
@@ -371,7 +371,7 @@ async function fixOrphanedGroupMembers() {
         if (totalCleaned > 0) {
             return {
                 success: true,
-                message: `Removed ${totalCleaned} orphaned member(s) from ${collectionsFixed} collection(s)`
+                message: `Removed ${totalCleaned} orphaned member(s) from ${collectionsFixed} collection(s)`,
             };
         }
 

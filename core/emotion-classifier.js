@@ -219,7 +219,7 @@ export async function testClassifierModel(model) {
 
                 // Check if result matches expected emotions
                 const matchesExpected = test.expected.some(exp =>
-                    topLabel.includes(exp) || exp.includes(topLabel)
+                    topLabel.includes(exp) || exp.includes(topLabel),
                 );
                 results.push(matchesExpected);
             }
@@ -240,7 +240,7 @@ export async function testClassifierModel(model) {
     const emotionKeywords = ['joy', 'sad', 'anger', 'fear', 'love', 'surprise', 'disgust',
         'happy', 'neutral', 'excit', 'annoy', 'disappoint', 'grat', 'curious'];
     const looksLikeEmotions = labelsArray.some(label =>
-        emotionKeywords.some(kw => label.includes(kw))
+        emotionKeywords.some(kw => label.includes(kw)),
     );
 
     let confidence;

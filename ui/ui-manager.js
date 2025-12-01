@@ -778,7 +778,7 @@ function startConsoleCapture() {
             type: 'error',
             message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
             timestamp: new Date().toISOString(),
-            stack: new Error().stack
+            stack: new Error().stack,
         });
         originalConsoleError.apply(console, args);
     };
@@ -788,7 +788,7 @@ function startConsoleCapture() {
         capturedConsoleLogs.push({
             type: 'warning',
             message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
         });
         originalConsoleWarn.apply(console, args);
     };
@@ -850,7 +850,7 @@ async function executeDiagnostics() {
             checks: [],
             overall: results.overall,
             timestamp: results.timestamp,
-            consoleErrors: consoleLogs
+            consoleErrors: consoleLogs,
         };
 
         if (runInfrastructure && results.categories.infrastructure) {
@@ -876,7 +876,7 @@ async function executeDiagnostics() {
                 name: `Console ${log.type}`,
                 status: log.type === 'error' ? 'fail' : 'warning',
                 message: log.message.substring(0, 200) + (log.message.length > 200 ? '...' : ''),
-                category: 'console'
+                category: 'console',
             }));
             filteredResults.checks.push(...filteredResults.categories.console);
         }
@@ -928,7 +928,7 @@ function isWebLlmSupported() {
             toastr.error(
                 'Your browser does not support the WebGPU API. Please use Chrome 113+, Edge 113+, or another WebGPU-compatible browser.',
                 'WebLLM - Browser Not Supported',
-                { preventDuplicates: true, timeOut: 0, extendedTimeOut: 0 }
+                { preventDuplicates: true, timeOut: 0, extendedTimeOut: 0 },
             );
             sessionStorage.setItem(warningKey, '1');
         }
@@ -947,7 +947,7 @@ function isWebLlmSupported() {
                     extendedTimeOut: 0,
                     preventDuplicates: true,
                     onclick: () => openThirdPartyExtensionMenu('https://github.com/SillyTavern/Extension-WebLLM'),
-                }
+                },
             );
             sessionStorage.setItem(warningKey, '1');
         }
@@ -961,7 +961,7 @@ function isWebLlmSupported() {
             toastr.error(
                 'Your WebLLM extension is outdated and does not support embeddings. Please update the extension.',
                 'WebLLM - Update Required',
-                { preventDuplicates: true, timeOut: 0, extendedTimeOut: 0 }
+                { preventDuplicates: true, timeOut: 0, extendedTimeOut: 0 },
             );
             sessionStorage.setItem(warningKey, '1');
         }
@@ -994,21 +994,21 @@ async function executeWithWebLlmErrorHandling(func) {
                         extendedTimeOut: 0,
                         preventDuplicates: true,
                         onclick: () => openThirdPartyExtensionMenu('https://github.com/SillyTavern/Extension-WebLLM'),
-                    }
+                    },
                 );
                 break;
             case 'webllm-not-updated':
                 toastr.error(
                     'Your WebLLM extension needs updating. It does not support embeddings.',
                     'WebLLM Update Required',
-                    { timeOut: 0, extendedTimeOut: 0, preventDuplicates: true }
+                    { timeOut: 0, extendedTimeOut: 0, preventDuplicates: true },
                 );
                 break;
             default:
                 toastr.error(
                     `WebLLM error: ${error.message}`,
                     'WebLLM Error',
-                    { preventDuplicates: true }
+                    { preventDuplicates: true },
                 );
         }
     }
@@ -1124,7 +1124,7 @@ function toggleProviderSettings(selectedProvider, settings) {
     $('.vecthare_provider_setting').hide();
 
     // Show settings for selected provider
-    $(`.vecthare_provider_setting`).each(function() {
+    $('.vecthare_provider_setting').each(function() {
         const providers = $(this).attr('data-provider').split(',');
         if (providers.includes(selectedProvider)) {
             $(this).show();
@@ -1208,8 +1208,8 @@ async function showAutoSyncConfirmModal(allMatches, settings) {
                     <div class="vecthare-modal-body" style="padding: 20px;">
                         <p style="margin-bottom: 15px;">
                             ${hasMultiple
-                                ? `Found <strong>${allMatches.length}</strong> collections matching this chat.${hasGhosts ? ' <span style="color: var(--SmartThemeFontColorOverrideWarning, #f0ad4e);">Ghost collections (0 chunks) can be deleted.</span>' : ''}`
-                                : 'This chat already has a vectorized collection:'}
+        ? `Found <strong>${allMatches.length}</strong> collections matching this chat.${hasGhosts ? ' <span style="color: var(--SmartThemeFontColorOverrideWarning, #f0ad4e);">Ghost collections (0 chunks) can be deleted.</span>' : ''}`
+        : 'This chat already has a vectorized collection:'}
                         </p>
                         <div style="max-height: 300px; overflow-y: auto; margin-bottom: 15px;">
                             ${collectionListHtml}
@@ -1302,7 +1302,7 @@ async function showAutoSyncConfirmModal(allMatches, settings) {
             $modal.remove();
             resolve({
                 action,
-                selectedCollection: action === 'reconnect' ? allMatches[selectedIndex] : null
+                selectedCollection: action === 'reconnect' ? allMatches[selectedIndex] : null,
             });
         });
 
@@ -1564,7 +1564,7 @@ function bindSettingsEvents(settings, callbacks) {
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
         });
-        
+
     $('#vecthare_milvus_token')
         .val(settings.milvus_token || '')
         .on('input', function() {
@@ -2146,7 +2146,7 @@ function renderDiagnosticsContent(results, filter = 'all') {
         'pass': '<i class="fa-solid fa-circle-check" style="color: var(--vecthare-success);"></i>',
         'warning': '<i class="fa-solid fa-triangle-exclamation" style="color: var(--vecthare-warning);"></i>',
         'fail': '<i class="fa-solid fa-circle-xmark" style="color: var(--vecthare-danger);"></i>',
-        'skipped': '<i class="fa-solid fa-circle-minus" style="color: var(--grey70);"></i>'
+        'skipped': '<i class="fa-solid fa-circle-minus" style="color: var(--grey70);"></i>',
     };
 
     const categoryTitles = {
@@ -2154,7 +2154,7 @@ function renderDiagnosticsContent(results, filter = 'all') {
         configuration: '<i class="fa-solid fa-sliders"></i> Configuration',
         visualizer: '<i class="fa-solid fa-eye"></i> Visualizer',
         production: '<i class="fa-solid fa-vial"></i> Production Tests',
-        console: '<i class="fa-solid fa-terminal"></i> Console Logs'
+        console: '<i class="fa-solid fa-terminal"></i> Console Logs',
     };
 
     // Count stats
@@ -2221,19 +2221,19 @@ function renderDiagnosticsContent(results, filter = 'all') {
         ` : ''}
 
         ${Object.entries(results.categories).map(([category, checks]) => {
-            if (checks.length === 0) return '';
+        if (checks.length === 0) return '';
 
-            // Category-level stats
-            const catPass = checks.filter(c => c.status === 'pass').length;
-            const catWarn = checks.filter(c => c.status === 'warning').length;
-            const catFail = checks.filter(c => c.status === 'fail').length;
-            const catTotal = checks.length;
-            const filteredCount = checks.filter(filterCheck).length;
+        // Category-level stats
+        const catPass = checks.filter(c => c.status === 'pass').length;
+        const catWarn = checks.filter(c => c.status === 'warning').length;
+        const catFail = checks.filter(c => c.status === 'fail').length;
+        const catTotal = checks.length;
+        const filteredCount = checks.filter(filterCheck).length;
 
-            // Don't show category if all items filtered out
-            if (filter !== 'all' && filteredCount === 0) return '';
+        // Don't show category if all items filtered out
+        if (filter !== 'all' && filteredCount === 0) return '';
 
-            return `
+        return `
                 <div class="diagnostic-category" data-category="${category}">
                     <div class="diagnostic-category-header" data-collapsed="false">
                         <h4 class="diagnostic-category-title">
@@ -2255,7 +2255,7 @@ function renderDiagnosticsContent(results, filter = 'all') {
                     </div>
                 </div>
             `;
-        }).join('')}
+    }).join('')}
     `;
 
     output.html(html);
@@ -2371,13 +2371,13 @@ function copyDiagnosticsReport(results) {
         'pass': '✓',
         'warning': '⚠',
         'fail': '✗',
-        'skipped': '○'
+        'skipped': '○',
     };
 
     const filterNames = {
         'pass': 'PASSED ONLY',
         'warning': 'WARNINGS ONLY',
-        'fail': 'FAILURES ONLY'
+        'fail': 'FAILURES ONLY',
     };
 
     // Get current settings for the report
@@ -2435,7 +2435,7 @@ ${isFiltered ? `🔍 Filter: ${filterNames[filter]} (${filteredCount} of ${total
         configuration: '⚙️  CONFIGURATION',
         visualizer: '👁️  VISUALIZER',
         production: '🧪 PRODUCTION TESTS',
-        console: '💻 CONSOLE LOGS'
+        console: '💻 CONSOLE LOGS',
     };
 
     for (const [category, checks] of Object.entries(results.categories)) {
@@ -2519,7 +2519,7 @@ function handleFixAll(checks) {
 
     let fixedCount = 0;
     const statusIcons = {
-        'pass': '<i class="fa-solid fa-circle-check" style="color: var(--vecthare-success);"></i>'
+        'pass': '<i class="fa-solid fa-circle-check" style="color: var(--vecthare-success);"></i>',
     };
 
     fixableChecks.forEach(check => {
@@ -2710,7 +2710,7 @@ async function showQdrantDimensionFixDialog() {
                 const response = await fetch('/api/plugins/similharity/backend/qdrant/purge-collection', {
                     method: 'POST',
                     headers: getRequestHeaders(),
-                    body: JSON.stringify({ collectionName: 'vecthare_main' })
+                    body: JSON.stringify({ collectionName: 'vecthare_main' }),
                 });
 
                 if (response.ok) {

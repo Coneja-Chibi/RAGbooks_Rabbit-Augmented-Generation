@@ -180,7 +180,7 @@ export class LanceDBBackend extends VectorBackend {
                         topK: topK,
                         threshold: threshold,
                         source: settings.source || 'transformers',
-                model: getModelFromSettings(settings),
+                        model: getModelFromSettings(settings),
                     }),
                 });
 
@@ -270,7 +270,7 @@ export class LanceDBBackend extends VectorBackend {
             backend: BACKEND_TYPE,
             collectionId: collectionId,
             source: settings.source || 'transformers',
-                model: getModelFromSettings(settings),
+            model: getModelFromSettings(settings),
         }), {
             headers: getRequestHeaders(),
         });

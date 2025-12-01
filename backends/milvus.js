@@ -35,20 +35,20 @@ function getModelFromSettings(settings) {
 export class MilvusBackend extends VectorBackend {
     async _autoDetectDimensions(settings) {
         try {
-            // Don't auto-detect for sources that are handled client-side in VectHare 
+            // Don't auto-detect for sources that are handled client-side in VectHare
             // but missing in Similharity servers-side generation (e.g. KoboldCpp/WebLLM)
             // Although WebLLM is client-side, we can't easily run it here without importing providers.
             // This is a best-effort for server-side providers (OpenAI, etc.) supported by Similharity.
-            
+
             console.log(`VectHare: Attempting to auto-detect embedding dimensions for ${settings.source}...`);
-            
+
             const response = await fetch('/api/plugins/similharity/get-embedding', {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 body: JSON.stringify({
                     text: 'test',
                     source: settings.source || 'transformers',
-                    model: getModelFromSettings(settings)
+                    model: getModelFromSettings(settings),
                 }),
             });
 
@@ -68,7 +68,7 @@ export class MilvusBackend extends VectorBackend {
     async initialize(settings) {
         // Determine dimensions: Manual setting > Auto-detect > Default (null)
         let dimensions = settings.milvus_dimensions ? parseInt(settings.milvus_dimensions) : null;
-        
+
         if (!dimensions || isNaN(dimensions)) {
             dimensions = await this._autoDetectDimensions(settings);
         }
@@ -133,7 +133,7 @@ export class MilvusBackend extends VectorBackend {
         if (parts.length >= 3 && parts[0] === 'vh') {
             return {
                 type: parts[1],
-                sourceId: parts.slice(2).join(':') // Handle UUIDs that might have colons
+                sourceId: parts.slice(2).join(':'), // Handle UUIDs that might have colons
             };
         }
 
@@ -143,7 +143,7 @@ export class MilvusBackend extends VectorBackend {
             console.warn('VectHare: Legacy collection ID format detected:', collectionId);
             return {
                 type: legacyParts[1],
-                sourceId: legacyParts.slice(2).join('_')
+                sourceId: legacyParts.slice(2).join('_'),
             };
         }
 
@@ -151,7 +151,7 @@ export class MilvusBackend extends VectorBackend {
         console.warn('VectHare: Unknown collection ID format:', collectionId);
         return {
             type: 'chat',
-            sourceId: collectionId
+            sourceId: collectionId,
         };
     }
 
@@ -208,7 +208,7 @@ export class MilvusBackend extends VectorBackend {
                         summary: item.summary,
                         isSummaryChunk: item.isSummaryChunk,
                         parentHash: item.parentHash,
-                    }
+                    },
                 })),
                 source: settings.source || 'transformers',
                 model: getModelFromSettings(settings),
@@ -392,7 +392,7 @@ export class MilvusBackend extends VectorBackend {
             backend: BACKEND_TYPE,
             collectionId: 'vecthare_main',
             source: settings.source || 'transformers',
-                model: getModelFromSettings(settings),
+            model: getModelFromSettings(settings),
         }), {
             headers: getRequestHeaders(),
         });

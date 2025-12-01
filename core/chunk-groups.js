@@ -66,7 +66,7 @@ export function expandInclusiveGroups(groups, matchedHashes) {
                     target: String(targetHash),
                     type: linkType,
                     fromGroup: group.id,
-                    groupName: group.name
+                    groupName: group.name,
                 });
             }
         }
@@ -118,7 +118,7 @@ export function applyExclusiveGroups(chunks, groups) {
                 groupId: group.id,
                 groupName: group.name,
                 beatBy: winner.hash,
-                winnerScore: winner.score
+                winnerScore: winner.score,
             });
         }
 
@@ -129,7 +129,7 @@ export function applyExclusiveGroups(chunks, groups) {
 
     return {
         chunks: filteredChunks,
-        excluded
+        excluded,
     };
 }
 
@@ -177,14 +177,14 @@ export function enforceMandatoryGroups(chunks, groups, allChunksMap) {
         toAdd.push({
             ...chosen,
             forcedByGroup: group.id,
-            forcedByGroupName: group.name
+            forcedByGroupName: group.name,
         });
 
         forced.push({
             hash: chosen.hash,
             groupId: group.id,
             groupName: group.name,
-            reason: 'mandatory_exclusive'
+            reason: 'mandatory_exclusive',
         });
 
         resultHashes.add(String(chosen.hash));
@@ -194,7 +194,7 @@ export function enforceMandatoryGroups(chunks, groups, allChunksMap) {
 
     return {
         chunks: [...chunks, ...toAdd],
-        forced
+        forced,
     };
 }
 
@@ -212,7 +212,7 @@ export function processChunkGroups(chunks, groups, allChunksMap, options = {}) {
     if (!groups || groups.length === 0) {
         return {
             chunks,
-            debug: { groupsProcessed: 0 }
+            debug: { groupsProcessed: 0 },
         };
     }
 
@@ -240,8 +240,8 @@ export function processChunkGroups(chunks, groups, allChunksMap, options = {}) {
             mandatoryGroups: groups.filter(g => g.mode === 'exclusive' && g.mandatory).length,
             excluded: exclusionResult.excluded,
             forced: mandatoryResult.forced,
-            virtualLinksCreated: [...virtualLinks.values()].reduce((sum, arr) => sum + arr.length, 0)
-        }
+            virtualLinksCreated: [...virtualLinks.values()].reduce((sum, arr) => sum + arr.length, 0),
+        },
     };
 }
 
@@ -262,7 +262,7 @@ export function mergeVirtualLinks(chunkMetadataMap, virtualLinks) {
 
         merged.set(hash, {
             ...existing,
-            links: [...existingLinks, ...links]
+            links: [...existingLinks, ...links],
         });
     }
 
@@ -309,7 +309,7 @@ export function validateGroup(group) {
 
     return {
         valid: errors.length === 0,
-        errors
+        errors,
     };
 }
 
@@ -328,7 +328,7 @@ export function createGroup(name, mode = 'inclusive') {
         linkType: mode === 'inclusive' ? 'soft' : undefined,
         mandatory: mode === 'exclusive' ? false : undefined,
         boost: mode === 'inclusive' ? 0.15 : undefined,
-        members: []
+        members: [],
     };
 }
 
@@ -346,7 +346,7 @@ export function getGroupStats(groups) {
             exclusiveGroups: 0,
             mandatoryGroups: 0,
             totalMembers: 0,
-            avgGroupSize: 0
+            avgGroupSize: 0,
         };
     }
 
@@ -358,7 +358,7 @@ export function getGroupStats(groups) {
         softLinkGroups: groups.filter(g => g.mode === 'inclusive' && g.linkType === 'soft').length,
         hardLinkGroups: groups.filter(g => g.mode === 'inclusive' && g.linkType === 'hard').length,
         totalMembers: groups.reduce((sum, g) => sum + (g.members?.length || 0), 0),
-        avgGroupSize: 0
+        avgGroupSize: 0,
     };
 
     stats.avgGroupSize = stats.totalGroups > 0
@@ -376,5 +376,5 @@ export default {
     mergeVirtualLinks,
     validateGroup,
     createGroup,
-    getGroupStats
+    getGroupStats,
 };

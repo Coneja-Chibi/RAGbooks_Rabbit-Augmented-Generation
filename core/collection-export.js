@@ -44,8 +44,8 @@ const EXPORT_VERSION = '1.0.0';
 /** File extension for VectHare exports */
 export const EXPORT_FILE_EXTENSION = '.vecthare.json';
 
-/** Maximum chunks to export at once (for progress updates) */
-const EXPORT_BATCH_SIZE = 100;
+/** Maximum chunks to export at once (for progress updates) - reserved for future batched export */
+const _EXPORT_BATCH_SIZE = 100;
 
 // ============================================================================
 // EXPORT FUNCTIONS
@@ -445,7 +445,7 @@ export function validateImportData(data, currentSettings = {}) {
                     warnings.push(
                         `Embedding mismatch: Export used ${col.embedding.source}/${col.embedding.model || 'default'}, ` +
                         `but you're using ${currentSettings.source}/${currentSettings.model || 'default'}. ` +
-                        `Switch your settings to match, or vectors will be re-embedded.`
+                        'Switch your settings to match, or vectors will be re-embedded.',
                     );
                 }
             }

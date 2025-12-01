@@ -81,6 +81,9 @@ export const DEFAULT_DECAY_FLOOR = 0.3;
 /** Default decay strength/rate */
 export const DEFAULT_DECAY_STRENGTH = 0.5;
 
+/** Default half-life for nostalgia mode (messages until 50% of max boost) */
+export const DEFAULT_NOSTALGIA_HALF_LIFE = 50;
+
 /** Default max boost for nostalgia mode (1.2 = 20% boost for old chunks) */
 export const DEFAULT_NOSTALGIA_MAX_BOOST = 1.2;
 

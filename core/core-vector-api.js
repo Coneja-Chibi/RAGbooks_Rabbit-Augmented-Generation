@@ -36,7 +36,7 @@ import {
     getSecretKey,
     requiresApiKey,
     requiresUrl,
-    getUrlProviders
+    getUrlProviders,
 } from './providers.js';
 import { applyKeywordBoosts, getOverfetchAmount } from './keyword-boost.js';
 import AsyncUtils from '../utils/async-utils.js';
@@ -48,7 +48,7 @@ import {
     RETRY_MAX_ATTEMPTS,
     RETRY_INITIAL_DELAY_MS,
     RETRY_MAX_DELAY_MS,
-    RETRY_BACKOFF_MULTIPLIER
+    RETRY_BACKOFF_MULTIPLIER,
 } from './constants.js';
 
 // Get shared WebLLM provider singleton (lazy-initialized)
@@ -89,7 +89,7 @@ class DynamicRateLimiter {
                 console.log(`VectHare: Rate limit reached. Waiting ${Math.round(waitTime / 1000)}s...`);
                 await AsyncUtils.sleep(waitTime + 100); // Add small buffer
             }
-            
+
             // Recursive call to re-check
             return this.execute(fn, settings);
         }
@@ -137,7 +137,7 @@ const RETRY_CONFIG = {
             message.includes('503') ||
             message.includes('504');
         return isRetryable;
-    }
+    },
 };
 
 /**
@@ -285,7 +285,7 @@ async function createWebLlmEmbeddings(items, settings) {
         ...RETRY_CONFIG,
         onRetry: (attempt, error) => {
             console.warn(`VectHare: WebLLM embedding retry ${attempt} - ${error.message}`);
-        }
+        },
     });
 }
 
@@ -326,21 +326,21 @@ async function createKoboldCppEmbeddings(items, settings) {
                 if (response.status === 404) {
                     console.warn('VectHare: KoboldCpp /v1/embeddings not found, trying legacy endpoint...');
                     // Fallthrough to retry or handle legacy?
-                    // Better to throw specific error so we can potentially retry with legacy logic if we wanted, 
+                    // Better to throw specific error so we can potentially retry with legacy logic if we wanted,
                     // but for now let's stick to the directive of using OpenAI compatible endpoint.
                 }
                 throw new Error(`Failed to get KoboldCpp embeddings: ${response.status} ${response.statusText}`);
             }
 
             const data = await response.json();
-            
+
             // OpenAI format: { data: [{ embedding: [], index: 0, ... }, ...], model: "..." }
             if (!data.data || !Array.isArray(data.data) || data.data.length !== cleanedItems.length) {
-                 throw new Error('Invalid response from KoboldCpp embeddings (OpenAI format)');
+                throw new Error('Invalid response from KoboldCpp embeddings (OpenAI format)');
             }
 
             const embeddings = /** @type {Record<string, number[]>} */ ({});
-            
+
             // Sort by index to ensure order matches items
             data.data.sort((a, b) => a.index - b.index);
 
@@ -361,7 +361,7 @@ async function createKoboldCppEmbeddings(items, settings) {
             ...RETRY_CONFIG,
             onRetry: (attempt, error) => {
                 console.warn(`VectHare: KoboldCpp embedding retry ${attempt} - ${error.message}`);
-            }
+            },
         });
     }, settings);
 }
@@ -450,7 +450,7 @@ async function createBananaBreadEmbeddings(items, settings) {
             ...RETRY_CONFIG,
             onRetry: (attempt, error) => {
                 console.warn(`VectHare: BananaBread embedding retry ${attempt} - ${error.message}`);
-            }
+            },
         });
     }, settings);
 }
@@ -492,7 +492,7 @@ export function throwIfSourceInvalid(settings) {
                 'ollama': textgen_types.OLLAMA,
                 'vllm': textgen_types.VLLM,
                 'koboldcpp': textgen_types.KOBOLDCPP,
-                'llamacpp': textgen_types.LLAMACPP
+                'llamacpp': textgen_types.LLAMACPP,
             };
 
             if (textgenMapping[source] && !textgenerationwebui_settings.server_urls[textgenMapping[source]]) {
@@ -546,8 +546,8 @@ export async function getSavedHashes(collectionId, settings, includeMetadata = f
                 collectionId: collectionId,
                 source: settings.source || 'transformers',
                 model: settings.model || '',
-                limit: 10000
-            })
+                limit: 10000,
+            }),
         });
 
         if (response.ok) {
@@ -555,7 +555,7 @@ export async function getSavedHashes(collectionId, settings, includeMetadata = f
             if (data.success && data.items) {
                 return {
                     hashes: hashes,
-                    metadata: data.items.map(item => item.metadata || item)
+                    metadata: data.items.map(item => item.metadata || item),
                 };
             }
         }
@@ -620,7 +620,7 @@ export async function insertVectorItems(collectionId, items, settings) {
                     await backend.insertVectorItems(collectionId, batches[i], settings);
                 }, RETRY_CONFIG);
             }, settings);
-            
+
             // Optional: UI update for progress could go here if we passed a callback
         }
     } else {
@@ -679,7 +679,7 @@ export async function queryCollection(collectionId, searchText, topK, settings) 
         hash: rawResults.hashes[idx],
         score: meta.score || 0,
         metadata: meta,
-        text: meta.text || ''
+        text: meta.text || '',
     }));
 
     // Apply keyword boosts and trim to requested topK
@@ -695,8 +695,8 @@ export async function queryCollection(collectionId, searchText, topK, settings) 
             keywordBoost: r.keywordBoost,
             matchedKeywords: r.matchedKeywords,
             matchedKeywordsWithWeights: r.matchedKeywordsWithWeights,
-            keywordBoosted: r.keywordBoosted
-        }))
+            keywordBoosted: r.keywordBoosted,
+        })),
     };
 }
 
@@ -759,6 +759,27 @@ export async function queryActiveCollections(collectionIds, searchText, topK, th
     // Query only the active collections
     const backend = await getBackend(settings);
     return await backend.queryMultipleCollections(activeCollectionIds, searchText, topK, threshold, settings);
+}
+
+/**
+ * Queries multiple collections in a single batched request.
+ * Unlike queryActiveCollections, this does NOT filter by activation conditions.
+ * Use when filtering has already been done (e.g., in rearrangeChat pipeline).
+ *
+ * @param {string[]} collectionIds - Collection IDs to query (already filtered)
+ * @param {string} searchText - Text to query
+ * @param {number} topK - Number of results per collection
+ * @param {object} settings - VectHare settings object
+ * @returns {Promise<Record<string, { hashes: number[], metadata: object[] }>>} - Results mapped to collection IDs
+ */
+export async function queryMultipleCollections(collectionIds, searchText, topK, settings) {
+    if (!collectionIds || collectionIds.length === 0) {
+        return {};
+    }
+
+    const backend = await getBackend(settings);
+    const threshold = settings.score_threshold || 0;
+    return await backend.queryMultipleCollections(collectionIds, searchText, topK, threshold, settings);
 }
 
 /**

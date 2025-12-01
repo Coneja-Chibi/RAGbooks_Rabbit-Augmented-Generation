@@ -64,7 +64,7 @@ export function checkVisualizerSettings(settings) {
             name: 'Visualizer Settings',
             status: 'fail',
             message: 'No settings object available',
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 
@@ -73,7 +73,7 @@ export function checkVisualizerSettings(settings) {
             name: 'Visualizer Settings',
             status: 'fail',
             message: 'No embedding source configured - vector operations will fail',
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 
@@ -84,7 +84,7 @@ export function checkVisualizerSettings(settings) {
         name: 'Visualizer Settings',
         status: 'pass',
         message: `Backend: ${backend}, Source: ${source}`,
-        category: 'visualizer'
+        category: 'visualizer',
     };
 }
 
@@ -102,7 +102,7 @@ export function checkHashGeneration() {
                 name: 'Hash Generation',
                 status: 'fail',
                 message: `getStringHash returned ${typeof hash1}, expected number`,
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -111,7 +111,7 @@ export function checkHashGeneration() {
                 name: 'Hash Generation',
                 status: 'fail',
                 message: 'Hash function not deterministic - same input produced different hashes',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -122,7 +122,7 @@ export function checkHashGeneration() {
                 name: 'Hash Generation',
                 status: 'warning',
                 message: 'Hash collision detected on different inputs',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -130,14 +130,14 @@ export function checkHashGeneration() {
             name: 'Hash Generation',
             status: 'pass',
             message: `Working correctly (test hash: ${hash1})`,
-            category: 'visualizer'
+            category: 'visualizer',
         };
     } catch (error) {
         return {
             name: 'Hash Generation',
             status: 'fail',
             message: `Error: ${error.message}`,
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 }
@@ -155,9 +155,9 @@ export function checkMetadataOperations() {
             importance: 150,
             keywords: [
                 { text: 'test', weight: 1.0 },
-                { text: 'visualizer', weight: 1.5 }
+                { text: 'visualizer', weight: 1.5 },
             ],
-            testTimestamp: Date.now()
+            testTimestamp: Date.now(),
         };
 
         saveChunkMetadata(testHash, testData);
@@ -172,7 +172,7 @@ export function checkMetadataOperations() {
                 name: 'Metadata Operations',
                 status: 'fail',
                 message: 'Failed to retrieve saved metadata',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -182,7 +182,7 @@ export function checkMetadataOperations() {
                 name: 'Metadata Operations',
                 status: 'fail',
                 message: 'Retrieved metadata does not match saved data',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -195,7 +195,7 @@ export function checkMetadataOperations() {
                 name: 'Metadata Operations',
                 status: 'warning',
                 message: 'Metadata delete may not have fully cleaned up',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -203,7 +203,7 @@ export function checkMetadataOperations() {
             name: 'Metadata Operations',
             status: 'pass',
             message: 'Save, read, and delete all working',
-            category: 'visualizer'
+            category: 'visualizer',
         };
     } catch (error) {
         // Cleanup attempt
@@ -212,7 +212,7 @@ export function checkMetadataOperations() {
             name: 'Metadata Operations',
             status: 'fail',
             message: `Error: ${error.message}`,
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 }
@@ -226,7 +226,7 @@ export async function checkVectorInsert(settings) {
             name: 'Vector Insert',
             status: 'skipped',
             message: 'No settings/source configured',
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 
@@ -237,7 +237,7 @@ export async function checkVectorInsert(settings) {
     try {
         await insertVectorItems(testCollectionId, [{
             hash: testHash,
-            text: testText
+            text: testText,
         }], settings);
 
         // Verify it was inserted
@@ -250,7 +250,7 @@ export async function checkVectorInsert(settings) {
                 name: 'Vector Insert',
                 status: 'fail',
                 message: 'Insert succeeded but hash not found in collection',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -261,7 +261,7 @@ export async function checkVectorInsert(settings) {
             name: 'Vector Insert',
             status: 'pass',
             message: `Successfully inserted and verified (backend: ${settings.vector_backend || 'standard'})`,
-            category: 'visualizer'
+            category: 'visualizer',
         };
     } catch (error) {
         // Cleanup even on failure
@@ -270,7 +270,7 @@ export async function checkVectorInsert(settings) {
             name: 'Vector Insert',
             status: 'fail',
             message: `Insert failed: ${error.message}`,
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 }
@@ -284,7 +284,7 @@ export async function checkVectorDelete(settings) {
             name: 'Vector Delete',
             status: 'skipped',
             message: 'No settings/source configured',
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 
@@ -296,7 +296,7 @@ export async function checkVectorDelete(settings) {
         // First insert a test vector
         await insertVectorItems(testCollectionId, [{
             hash: testHash,
-            text: testText
+            text: testText,
         }], settings);
 
         // Verify it exists
@@ -308,7 +308,7 @@ export async function checkVectorDelete(settings) {
                 name: 'Vector Delete',
                 status: 'fail',
                 message: 'Could not set up test - insert did not work',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -324,7 +324,7 @@ export async function checkVectorDelete(settings) {
                 name: 'Vector Delete',
                 status: 'fail',
                 message: 'Delete called but hash still exists in collection',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -335,7 +335,7 @@ export async function checkVectorDelete(settings) {
             name: 'Vector Delete',
             status: 'pass',
             message: `Successfully deleted and verified (backend: ${settings.vector_backend || 'standard'})`,
-            category: 'visualizer'
+            category: 'visualizer',
         };
     } catch (error) {
         // Cleanup even on failure
@@ -344,7 +344,7 @@ export async function checkVectorDelete(settings) {
             name: 'Vector Delete',
             status: 'fail',
             message: `Delete failed: ${error.message}`,
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 }
@@ -359,7 +359,7 @@ export async function checkReVectorization(settings) {
             name: 'Re-Vectorization',
             status: 'skipped',
             message: 'No settings/source configured',
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 
@@ -373,23 +373,23 @@ export async function checkReVectorization(settings) {
         // Step 1: Insert original vector with metadata
         await insertVectorItems(testCollectionId, [{
             hash: originalHash,
-            text: originalText
+            text: originalText,
         }], settings);
 
         saveChunkMetadata(String(originalHash), {
             importance: 175,
             keywords: [
                 { text: 'test', weight: 1.0 },
-                { text: 'original', weight: 1.5 }
+                { text: 'original', weight: 1.5 },
             ],
-            testMarker: 'revec_test'
+            testMarker: 'revec_test',
         });
 
         // Step 2: Simulate re-vectorization (delete old, insert new, migrate meta)
         await deleteVectorItems(testCollectionId, [originalHash], settings);
         await insertVectorItems(testCollectionId, [{
             hash: editedHash,
-            text: editedText
+            text: editedText,
         }], settings);
 
         // Migrate metadata
@@ -419,7 +419,7 @@ export async function checkReVectorization(settings) {
                 name: 'Re-Vectorization',
                 status: 'fail',
                 message: 'Original hash still exists after delete',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -428,7 +428,7 @@ export async function checkReVectorization(settings) {
                 name: 'Re-Vectorization',
                 status: 'fail',
                 message: 'New hash not found after insert',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -437,7 +437,7 @@ export async function checkReVectorization(settings) {
                 name: 'Re-Vectorization',
                 status: 'warning',
                 message: 'Vectors updated but metadata migration may have issues',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -445,7 +445,7 @@ export async function checkReVectorization(settings) {
             name: 'Re-Vectorization',
             status: 'pass',
             message: 'Full workflow working: delete → insert → migrate metadata',
-            category: 'visualizer'
+            category: 'visualizer',
         };
     } catch (error) {
         // Cleanup attempts
@@ -457,7 +457,7 @@ export async function checkReVectorization(settings) {
             name: 'Re-Vectorization',
             status: 'fail',
             message: `Workflow failed: ${error.message}`,
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 }
@@ -471,7 +471,7 @@ export async function checkSummaryVectorCreate(settings) {
             name: 'Summary Vector Create',
             status: 'skipped',
             message: 'No settings/source configured',
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 
@@ -485,19 +485,19 @@ export async function checkSummaryVectorCreate(settings) {
         // Insert parent chunk
         await insertVectorItems(testCollectionId, [{
             hash: parentHash,
-            text: parentText
+            text: parentText,
         }], settings);
 
         // Insert summary vector with parent link
         await insertVectorItems(testCollectionId, [{
             hash: summaryHash,
-            text: summaryText
+            text: summaryText,
         }], settings);
 
         saveChunkMetadata(String(summaryHash), {
             isSummaryVector: true,
             parentHash: String(parentHash),
-            summaryText: summaryText
+            summaryText: summaryText,
         });
 
         // Verify both exist
@@ -519,7 +519,7 @@ export async function checkSummaryVectorCreate(settings) {
                 name: 'Summary Vector Create',
                 status: 'fail',
                 message: `Missing vectors - parent: ${hasParent}, summary: ${hasSummary}`,
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -528,7 +528,7 @@ export async function checkSummaryVectorCreate(settings) {
                 name: 'Summary Vector Create',
                 status: 'warning',
                 message: 'Vectors created but metadata linkage may be incorrect',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -536,7 +536,7 @@ export async function checkSummaryVectorCreate(settings) {
             name: 'Summary Vector Create',
             status: 'pass',
             message: 'Dual-vector summary created with proper parent linkage',
-            category: 'visualizer'
+            category: 'visualizer',
         };
     } catch (error) {
         // Cleanup
@@ -547,7 +547,7 @@ export async function checkSummaryVectorCreate(settings) {
             name: 'Summary Vector Create',
             status: 'fail',
             message: `Failed: ${error.message}`,
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 }
@@ -561,7 +561,7 @@ export async function checkSummaryVectorDelete(settings) {
             name: 'Summary Vector Delete',
             status: 'skipped',
             message: 'No settings/source configured',
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 
@@ -575,12 +575,12 @@ export async function checkSummaryVectorDelete(settings) {
         // Setup: insert parent and summary
         await insertVectorItems(testCollectionId, [
             { hash: parentHash, text: parentText },
-            { hash: summaryHash, text: summaryText }
+            { hash: summaryHash, text: summaryText },
         ], settings);
 
         saveChunkMetadata(String(summaryHash), {
             isSummaryVector: true,
-            parentHash: String(parentHash)
+            parentHash: String(parentHash),
         });
 
         // Delete only the summary
@@ -602,7 +602,7 @@ export async function checkSummaryVectorDelete(settings) {
                 name: 'Summary Vector Delete',
                 status: 'fail',
                 message: 'Parent chunk was accidentally deleted',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -611,7 +611,7 @@ export async function checkSummaryVectorDelete(settings) {
                 name: 'Summary Vector Delete',
                 status: 'fail',
                 message: 'Summary vector still exists after delete',
-                category: 'visualizer'
+                category: 'visualizer',
             };
         }
 
@@ -619,7 +619,7 @@ export async function checkSummaryVectorDelete(settings) {
             name: 'Summary Vector Delete',
             status: 'pass',
             message: 'Summary deleted while parent preserved',
-            category: 'visualizer'
+            category: 'visualizer',
         };
     } catch (error) {
         // Cleanup
@@ -630,7 +630,7 @@ export async function checkSummaryVectorDelete(settings) {
             name: 'Summary Vector Delete',
             status: 'fail',
             message: `Failed: ${error.message}`,
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 }
@@ -645,7 +645,7 @@ export async function checkBackendResponsiveness(settings) {
             name: 'Backend Responsiveness',
             status: 'skipped',
             message: 'No settings/source configured',
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 
@@ -657,7 +657,7 @@ export async function checkBackendResponsiveness(settings) {
         const startInsert = performance.now();
         await insertVectorItems(testCollectionId, [{
             hash: testHash,
-            text: testText
+            text: testText,
         }], settings);
         const insertTime = performance.now() - startInsert;
 
@@ -680,8 +680,8 @@ export async function checkBackendResponsiveness(settings) {
             return {
                 name: 'Backend Responsiveness',
                 status: 'fail',
-                message: `Very slow (${(totalTime/1000).toFixed(1)}s) - check ${backend} backend`,
-                category: 'visualizer'
+                message: `Very slow (${(totalTime / 1000).toFixed(1)}s) - check ${backend} backend`,
+                category: 'visualizer',
             };
         }
 
@@ -689,8 +689,8 @@ export async function checkBackendResponsiveness(settings) {
             return {
                 name: 'Backend Responsiveness',
                 status: 'warning',
-                message: `Slow response (${(totalTime/1000).toFixed(1)}s) on ${backend}`,
-                category: 'visualizer'
+                message: `Slow response (${(totalTime / 1000).toFixed(1)}s) on ${backend}`,
+                category: 'visualizer',
             };
         }
 
@@ -701,7 +701,7 @@ export async function checkBackendResponsiveness(settings) {
             name: 'Backend Responsiveness',
             status: 'pass',
             message: `${backend}: insert ${insertTime.toFixed(0)}ms, query ${queryTime.toFixed(0)}ms, delete ${deleteTime.toFixed(0)}ms`,
-            category: 'visualizer'
+            category: 'visualizer',
         };
     } catch (error) {
         // Cleanup attempt
@@ -711,7 +711,7 @@ export async function checkBackendResponsiveness(settings) {
             name: 'Backend Responsiveness',
             status: 'fail',
             message: `Backend error: ${error.message}`,
-            category: 'visualizer'
+            category: 'visualizer',
         };
     }
 }

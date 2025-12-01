@@ -129,7 +129,7 @@ export const EMOTION_KEYWORDS = {
     curiosity: ['curiosity', 'curious', 'interested', 'intrigued', 'inquisitive', 'wondering', '/\\b(hmm+|wonder)\\w*/i'],
     confusion: ['confusion', 'confused', 'puzzled', 'perplexed', 'bewildered', 'uncertain', '/\\b(huh|what|eh)\\?/i'],
     realization: ['realization', 'realize', 'understand', 'comprehend', 'grasp', 'see', 'aha', '/\\b(oh!|aha|eureka)\\b/i'],
-    neutral: [] // Neutral has no keywords
+    neutral: [], // Neutral has no keywords
 };
 
 /**
@@ -368,7 +368,7 @@ export function processChunkLinks(chunks, chunkMetadataMap, softBoost = 0.15) {
                 ...chunk,
                 score: Math.min(1.0, (chunk.score || 0) + boost),
                 softLinked: true,
-                linkBoost: boost
+                linkBoost: boost,
             };
         }
         return chunk;
@@ -381,7 +381,7 @@ export function processChunkLinks(chunks, chunkMetadataMap, softBoost = 0.15) {
     return {
         chunks: processedChunks,
         hardLinkedHashes: hardLinkedHashes,
-        missingHardLinks: missingHardLinks
+        missingHardLinks: missingHardLinks,
     };
 }
 
@@ -417,7 +417,7 @@ function evaluateScoreThresholdCondition(rule, context) {
 function evaluateRecencyCondition(rule, context) {
     const settings = rule.settings || {
         messagesAgo: parseInt(rule.value) || 50,
-        operator: 'gte' // 'gte' = older than X messages ago, 'lte' = newer than X
+        operator: 'gte', // 'gte' = older than X messages ago, 'lte' = newer than X
     };
     const targetAge = settings.messagesAgo || 50;
     const operator = settings.operator || 'gte';
@@ -436,9 +436,10 @@ function evaluateRecencyCondition(rule, context) {
         case 'lte':
             // Chunk is at most X messages old (recent)
             return messagesAgo <= targetAge;
-        case 'between':
+        case 'between': {
             const upperBound = settings.upperBound || 100;
             return messagesAgo >= targetAge && messagesAgo <= upperBound;
+        }
         default:
             return messagesAgo >= targetAge;
     }
@@ -455,7 +456,7 @@ function evaluateFrequencyCondition(rule, context) {
     const settings = rule.settings || {
         maxActivations: parseInt(rule.value) || 1,
         cooldownMessages: 0,
-        scope: 'conversation' // 'conversation' or 'session'
+        scope: 'conversation', // 'conversation' or 'session'
     };
 
     const maxActivations = settings.maxActivations || 1;
@@ -555,7 +556,7 @@ function evaluateEmotionCondition(rule, context) {
 
                 // Check if detected emotion matches any target emotions
                 expressionsResult = targetEmotions.some(target =>
-                    target.toLowerCase() === matchedEmotion
+                    target.toLowerCase() === matchedEmotion,
                 );
 
                 if (expressionsResult) {
@@ -647,12 +648,12 @@ function evaluateCharacterPresentCondition(rule, context) {
     if (matchType === 'all') {
         // All characters must be present
         return targetCharacters.every(char =>
-            speakers.some(speaker => (speaker || '').toLowerCase().includes(char.toLowerCase()))
+            speakers.some(speaker => (speaker || '').toLowerCase().includes(char.toLowerCase())),
         );
     } else {
         // Any character present (default)
         return targetCharacters.some(char =>
-            speakers.some(speaker => (speaker || '').toLowerCase().includes(char.toLowerCase()))
+            speakers.some(speaker => (speaker || '').toLowerCase().includes(char.toLowerCase())),
         );
     }
 }
@@ -901,7 +902,7 @@ export function filterChunksByConditions(chunks, baseContext) {
             currentChunkScore: chunk.score || chunk.similarity || 0,
             currentChunkMessageIndex: chunk.metadata?.messageIndex || chunk.index || 0,
             currentChunkHash: chunk.hash,
-            activeChunks: chunks // Pass all chunks for dependency checking
+            activeChunks: chunks, // Pass all chunks for dependency checking
         };
         return evaluateConditions(chunk, chunkContext);
     });
@@ -953,7 +954,7 @@ export function buildSearchContext(chat, contextWindow = 10, activeChunks = [], 
         currentChunkScore: metadata.currentChunkScore || 0,          // For similarity condition
         currentChunkMessageIndex: metadata.currentChunkMessageIndex || 0, // For recency condition
         currentChunkHash: metadata.currentChunkHash || null,         // For frequency condition
-        activationHistory: metadata.activationHistory || {}          // Chunk activation history for frequency
+        activationHistory: metadata.activationHistory || {},          // Chunk activation history for frequency
     };
 }
 
@@ -968,7 +969,7 @@ export function buildChunkContext(baseContext, chunk) {
         ...baseContext,
         currentChunkScore: chunk.score || chunk.similarity || 0,
         currentChunkMessageIndex: chunk.metadata?.messageIndex || chunk.index || 0,
-        currentChunkHash: chunk.hash
+        currentChunkHash: chunk.hash,
     };
 }
 
@@ -982,7 +983,7 @@ export function groupChunksByConditionStatus(chunks, context) {
     const groups = {
         noConditions: [],
         conditionsMet: [],
-        conditionsNotMet: []
+        conditionsNotMet: [],
     };
 
     chunks.forEach(chunk => {
@@ -1026,14 +1027,15 @@ export function validateConditionRule(rule) {
     }
 
     switch (rule.type) {
-        case 'messageCount':
+        case 'messageCount': {
             const mcCount = rule.settings?.count ?? parseInt(rule.value);
             if (isNaN(mcCount) || mcCount < 0) {
                 errors.push('Message count must be a positive number');
             }
             break;
+        }
 
-        case 'chunkActive':
+        case 'chunkActive': {
             if (rule.settings?.matchBy === 'hash' || !rule.settings) {
                 const hash = parseInt(rule.settings?.values?.[0] ?? rule.value);
                 if (isNaN(hash)) {
@@ -1041,8 +1043,9 @@ export function validateConditionRule(rule) {
                 }
             }
             break;
+        }
 
-        case 'timeOfDay':
+        case 'timeOfDay': {
             const todSettings = rule.settings || {};
             if (todSettings.startTime || todSettings.endTime) {
                 const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
@@ -1065,8 +1068,9 @@ export function validateConditionRule(rule) {
                 }
             }
             break;
+        }
 
-        case 'emotion':
+        case 'emotion': {
             const emotionValues = rule.settings?.values || [rule.value];
             for (const emotion of emotionValues) {
                 if (emotion && !VALID_EMOTIONS.includes(emotion.toLowerCase())) {
@@ -1074,22 +1078,25 @@ export function validateConditionRule(rule) {
                 }
             }
             break;
+        }
 
-        case 'randomChance':
+        case 'randomChance': {
             const chance = rule.settings?.probability ?? parseInt(rule.value);
             if (isNaN(chance) || chance < 0 || chance > 100) {
                 errors.push('Random chance must be between 0 and 100');
             }
             break;
+        }
 
-        case 'characterPresent':
+        case 'characterPresent': {
             const cpValues = rule.settings?.values || [rule.value];
             if (cpValues.length === 0 || cpValues.every(v => !v || v.trim() === '')) {
                 errors.push('Character name cannot be empty');
             }
             break;
+        }
 
-        case 'generationType':
+        case 'generationType': {
             const gtValues = rule.settings?.values || [rule.value];
             for (const genType of gtValues) {
                 if (genType && !VALID_GENERATION_TYPES.includes(genType.toLowerCase())) {
@@ -1097,53 +1104,60 @@ export function validateConditionRule(rule) {
                 }
             }
             break;
+        }
 
-        case 'swipeCount':
+        case 'swipeCount': {
             const scCount = rule.settings?.count ?? parseInt(rule.value);
             if (isNaN(scCount) || scCount < 0) {
                 errors.push('Swipe count must be a positive number');
             }
             break;
+        }
 
-        case 'lorebookActive':
+        case 'lorebookActive': {
             const lbValues = rule.settings?.values || [rule.value];
             if (lbValues.length === 0 || lbValues.every(v => !v || v.trim() === '')) {
                 errors.push('Lorebook entry key or UID cannot be empty');
             }
             break;
+        }
 
-        case 'isGroupChat':
+        case 'isGroupChat': {
             const gcValue = rule.settings?.isGroup ?? rule.value;
             if (gcValue !== 'true' && gcValue !== 'false' && gcValue !== true && gcValue !== false) {
                 errors.push('isGroupChat value must be true or false');
             }
             break;
+        }
 
         // =================================================================
         // CHUNK-ONLY CONDITIONS VALIDATION
         // =================================================================
-        case 'dependency':
+        case 'dependency': {
             const depValues = rule.settings?.values || [rule.value];
             if (depValues.length === 0 || depValues.every(v => !v || String(v).trim() === '')) {
                 errors.push('Dependency target (hash, section, or tag) cannot be empty');
             }
             break;
+        }
 
-        case 'similarity':
+        case 'similarity': {
             const simThreshold = rule.settings?.threshold ?? parseFloat(rule.value);
             if (isNaN(simThreshold) || simThreshold < 0 || simThreshold > 1) {
                 errors.push('Similarity threshold must be between 0 and 1');
             }
             break;
+        }
 
-        case 'recency':
+        case 'recency': {
             const recAge = rule.settings?.messagesAgo ?? parseInt(rule.value);
             if (isNaN(recAge) || recAge < 0) {
                 errors.push('Recency (messages ago) must be a positive number');
             }
             break;
+        }
 
-        case 'frequency':
+        case 'frequency': {
             const freqMax = rule.settings?.maxActivations ?? parseInt(rule.value);
             if (isNaN(freqMax) || freqMax < 1) {
                 errors.push('Max activations must be at least 1');
@@ -1153,11 +1167,12 @@ export function validateConditionRule(rule) {
                 errors.push('Cooldown messages must be 0 or positive');
             }
             break;
+        }
     }
 
     return {
         valid: errors.length === 0,
-        errors
+        errors,
     };
 }
 
@@ -1190,7 +1205,7 @@ export function validateConditions(conditions) {
 
     return {
         valid: errors.length === 0,
-        errors
+        errors,
     };
 }
 
@@ -1209,7 +1224,7 @@ export function getConditionStats(chunks) {
         withConditions: 0,
         conditionsEnabled: 0,
         byType: {},
-        byMode: { AND: 0, OR: 0 }
+        byMode: { AND: 0, OR: 0 },
     };
 
     chunks.forEach(chunk => {
@@ -1260,5 +1275,5 @@ export default {
     // Constants
     EMOTION_KEYWORDS,
     VALID_EMOTIONS,
-    VALID_GENERATION_TYPES
+    VALID_GENERATION_TYPES,
 };

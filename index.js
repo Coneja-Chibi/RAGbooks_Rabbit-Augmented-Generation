@@ -137,7 +137,7 @@ async function onVectorizeAllClick() {
 async function onPurgeClick() {
     const confirmed = confirm(
         'WARNING: This will delete ALL vector data and reset VectHare settings.\n\n' +
-        'This cannot be undone. Continue?'
+        'This cannot be undone. Continue?',
     );
 
     if (!confirmed) {
@@ -146,26 +146,24 @@ async function onPurgeClick() {
     }
 
     try {
-        const { getRequestHeaders } = await import('../../../../script.js');
+        // 1. Delete all vector indexes via proper API
+        await purgeAllVectorIndexes(settings);
 
-        // 1. Delete entire vectors folder
-        await fetch('/api/plugins/similharity/purge-all', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-        });
+        // 2. Clear the collection registry
+        clearCollectionRegistry();
 
-        // 2. Clear extension_settings.vecthare
+        // 3. Clear extension_settings.vecthare (preserve enabled state)
         for (const key in extension_settings.vecthare) {
             if (key !== 'enabled') {
                 delete extension_settings.vecthare[key];
             }
         }
 
-        // 3. Save settings
+        // 4. Save settings
         const { saveSettingsDebounced } = await import('../../../../script.js');
         saveSettingsDebounced();
 
-        toastr.success('All vector data purged', 'Purge Complete');
+        // Note: purgeAllVectorIndexes already shows success toast
 
     } catch (error) {
         console.error('VectHare: Purge failed:', error);
@@ -197,12 +195,12 @@ jQuery(async () => {
         ...extension_settings.vecthare,
         temporal_decay: {
             ...defaultSettings.temporal_decay,
-            ...extension_settings.vecthare.temporal_decay
+            ...extension_settings.vecthare.temporal_decay,
         },
         collections: {
             ...defaultSettings.collections,
-            ...extension_settings.vecthare.collections
-        }
+            ...extension_settings.vecthare.collections,
+        },
     };
 
     // Migrate old scattered enabled keys to new collections structure
@@ -215,7 +213,7 @@ jQuery(async () => {
     renderSettings('extensions_settings2', settings, {
         onVectorizeAll: onVectorizeAllClick,
         onPurge: onPurgeClick,
-        onRunDiagnostics: onRunDiagnosticsClick
+        onRunDiagnostics: onRunDiagnosticsClick,
     });
 
     // Initialize auto-sync checkbox state for current chat (if any)

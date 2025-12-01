@@ -114,7 +114,7 @@ export async function testEmbeddingGeneration(settings) {
                 model: settings[getModelField(settings.source)] || null,
                 // Include provider-specific params (apiUrl, apiKey for BananaBread, etc.)
                 ...getPluginProviderParams(settings),
-            })
+            }),
         });
 
         if (!response.ok) {
@@ -123,7 +123,7 @@ export async function testEmbeddingGeneration(settings) {
                 name: '[PROD] Embedding Generation',
                 status: 'fail',
                 message: `Failed to generate embedding: ${response.status} ${response.statusText} - ${errorText}`,
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -135,7 +135,7 @@ export async function testEmbeddingGeneration(settings) {
                 name: '[PROD] Embedding Generation',
                 status: 'fail',
                 message: 'Embedding endpoint returned invalid or empty embedding',
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -143,14 +143,14 @@ export async function testEmbeddingGeneration(settings) {
             name: '[PROD] Embedding Generation',
             status: 'pass',
             message: `Successfully generated test embedding (${data.embedding.length} dimensions)`,
-            category: 'production'
+            category: 'production',
         };
     } catch (error) {
         return {
             name: '[PROD] Embedding Generation',
             status: 'fail',
             message: `Embedding generation error: ${error.message}`,
-            category: 'production'
+            category: 'production',
         };
     }
 }
@@ -177,13 +177,13 @@ export async function testVectorStorage(settings) {
                 items: [{
                     hash: testHash,
                     text: testText,
-                    index: 0
+                    index: 0,
                 }],
                 source: settings.source || 'transformers',
                 model: settings[getModelField(settings.source)] || null,
                 // Include provider-specific params (apiUrl, apiKey for BananaBread, etc.)
                 ...getPluginProviderParams(settings),
-            })
+            }),
         });
 
         if (!insertResponse.ok) {
@@ -192,7 +192,7 @@ export async function testVectorStorage(settings) {
                 name: '[PROD] Vector Storage',
                 status: 'fail',
                 message: `Failed to store vector: ${insertResponse.status} - ${errorText}`,
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -203,14 +203,14 @@ export async function testVectorStorage(settings) {
             name: '[PROD] Vector Storage',
             status: 'pass',
             message: 'Successfully stored and cleaned up test vector',
-            category: 'production'
+            category: 'production',
         };
     } catch (error) {
         return {
             name: '[PROD] Vector Storage',
             status: 'fail',
             message: `Storage test error: ${error.message}`,
-            category: 'production'
+            category: 'production',
         };
     }
 }
@@ -224,7 +224,7 @@ export async function testVectorRetrieval(settings) {
             name: '[PROD] Vector Retrieval',
             status: 'warning',
             message: 'No chat selected - cannot test retrieval',
-            category: 'production'
+            category: 'production',
         };
     }
 
@@ -234,7 +234,7 @@ export async function testVectorRetrieval(settings) {
             name: '[PROD] Vector Retrieval',
             status: 'warning',
             message: 'Could not get collection ID',
-            category: 'production'
+            category: 'production',
         };
     }
 
@@ -246,7 +246,7 @@ export async function testVectorRetrieval(settings) {
                 name: '[PROD] Vector Retrieval',
                 status: 'warning',
                 message: 'No vectors in current chat to test retrieval',
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -258,8 +258,8 @@ export async function testVectorRetrieval(settings) {
                 searchText: 'test query',
                 topK: 3,
                 source: settings.source,
-                ...getProviderBody(settings)
-            })
+                ...getProviderBody(settings),
+            }),
         });
 
         if (!response.ok) {
@@ -267,7 +267,7 @@ export async function testVectorRetrieval(settings) {
                 name: '[PROD] Vector Retrieval',
                 status: 'fail',
                 message: `Query failed: ${response.status}`,
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -277,14 +277,14 @@ export async function testVectorRetrieval(settings) {
             name: '[PROD] Vector Retrieval',
             status: 'pass',
             message: `Successfully retrieved ${data.hashes?.length || 0} results`,
-            category: 'production'
+            category: 'production',
         };
     } catch (error) {
         return {
             name: '[PROD] Vector Retrieval',
             status: 'fail',
             message: `Retrieval test error: ${error.message}`,
-            category: 'production'
+            category: 'production',
         };
     }
 }
@@ -301,7 +301,7 @@ export async function testVectorDimensions(settings) {
             name: '[PROD] Vector Dimensions',
             status: 'pass',
             message: 'No chat selected - cannot check dimensions',
-            category: 'production'
+            category: 'production',
         };
     }
 
@@ -311,7 +311,7 @@ export async function testVectorDimensions(settings) {
             name: '[PROD] Vector Dimensions',
             status: 'pass',
             message: 'Could not get collection ID',
-            category: 'production'
+            category: 'production',
         };
     }
 
@@ -334,7 +334,7 @@ export async function testVectorDimensions(settings) {
                 name: '[PROD] Vector Dimensions',
                 status: 'pass',
                 message: 'Could not fetch collection stats',
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -346,7 +346,7 @@ export async function testVectorDimensions(settings) {
                 name: '[PROD] Vector Dimensions',
                 status: 'pass',
                 message: 'No vectors stored yet - dimensions will be set on first vectorization',
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -361,7 +361,7 @@ export async function testVectorDimensions(settings) {
                 model: settings[getModelField(settings.source)] || null,
                 // Include provider-specific params (apiUrl, apiKey for BananaBread, etc.)
                 ...getPluginProviderParams(settings),
-            })
+            }),
         });
 
         if (!embeddingResponse.ok) {
@@ -370,7 +370,7 @@ export async function testVectorDimensions(settings) {
                 name: '[PROD] Vector Dimensions',
                 status: 'warning',
                 message: `Could not generate test embedding: ${embeddingResponse.status} - ${errorText}`,
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -385,7 +385,7 @@ export async function testVectorDimensions(settings) {
                 name: '[PROD] Vector Dimensions',
                 status: 'warning',
                 message: 'Could not determine current embedding dimensions',
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -398,7 +398,7 @@ export async function testVectorDimensions(settings) {
                 category: 'production',
                 fixable: true,
                 fixAction: 'revectorize',
-                data: { storedDimensions, currentDimensions, collectionId }
+                data: { storedDimensions, currentDimensions, collectionId },
             };
         }
 
@@ -406,14 +406,14 @@ export async function testVectorDimensions(settings) {
             name: '[PROD] Vector Dimensions',
             status: 'pass',
             message: `Dimensions match (${storedDimensions}D)`,
-            category: 'production'
+            category: 'production',
         };
     } catch (error) {
         return {
             name: '[PROD] Vector Dimensions',
             status: 'warning',
             message: `Dimension check error: ${error.message}`,
-            category: 'production'
+            category: 'production',
         };
     }
 }
@@ -439,7 +439,7 @@ export async function testTemporalDecay(settings) {
                 name: '[PROD] Temporal Decay',
                 status: 'fail',
                 message: 'Decay not reducing scores (check formula)',
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -448,7 +448,7 @@ export async function testTemporalDecay(settings) {
                 name: '[PROD] Temporal Decay',
                 status: 'fail',
                 message: `Invalid decayed score: ${decayedScore}`,
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -460,7 +460,7 @@ export async function testTemporalDecay(settings) {
                 name: '[PROD] Temporal Decay',
                 status: 'fail',
                 message: 'Disabled decay should not change scores',
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -468,14 +468,14 @@ export async function testTemporalDecay(settings) {
             name: '[PROD] Temporal Decay',
             status: 'pass',
             message: `Decay working (0.85 -> ${decayedScore.toFixed(3)} at age 50 for chat)`,
-            category: 'production'
+            category: 'production',
         };
     } catch (error) {
         return {
             name: '[PROD] Temporal Decay',
             status: 'fail',
             message: `Decay test error: ${error.message}`,
-            category: 'production'
+            category: 'production',
         };
     }
 }
@@ -491,7 +491,7 @@ export async function testChunkServerSync(settings, collectionId) {
                 name: '[PROD] Chunk-Server Sync',
                 status: 'warning',
                 message: 'No collection selected - cannot test sync',
-                category: 'production'
+                category: 'production',
             };
         }
         collectionId = getChatCollectionId();
@@ -500,7 +500,7 @@ export async function testChunkServerSync(settings, collectionId) {
                 name: '[PROD] Chunk-Server Sync',
                 status: 'warning',
                 message: 'Could not get collection ID',
-                category: 'production'
+                category: 'production',
             };
         }
     }
@@ -529,7 +529,7 @@ export async function testChunkServerSync(settings, collectionId) {
                 status: 'pass',
                 message: `In sync: ${totalServer} server vectors, ${totalLocal} local metadata entries`,
                 category: 'production',
-                data: { serverHashes, localHashes, collectionId }
+                data: { serverHashes, localHashes, collectionId },
             };
         }
 
@@ -543,7 +543,7 @@ export async function testChunkServerSync(settings, collectionId) {
                 category: 'production',
                 fixable: true,
                 fixAction: 'cleanOrphanedMetadata',
-                data: { orphanedHashes: onlyLocal, collectionId }
+                data: { orphanedHashes: onlyLocal, collectionId },
             };
         }
 
@@ -552,14 +552,14 @@ export async function testChunkServerSync(settings, collectionId) {
             status: 'pass',
             message: `Server has ${onlyOnServer.length} vectors without local metadata (normal for new chunks)`,
             category: 'production',
-            data: { serverHashes, localHashes, collectionId }
+            data: { serverHashes, localHashes, collectionId },
         };
     } catch (error) {
         return {
             name: '[PROD] Chunk-Server Sync',
             status: 'fail',
             message: `Sync check error: ${error.message}`,
-            category: 'production'
+            category: 'production',
         };
     }
 }
@@ -579,12 +579,12 @@ export async function fixOrphanedMetadata(orphanedHashes) {
 
         return {
             success: true,
-            message: `Cleaned ${cleaned} orphaned metadata entries`
+            message: `Cleaned ${cleaned} orphaned metadata entries`,
         };
     } catch (error) {
         return {
             success: false,
-            message: `Failed to clean: ${error.message}`
+            message: `Failed to clean: ${error.message}`,
         };
     }
 }
@@ -603,7 +603,7 @@ export async function testDuplicateHashes(settings, collectionId) {
                 name: '[PROD] Duplicate Hash Check',
                 status: 'warning',
                 message: 'No collection selected - cannot check for duplicates',
-                category: 'production'
+                category: 'production',
             };
         }
         collectionId = getChatCollectionId();
@@ -612,7 +612,7 @@ export async function testDuplicateHashes(settings, collectionId) {
                 name: '[PROD] Duplicate Hash Check',
                 status: 'warning',
                 message: 'Could not get collection ID',
-                category: 'production'
+                category: 'production',
             };
         }
     }
@@ -626,7 +626,7 @@ export async function testDuplicateHashes(settings, collectionId) {
                 name: '[PROD] Duplicate Hash Check',
                 status: 'pass',
                 message: 'No vectors in collection',
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -647,7 +647,7 @@ export async function testDuplicateHashes(settings, collectionId) {
                 name: '[PROD] Duplicate Hash Check',
                 status: 'pass',
                 message: `${serverHashes.length} unique vectors, no duplicates`,
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -660,14 +660,14 @@ export async function testDuplicateHashes(settings, collectionId) {
             category: 'production',
             fixable: true,
             fixAction: 'removeDuplicateHashes',
-            data: { duplicates, collectionId, totalDuplicates: totalDupes }
+            data: { duplicates, collectionId, totalDuplicates: totalDupes },
         };
     } catch (error) {
         return {
             name: '[PROD] Duplicate Hash Check',
             status: 'fail',
             message: `Check failed: ${error.message}`,
-            category: 'production'
+            category: 'production',
         };
     }
 }
@@ -703,8 +703,8 @@ export async function fixDuplicateHashes(duplicates, collectionId, settings) {
                                 messageId: chunk.messageId,
                                 chunkIndex: chunk.chunkIndex,
                                 totalChunks: chunk.totalChunks,
-                                originalMessageHash: chunk.originalMessageHash
-                            }
+                                originalMessageHash: chunk.originalMessageHash,
+                            },
                         });
                     }
                 }
@@ -722,7 +722,7 @@ export async function fixDuplicateHashes(duplicates, collectionId, settings) {
             console.warn('VectHare: Delete failed:', e);
             return {
                 success: false,
-                message: `Failed to delete duplicates: ${e.message}`
+                message: `Failed to delete duplicates: ${e.message}`,
             };
         }
 
@@ -736,19 +736,19 @@ export async function fixDuplicateHashes(duplicates, collectionId, settings) {
                 console.warn('VectHare: Re-insert failed:', e);
                 return {
                     success: false,
-                    message: `Deleted duplicates but failed to re-insert: ${e.message}. Re-vectorize chat to restore.`
+                    message: `Deleted duplicates but failed to re-insert: ${e.message}. Re-vectorize chat to restore.`,
                 };
             }
         }
 
         return {
             success: true,
-            message: `Fixed ${fixed} duplicate hashes (deleted extras, kept one copy each)`
+            message: `Fixed ${fixed} duplicate hashes (deleted extras, kept one copy each)`,
         };
     } catch (error) {
         return {
             success: false,
-            message: `Failed to fix duplicates: ${error.message}`
+            message: `Failed to fix duplicates: ${error.message}`,
         };
     }
 }
@@ -768,7 +768,7 @@ export async function testTemporallyBlindChunks(settings) {
         // Create test chunks
         const testChunks = [
             { hash: testHash, score: 0.9, metadata: { source: 'chat', messageId: 0 } },
-            { hash: 'normal_chunk', score: 0.9, metadata: { source: 'chat', messageId: 0 } }
+            { hash: 'normal_chunk', score: 0.9, metadata: { source: 'chat', messageId: 0 } },
         ];
 
         // Mark one chunk as blind
@@ -780,7 +780,7 @@ export async function testTemporallyBlindChunks(settings) {
                 name: '[PROD] Temporally Blind Chunks',
                 status: 'fail',
                 message: 'Failed to mark chunk as temporally blind',
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -801,7 +801,7 @@ export async function testTemporallyBlindChunks(settings) {
                 name: '[PROD] Temporally Blind Chunks',
                 status: 'fail',
                 message: 'Blind chunk score was modified',
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -811,7 +811,7 @@ export async function testTemporallyBlindChunks(settings) {
                 name: '[PROD] Temporally Blind Chunks',
                 status: 'fail',
                 message: 'Normal chunk should have decayed',
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -819,14 +819,14 @@ export async function testTemporallyBlindChunks(settings) {
             name: '[PROD] Temporally Blind Chunks',
             status: 'pass',
             message: `Blind: ${blindChunk.score.toFixed(2)} (immune), Normal: ${normalChunk.score.toFixed(2)} (decayed)`,
-            category: 'production'
+            category: 'production',
         };
     } catch (error) {
         return {
             name: '[PROD] Temporally Blind Chunks',
             status: 'fail',
             message: `Test error: ${error.message}`,
-            category: 'production'
+            category: 'production',
         };
     }
 }
@@ -846,7 +846,7 @@ export async function testPluginEmbeddingGeneration(settings) {
             name: '[PROD] Plugin Embedding Gen',
             status: 'skipped',
             message: 'Standard backend uses native ST vectors',
-            category: 'production'
+            category: 'production',
         };
     }
 
@@ -865,7 +865,7 @@ export async function testPluginEmbeddingGeneration(settings) {
                 items: [{
                     hash: testHash,
                     text: testText,
-                    index: 0
+                    index: 0,
                     // NOTE: No vector provided - plugin must generate it
                 }],
                 source: settings.source || 'transformers',
@@ -881,7 +881,7 @@ export async function testPluginEmbeddingGeneration(settings) {
                 name: '[PROD] Plugin Embedding Gen',
                 status: 'fail',
                 message: `Plugin failed to generate embedding: ${insertResponse.status} - ${errorText}`,
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -915,7 +915,7 @@ export async function testPluginEmbeddingGeneration(settings) {
                 name: '[PROD] Plugin Embedding Gen',
                 status: 'warning',
                 message: 'Insert succeeded but could not verify vector retrieval',
-                category: 'production'
+                category: 'production',
             };
         }
 
@@ -923,14 +923,14 @@ export async function testPluginEmbeddingGeneration(settings) {
             name: '[PROD] Plugin Embedding Gen',
             status: 'pass',
             message: `${backend} backend correctly generates embeddings`,
-            category: 'production'
+            category: 'production',
         };
     } catch (error) {
         return {
             name: '[PROD] Plugin Embedding Gen',
             status: 'fail',
             message: `Test error: ${error.message}`,
-            category: 'production'
+            category: 'production',
         };
     }
 }

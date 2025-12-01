@@ -481,29 +481,29 @@ export async function createDefaultPNG(width = 512, height = 512, text = 'VectHa
     ctx.fillStyle = '#8b5cf6';
     ctx.beginPath();
     // Body
-    ctx.ellipse(width/2, height/2 + 50, 80, 60, 0, 0, Math.PI * 2);
+    ctx.ellipse(width / 2, height / 2 + 50, 80, 60, 0, 0, Math.PI * 2);
     ctx.fill();
     // Head
     ctx.beginPath();
-    ctx.ellipse(width/2, height/2 - 30, 50, 45, 0, 0, Math.PI * 2);
+    ctx.ellipse(width / 2, height / 2 - 30, 50, 45, 0, 0, Math.PI * 2);
     ctx.fill();
     // Ears
     ctx.beginPath();
-    ctx.ellipse(width/2 - 25, height/2 - 120, 15, 50, -0.2, 0, Math.PI * 2);
+    ctx.ellipse(width / 2 - 25, height / 2 - 120, 15, 50, -0.2, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.ellipse(width/2 + 25, height/2 - 120, 15, 50, 0.2, 0, Math.PI * 2);
+    ctx.ellipse(width / 2 + 25, height / 2 - 120, 15, 50, 0.2, 0, Math.PI * 2);
     ctx.fill();
 
     // Text
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 24px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(text, width/2, height - 60);
+    ctx.fillText(text, width / 2, height - 60);
 
     ctx.font = '16px sans-serif';
     ctx.fillStyle = '#a78bfa';
-    ctx.fillText('VectHare Export', width/2, height - 30);
+    ctx.fillText('VectHare Export', width / 2, height - 30);
 
     return new Promise((resolve, reject) => {
         canvas.toBlob((blob) => {

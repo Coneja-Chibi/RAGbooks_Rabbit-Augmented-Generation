@@ -56,7 +56,7 @@ export function createDebugData() {
             afterThreshold: [],
             afterDecay: [],
             afterConditions: [],
-            injected: []
+            injected: [],
         },
         // Detailed trace log - every operation recorded
         trace: [],
@@ -71,8 +71,8 @@ export function createDebugData() {
             actuallyInjected: 0,
             skippedDuplicates: 0,
             tokensBudget: 0,
-            tokensUsed: 0
-        }
+            tokensUsed: 0,
+        },
     };
 }
 
@@ -89,7 +89,7 @@ export function addTrace(debugData, stage, action, details = {}) {
         time: Date.now(),
         stage,
         action,
-        ...details
+        ...details,
     });
 }
 
@@ -109,7 +109,7 @@ export function recordChunkFate(debugData, hash, stage, fate, reason = null, dat
             hash,
             stages: [],
             finalFate: null,
-            finalReason: null
+            finalReason: null,
         };
     }
 
@@ -117,7 +117,7 @@ export function recordChunkFate(debugData, hash, stage, fate, reason = null, dat
         stage,
         fate,
         reason,
-        ...data
+        ...data,
     });
 
     // Update final fate if dropped
@@ -151,9 +151,9 @@ export function setLastSearchDebug(data) {
             initial: data.stages.initial.length,
             afterDecay: data.stages.afterDecay.length,
             afterConditions: data.stages.afterConditions.length,
-            injected: data.stages.injected.length
+            injected: data.stages.injected.length,
         },
-        historyCount: queryHistory.length
+        historyCount: queryHistory.length,
     });
 }
 
@@ -221,12 +221,12 @@ function createModalHtml(data, historyIndex = 0) {
     const historyTabs = queryHistory.length > 1 ? `
         <div class="vecthare-debug-history-tabs">
             ${queryHistory.map((q, idx) => {
-                const isActive = idx === historyIndex;
-                const tabTime = getTimeAgo(q.timestamp);
-                const tabQuery = q.query.substring(0, 20) + (q.query.length > 20 ? '...' : '');
-                const injectedCount = q.stages.injected?.length || 0;
-                const statusClass = injectedCount > 0 ? 'tab-success' : 'tab-empty';
-                return `
+        const isActive = idx === historyIndex;
+        const tabTime = getTimeAgo(q.timestamp);
+        const tabQuery = q.query.substring(0, 20) + (q.query.length > 20 ? '...' : '');
+        const injectedCount = q.stages.injected?.length || 0;
+        const statusClass = injectedCount > 0 ? 'tab-success' : 'tab-empty';
+        return `
                     <button class="vecthare-debug-history-tab ${isActive ? 'active' : ''} ${statusClass}"
                             data-history-index="${idx}"
                             title="${escapeHtml(q.query.substring(0, 100))}">
@@ -234,7 +234,7 @@ function createModalHtml(data, historyIndex = 0) {
                         <span class="tab-injected">${injectedCount}</span>
                     </button>
                 `;
-            }).join('')}
+    }).join('')}
         </div>
     ` : '';
 
@@ -473,7 +473,7 @@ function renderStageChunks(chunks, stageName, data) {
             decayMultiplier: chunk.decayMultiplier,
             keywords: chunk.matchedKeywordsWithWeights || chunk.matchedKeywords || [],
             collection: chunk.collection || chunk.collectionId,
-            metadata: chunk.metadata
+            metadata: chunk.metadata,
         };
 
         html += `
@@ -528,7 +528,7 @@ function renderStageChunks(chunks, stageName, data) {
                 <div class="vecthare-debug-chunk-meta">
                     <span>Hash: ${String(chunk.hash).substring(0, 12)}...</span>
                     ${chunk.index !== undefined ? `<span>Msg #${chunk.index}</span>` : ''}
-                    ${hasMoreText ? `<span class="vecthare-debug-click-hint">Click to expand</span>` : ''}
+                    ${hasMoreText ? '<span class="vecthare-debug-click-hint">Click to expand</span>' : ''}
                 </div>
             </div>
         `;
@@ -631,29 +631,29 @@ function buildScoreBreakdown(chunk) {
         let boostTitle = 'Keyword boost';
         if (chunk.matchedKeywordsWithWeights?.length > 0) {
             const kwDetails = chunk.matchedKeywordsWithWeights.map(k =>
-                `${k.text}: +${((k.weight - 1) * 100).toFixed(0)}%`
+                `${k.text}: +${((k.weight - 1) * 100).toFixed(0)}%`,
             ).join(', ');
             boostTitle = `Additive boost: ${kwDetails}`;
         } else if (chunk.matchedKeywords?.length > 0) {
             boostTitle = `Matched: ${chunk.matchedKeywords.join(', ')}`;
         }
-        mathParts.push(`<span class="vecthare-score-operator">×</span>`);
+        mathParts.push('<span class="vecthare-score-operator">×</span>');
         mathParts.push(`<span class="vecthare-score-boost" title="${boostTitle}">${keywordBoost.toFixed(2)}x</span>`);
     }
 
     if (hasDecay) {
-        mathParts.push(`<span class="vecthare-score-operator">×</span>`);
+        mathParts.push('<span class="vecthare-score-operator">×</span>');
         mathParts.push(`<span class="vecthare-score-decay" title="Age: ${chunk.messageAge || '?'} msgs">${decayMultiplier.toFixed(2)}↓</span>`);
     }
 
-    mathParts.push(`<span class="vecthare-score-operator">=</span>`);
+    mathParts.push('<span class="vecthare-score-operator">=</span>');
     mathParts.push(`<span class="vecthare-score-final">${finalScore?.toFixed(3) || '?'}</span>`);
 
     // Add keyword matches with weights if present
     let keywordInfo = '';
     if (chunk.matchedKeywordsWithWeights?.length > 0) {
         const kwStr = chunk.matchedKeywordsWithWeights.map(k =>
-            k.weight !== 1.5 ? `${k.text} (${k.weight}x)` : k.text
+            k.weight !== 1.5 ? `${k.text} (${k.weight}x)` : k.text,
         ).join(', ');
         keywordInfo = `<div class="vecthare-score-keywords">Keywords: ${kwStr}</div>`;
     } else if (chunk.matchedKeywords?.length > 0) {
@@ -692,7 +692,7 @@ function renderInjectionVerification(data) {
         3: 'After Character Defs',
         4: 'Before Character Defs',
         5: 'At End of Chat',
-        6: 'Before AN/Author\'s Note'
+        6: 'Before AN/Author\'s Note',
     };
     const positionLabel = positionLabels[position] || `Position ${position}`;
 
@@ -753,8 +753,8 @@ function renderCriticalFailure(data) {
                     <div class="vecthare-debug-critical-title">No Chunks Injected — ${failureSummary}</div>
                     <div class="vecthare-debug-critical-subtitle">
                         ${data.stages.initial.length === 0
-                            ? 'Vector search returned no results'
-                            : `${data.stages.initial.length} chunks retrieved, but all were filtered out before injection`}
+        ? 'Vector search returned no results'
+        : `${data.stages.initial.length} chunks retrieved, but all were filtered out before injection`}
                     </div>
                 </div>
             </div>
@@ -808,7 +808,7 @@ function diagnosePipeline(data) {
             detail: `No matches returned from vector database for collection "${data.collectionId}".`,
             fix: `Open Database Browser and check if "${data.collectionId}" exists and contains chunks. If empty, send some messages first to build the vector index.`,
             isCause: true,
-            isOk: false
+            isOk: false,
         });
         return diagnosis;
     }
@@ -823,7 +823,7 @@ function diagnosePipeline(data) {
         label: 'Vector Search',
         detail: `Retrieved ${initialCount} chunks. Scores: best ${bestScore.toFixed(3)}, worst ${worstScore.toFixed(3)}, avg ${avgScore.toFixed(3)}`,
         isCause: false,
-        isOk: true
+        isOk: true,
     });
 
     // Step 2: Threshold Filter - find chunks that would fail
@@ -847,7 +847,7 @@ function diagnosePipeline(data) {
             detail: `All ${initialCount} chunks rejected. Your threshold is ${threshold}, but the best match only scored ${bestScore.toFixed(3)} (${marginNeeded} short).`,
             fix: `Change threshold from ${threshold} → ${suggestedThreshold}. Your closest chunk "${truncateText(closestChunk.text, 50)}" scored ${closestChunk.score?.toFixed(3)}.`,
             isCause: true,
-            isOk: false
+            isOk: false,
         });
         return diagnosis;
     } else if (belowThreshold.length > 0) {
@@ -861,14 +861,14 @@ function diagnosePipeline(data) {
             label: 'Threshold Filter',
             detail: detail,
             isCause: false,
-            isOk: true
+            isOk: true,
         });
     } else {
         diagnosis.push({
             label: 'Threshold Filter',
             detail: `All ${initialCount} chunks passed threshold (${threshold}).`,
             isCause: false,
-            isOk: true
+            isOk: true,
         });
     }
 
@@ -890,7 +890,7 @@ function diagnosePipeline(data) {
                     ...chunk,
                     originalScore: chunk.originalScore || chunk.score,
                     finalScore: afterDecayChunk?.score || 0,
-                    age: chunk.messageAge || 'unknown'
+                    age: chunk.messageAge || 'unknown',
                 };
             });
 
@@ -907,7 +907,7 @@ function diagnosePipeline(data) {
                 detail: `All ${aboveThreshold.length} chunks fell below threshold after decay. Best surviving score was ${bestSurvivor.finalScore?.toFixed(3) || 'N/A'} (age: ${bestSurvivor.age} messages).`,
                 fix: `Your decay settings (strength: ${decayStrength}, half-life: ${halfLife}) are too aggressive. Either disable temporal decay, or increase half-life to preserve older messages longer.`,
                 isCause: true,
-                isOk: false
+                isOk: false,
             });
             return diagnosis;
         } else if (lostToDecay.length > 0) {
@@ -919,14 +919,14 @@ function diagnosePipeline(data) {
                 label: 'Temporal Decay',
                 detail: `${afterDecayCount}/${aboveThreshold.length} survived decay. Lost ${lostToDecay.length} chunks, oldest was ${oldestLost.messageAge || '?'} messages ago.`,
                 isCause: false,
-                isOk: true
+                isOk: true,
             });
         } else {
             diagnosis.push({
                 label: 'Temporal Decay',
                 detail: `All ${afterDecayCount} chunks survived decay.`,
                 isCause: false,
-                isOk: true
+                isOk: true,
             });
         }
     } else {
@@ -934,7 +934,7 @@ function diagnosePipeline(data) {
             label: 'Temporal Decay',
             detail: 'Disabled.',
             isCause: false,
-            isOk: true
+            isOk: true,
         });
     }
 
@@ -954,23 +954,23 @@ function diagnosePipeline(data) {
         if (chunksWithConditions.length > 0) {
             // Chunks had explicit conditions that failed
             const conditionTypes = [...new Set(chunksWithConditions.map(c =>
-                c.metadata.conditions?.type || 'unknown'
+                c.metadata.conditions?.type || 'unknown',
             ))];
             diagnosis.push({
                 label: 'Condition Filtering',
                 detail: `All ${afterDecayCount} chunks failed their conditions. Condition types present: ${conditionTypes.join(', ')}.`,
                 fix: `Check the conditions on your chunks. ${chunksWithConditions.length} chunks have explicit conditions (${conditionTypes.join(', ')}). These may be character filters, keyword requirements, or custom rules that aren't being met.`,
                 isCause: true,
-                isOk: false
+                isOk: false,
             });
         } else {
             // No explicit conditions - might be protected messages or other filtering
             diagnosis.push({
                 label: 'Condition Filtering',
                 detail: `All ${afterDecayCount} chunks were filtered out. This may be due to message protection settings.`,
-                fix: `Check if these messages fall within your "protect recent N messages" setting. Messages in the protected range won't be injected as RAG context.`,
+                fix: 'Check if these messages fall within your "protect recent N messages" setting. Messages in the protected range won\'t be injected as RAG context.',
                 isCause: true,
-                isOk: false
+                isOk: false,
             });
         }
         return diagnosis;
@@ -979,14 +979,14 @@ function diagnosePipeline(data) {
             label: 'Condition Filtering',
             detail: `${afterConditionsCount}/${afterDecayCount} passed conditions. ${lostToConditions.length} filtered out.`,
             isCause: false,
-            isOk: true
+            isOk: true,
         });
     } else {
         diagnosis.push({
             label: 'Condition Filtering',
             detail: `All ${afterConditionsCount} chunks passed.`,
             isCause: false,
-            isOk: true
+            isOk: true,
         });
     }
 
@@ -1007,27 +1007,27 @@ function diagnosePipeline(data) {
             diagnosis.push({
                 label: 'Injection',
                 detail: `${afterConditionsCount} chunks ready but Top K is set to 0.`,
-                fix: `Set Top K to at least 1. Currently Top K = 0 which means no chunks will ever be injected.`,
+                fix: 'Set Top K to at least 1. Currently Top K = 0 which means no chunks will ever be injected.',
                 isCause: true,
-                isOk: false
+                isOk: false,
             });
         } else if (skippedDuplicates > 0 && skippedDuplicates >= afterConditionsCount) {
             // All chunks were already in context - this is actually fine, not a failure
             diagnosis.push({
                 label: 'Injection',
                 detail: `All ${afterConditionsCount} retrieved chunks are already in current chat context.`,
-                fix: `This is normal! The relevant content is already in your recent messages, so no injection was needed. RAG will inject when older/forgotten content becomes relevant.`,
+                fix: 'This is normal! The relevant content is already in your recent messages, so no injection was needed. RAG will inject when older/forgotten content becomes relevant.',
                 isCause: false,
-                isOk: true
+                isOk: true,
             });
         } else {
             // No specific failure reason tracked - this shouldn't happen
             diagnosis.push({
                 label: 'Injection',
                 detail: `${afterConditionsCount} chunks passed all filters but none were injected. No specific reason was recorded.`,
-                fix: `This may be a bug. Open DevTools (F12) → Console tab, look for "VectHare" errors, and report the issue with console output.`,
+                fix: 'This may be a bug. Open DevTools (F12) → Console tab, look for "VectHare" errors, and report the issue with console output.',
                 isCause: true,
-                isOk: false
+                isOk: false,
             });
         }
     } else if (notInjected.length > 0) {
@@ -1042,14 +1042,14 @@ function diagnosePipeline(data) {
             label: 'Injection',
             detail: `${injectedCount}/${afterConditionsCount} injected. ${notInjected.length} not injected: ${reason}.`,
             isCause: false,
-            isOk: true
+            isOk: true,
         });
     } else if (afterConditionsCount > 0) {
         diagnosis.push({
             label: 'Injection',
             detail: `All ${injectedCount} chunks injected successfully.`,
             isCause: false,
-            isOk: true
+            isOk: true,
         });
     }
 
@@ -1058,9 +1058,9 @@ function diagnosePipeline(data) {
         diagnosis.push({
             label: 'Unknown',
             detail: 'Pipeline completed but no chunks were injected. No specific cause identified.',
-            fix: `This may be a bug. Open DevTools (F12) → Console tab, look for "VectHare" errors, and report the issue with console output.`,
+            fix: 'This may be a bug. Open DevTools (F12) → Console tab, look for "VectHare" errors, and report the issue with console output.',
             isCause: true,
-            isOk: false
+            isOk: false,
         });
     }
 
@@ -1221,16 +1221,16 @@ function renderTraceLog(data) {
             <div class="vecthare-debug-card-body vecthare-debug-trace-body" id="vecthare_trace_body" style="display: none;">
                 <div class="vecthare-debug-trace-list">
                     ${data.trace.map((entry, idx) => {
-                        const relTime = entry.time - startTime;
-                        const stageClass = getStageClass(entry.stage);
-                        const detailsJson = JSON.stringify(
-                            Object.fromEntries(
-                                Object.entries(entry).filter(([k]) => !['time', 'stage', 'action'].includes(k))
-                            ),
-                            null, 2
-                        );
+        const relTime = entry.time - startTime;
+        const stageClass = getStageClass(entry.stage);
+        const detailsJson = JSON.stringify(
+            Object.fromEntries(
+                Object.entries(entry).filter(([k]) => !['time', 'stage', 'action'].includes(k)),
+            ),
+            null, 2,
+        );
 
-                        return `
+        return `
                             <div class="vecthare-debug-trace-entry ${stageClass}">
                                 <div class="vecthare-debug-trace-time">+${relTime}ms</div>
                                 <div class="vecthare-debug-trace-stage">${entry.stage}</div>
@@ -1240,7 +1240,7 @@ function renderTraceLog(data) {
                                 ` : ''}
                             </div>
                         `;
-                    }).join('')}
+    }).join('')}
                 </div>
             </div>
         </div>
@@ -1275,10 +1275,10 @@ function renderChunkFates(data) {
             <div class="vecthare-debug-card-body vecthare-debug-fates-body" id="vecthare_fates_body" style="display: none;">
                 <div class="vecthare-debug-fates-list">
                     ${fates.map(fate => {
-                        const isDropped = fate.finalFate === 'dropped';
-                        const hashShort = String(fate.hash).substring(0, 12);
+        const isDropped = fate.finalFate === 'dropped';
+        const hashShort = String(fate.hash).substring(0, 12);
 
-                        return `
+        return `
                             <div class="vecthare-debug-fate-entry ${isDropped ? 'fate-dropped' : 'fate-injected'}">
                                 <div class="vecthare-debug-fate-header">
                                     <span class="vecthare-debug-fate-hash" title="${fate.hash}">${hashShort}...</span>
@@ -1298,7 +1298,7 @@ function renderChunkFates(data) {
                                 </div>
                             </div>
                         `;
-                    }).join('')}
+    }).join('')}
                 </div>
             </div>
         </div>
@@ -1316,7 +1316,7 @@ function getStageClass(stage) {
         'decay': 'trace-decay',
         'conditions': 'trace-conditions',
         'injection': 'trace-injection',
-        'final': 'trace-final'
+        'final': 'trace-final',
     };
     return stageClasses[stage] || 'trace-default';
 }
@@ -1380,28 +1380,28 @@ PIPELINE RESULTS
 
 INITIAL SCORES (top 10)
   ${st.initial?.slice(0, 10).map((c, i) => {
-      const parts = [`#${i+1}: ${c.score?.toFixed(3)}`];
-      if (c.originalScore !== undefined && c.originalScore !== c.score) {
-          parts.push(`(vector: ${c.originalScore?.toFixed(3)}`);
-          if (c.keywordBoost && c.keywordBoost !== 1.0) {
-              parts.push(`× ${c.keywordBoost?.toFixed(2)}x boost`);
-          }
-          if (c.decayMultiplier && c.decayMultiplier !== 1.0) {
-              parts.push(`× ${c.decayMultiplier?.toFixed(2)} decay`);
-          }
-          parts.push(')');
-      }
-      if (c.matchedKeywordsWithWeights?.length > 0) {
-          const kwStr = c.matchedKeywordsWithWeights.map(k =>
-              k.weight !== 1.5 ? `${k.text}(${k.weight}x)` : k.text
-          ).join(', ');
-          parts.push(`[keywords: ${kwStr}]`);
-      } else if (c.matchedKeywords?.length > 0) {
-          parts.push(`[keywords: ${c.matchedKeywords.join(', ')}]`);
-      }
-      parts.push(`[${String(c.hash).slice(0,8)}]`);
-      return parts.join(' ');
-  }).join('\n  ') || 'none'}
+        const parts = [`#${i + 1}: ${c.score?.toFixed(3)}`];
+        if (c.originalScore !== undefined && c.originalScore !== c.score) {
+            parts.push(`(vector: ${c.originalScore?.toFixed(3)}`);
+            if (c.keywordBoost && c.keywordBoost !== 1.0) {
+                parts.push(`× ${c.keywordBoost?.toFixed(2)}x boost`);
+            }
+            if (c.decayMultiplier && c.decayMultiplier !== 1.0) {
+                parts.push(`× ${c.decayMultiplier?.toFixed(2)} decay`);
+            }
+            parts.push(')');
+        }
+        if (c.matchedKeywordsWithWeights?.length > 0) {
+            const kwStr = c.matchedKeywordsWithWeights.map(k =>
+                k.weight !== 1.5 ? `${k.text}(${k.weight}x)` : k.text,
+            ).join(', ');
+            parts.push(`[keywords: ${kwStr}]`);
+        } else if (c.matchedKeywords?.length > 0) {
+            parts.push(`[keywords: ${c.matchedKeywords.join(', ')}]`);
+        }
+        parts.push(`[${String(c.hash).slice(0,8)}]`);
+        return parts.join(' ');
+    }).join('\n  ') || 'none'}
 
 INJECTION STATUS
 ${injectionInfo}
@@ -1526,7 +1526,7 @@ function bindEvents() {
         const data = lastDebugData;
         if (data && data.stages[stage]) {
             $('#vecthare_debug_stage_content').html(
-                renderStageChunks(data.stages[stage], stage, data)
+                renderStageChunks(data.stages[stage], stage, data),
             );
         }
     });

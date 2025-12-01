@@ -300,7 +300,7 @@ export class ProgressTracker {
         } else if (this.stats.totalBatches > 0) {
             return `Processing batch ${this.stats.currentBatch}/${this.stats.totalBatches}`;
         } else {
-            return `Processing items...`;
+            return 'Processing items...';
         }
     }
 

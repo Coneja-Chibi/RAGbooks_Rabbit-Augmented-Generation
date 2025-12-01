@@ -280,7 +280,7 @@ async function checkPluginAvailable() {
     try {
         const response = await fetch('/api/plugins/similharity/health', {
             method: 'GET',
-            headers: getRequestHeaders()
+            headers: getRequestHeaders(),
         });
 
         if (response.ok) {
@@ -308,9 +308,9 @@ let pluginCollectionData = null;
 async function discoverViaPlugin(settings) {
     try {
         // Plugin now scans ALL sources, not just the current one
-        const response = await fetch(`/api/plugins/similharity/collections`, {
+        const response = await fetch('/api/plugins/similharity/collections', {
             method: 'GET',
-            headers: getRequestHeaders()
+            headers: getRequestHeaders(),
         });
 
         if (!response.ok) {
@@ -334,7 +334,7 @@ async function discoverViaPlugin(settings) {
                     source: collection.source,
                     backend: collection.backend || 'standard',
                     model: collection.model || '',  // Primary model path
-                    models: collection.models || []  // All available models
+                    models: collection.models || [],  // All available models
                 };
 
                 // Cache by "source:id" to avoid collisions when same ID exists in multiple sources
@@ -486,8 +486,10 @@ async function discoverViaFallback(settings) {
         }
     }
 
-    // 4. Probe for common content type patterns that might exist
-    const contentPatterns = [
+    // 4. Content type patterns - reserved for future plugin-based discovery
+    // Currently we cannot probe for unknown collections without filesystem access
+    // These patterns would be used to detect collections by prefix when we have plugin support
+    const _contentPatterns = [
         // Lorebook patterns
         `${COLLECTION_PREFIXES.VECTHARE_LOREBOOK}`,
         // Document patterns
@@ -495,6 +497,7 @@ async function discoverViaFallback(settings) {
         // File patterns (legacy)
         `${COLLECTION_PREFIXES.FILE}`,
     ];
+    void _contentPatterns; // Reserved for future use
 
     // Note: Without filesystem access, we can't discover collections with unknown IDs
     // The registry is our primary source of truth for non-current-chat collections
@@ -566,7 +569,7 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
             matchingCollections.push({
                 collectionId,
                 registryKey,
-                chunkCount
+                chunkCount,
             });
             console.log(`VectHare: Found matching collection ${collectionId} (${chunkCount} chunks)`);
         }
@@ -593,7 +596,7 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
             collectionId: best.collectionId,
             registryKey: best.registryKey,
             chunkCount: best.chunkCount,
-            allMatches: matchingCollections  // Return ALL matches for user selection
+            allMatches: matchingCollections,  // Return ALL matches for user selection
         };
     }
 
@@ -612,7 +615,7 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
                     hasVectors: true,
                     collectionId: id,
                     registryKey: id,
-                    chunkCount: hashes.length
+                    chunkCount: hashes.length,
                 };
             }
         } catch (e) {
@@ -675,7 +678,7 @@ export async function loadAllCollections(settings, autoDiscover = true) {
             // Cache key is "source:collectionId"
             const cacheKey = registryKey;
             if (hasPlugin && pluginCollectionData && pluginCollectionData[cacheKey]) {
-                console.log(`VectHare:   Using plugin mode - getting data from cache`);
+                console.log('VectHare:   Using plugin mode - getting data from cache');
                 const cacheData = pluginCollectionData[cacheKey];
                 source = cacheData.source;
                 backend = cacheData.backend;
@@ -701,7 +704,7 @@ export async function loadAllCollections(settings, autoDiscover = true) {
             } else {
                 // Fallback mode: we don't know which backend the collection was created with
                 // Try 'standard' first (most common), only try configured backend if standard fails
-                console.log(`VectHare:   Using fallback mode - trying standard backend first`);
+                console.log('VectHare:   Using fallback mode - trying standard backend first');
                 const standardSettings = { ...settings, vector_backend: 'standard' };
                 try {
                     hashes = await getSavedHashes(collectionId, standardSettings);
@@ -752,13 +755,13 @@ export async function loadAllCollections(settings, autoDiscover = true) {
                 source: source,
                 backend: backend,
                 model: model,               // Primary model path for vectra lookups
-                models: models              // All available models [{name, path, chunkCount}]
+                models: models,              // All available models [{name, path, chunkCount}]
             });
-            console.log(`VectHare:   ✓ Added to collections list`);
+            console.log('VectHare:   ✓ Added to collections list');
         } catch (error) {
             console.error(`VectHare: Failed to load collection ${registryKey}`, error);
-            console.error(`VectHare:   Error details:`, error.message);
-            console.error(`VectHare:   Stack:`, error.stack);
+            console.error('VectHare:   Error details:', error.message);
+            console.error('VectHare:   Stack:', error.stack);
             // Continue loading other collections
         }
     }
@@ -806,8 +809,8 @@ export async function loadCollectionChunks(collectionId, settings) {
                     index: chat.indexOf(message),
                     metadata: {
                         messageId: chat.indexOf(message),
-                        source: 'chat'
-                    }
+                        source: 'chat',
+                    },
                 });
             }
         }
@@ -823,8 +826,8 @@ export async function loadCollectionChunks(collectionId, settings) {
                 hash: hash,
                 index: -1,
                 metadata: {
-                    source: metadata.type
-                }
+                    source: metadata.type,
+                },
             });
         }
     }

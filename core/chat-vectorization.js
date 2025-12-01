@@ -18,8 +18,7 @@ import { cleanText } from './text-cleaning.js';
 import {
     getSavedHashes,
     insertVectorItems,
-    queryCollection,
-    queryActiveCollections,
+    queryMultipleCollections,
     deleteVectorItems,
     purgeVectorIndex,
 } from './core-vector-api.js';
@@ -119,7 +118,7 @@ function prepareItemsForInsertion(items) {
         metadata: {
             ...item.metadata,
             source: 'chat',
-        }
+        },
     }));
 }
 
@@ -166,8 +165,8 @@ function groupMessagesByStrategy(messages, strategy, batchSize = 4) {
                         messageIds: pair.map(m => m.index),
                         messageHashes: pair.map(m => m.hash), // Store individual hashes for injection lookup
                         startIndex: messages[i].index,
-                        endIndex: pair[pair.length - 1].index
-                    }
+                        endIndex: pair[pair.length - 1].index,
+                    },
                 });
             }
             return grouped;
@@ -195,8 +194,8 @@ function groupMessagesByStrategy(messages, strategy, batchSize = 4) {
                         messageIds: batch.map(m => m.index),
                         messageHashes: batch.map(m => m.hash), // Store individual hashes for injection lookup
                         startIndex: batch[0].index,
-                        endIndex: batch[batch.length - 1].index
-                    }
+                        endIndex: batch[batch.length - 1].index,
+                    },
                 });
             }
             return grouped;
@@ -214,8 +213,8 @@ function groupMessagesByStrategy(messages, strategy, batchSize = 4) {
                 metadata: {
                     strategy: 'per_message',
                     messageId: m.index,
-                    messageHashes: [m.hash] // Consistent with grouped strategies
-                }
+                    messageHashes: [m.hash], // Consistent with grouped strategies
+                },
             }));
     }
 }
@@ -273,7 +272,7 @@ async function applyChunkConditions(chunks, chat, settings) {
         isGroupChat: settings.isGroupChat || false,
         currentCharacter: settings.currentCharacter || null,
         activeLorebookEntries: settings.activeLorebookEntries || [],
-        activationHistory: window.VectHare_ActivationHistory || {}
+        activationHistory: window.VectHare_ActivationHistory || {},
     });
 
     // Filter chunks by their conditions
@@ -303,7 +302,7 @@ function trackChunkActivation(hash, messageCount) {
     const history = window.VectHare_ActivationHistory[hash] || { count: 0, lastActivation: null };
     window.VectHare_ActivationHistory[hash] = {
         count: history.count + 1,
-        lastActivation: messageCount
+        lastActivation: messageCount,
     };
 }
 
@@ -329,7 +328,7 @@ async function rerankWithBananaBread(query, chunks, settings) {
                 apiKey: settings.bananabread_api_key || '', // Include API key for authentication
                 query,
                 documents,
-                top_k: chunks.length
+                top_k: chunks.length,
             }),
         });
 
@@ -428,7 +427,7 @@ export async function synchronizeChat(settings, batchSize = 5) {
                 text,
                 hash: getStringHash(substituteParams(getTextWithoutAttachments(msg))),
                 index: context.chat.indexOf(msg),
-                is_user: msg.is_user
+                is_user: msg.is_user,
             });
         }
 
@@ -493,7 +492,7 @@ export async function synchronizeChat(settings, batchSize = 5) {
             remaining: queue.size,
             messagesProcessed: itemsProcessed,
             chunksCreated,
-            itemsFailed
+            itemsFailed,
         };
     } catch (error) {
         console.error('VectHare: Sync failed', error);
@@ -567,6 +566,8 @@ function buildSearchQuery(chat, settings) {
 
 /**
  * Stage 3: Query all active collections and merge results
+ * Uses batched query for better performance when querying multiple collections.
+ *
  * @param {string[]} activeCollections Collections that passed activation filters
  * @param {string} queryText Search query
  * @param {object} settings VectHare settings
@@ -577,27 +578,35 @@ function buildSearchQuery(chat, settings) {
 async function queryAndMergeCollections(activeCollections, queryText, settings, chat, debugData) {
     let chunksForVisualizer = [];
 
-    for (const collectionId of activeCollections) {
-        try {
-            const queryResults = await queryCollection(collectionId, queryText, settings.insert, settings);
+    try {
+        // Batched query across all collections (backend handles fallback to sequential if needed)
+        const batchedResults = await queryMultipleCollections(activeCollections, queryText, settings.insert, settings);
+
+        // Process results from each collection
+        for (const collectionId of activeCollections) {
+            const queryResults = batchedResults[collectionId];
+            if (!queryResults || !queryResults.hashes) {
+                addTrace(debugData, 'vector_search', `No results from ${collectionId}`, {});
+                continue;
+            }
 
             // TRACE: Vector query results for this collection
             addTrace(debugData, 'vector_search', `Query completed for ${collectionId}`, {
                 hashesReturned: queryResults.hashes.length,
                 hashes: queryResults.hashes.slice(0, 5),
-                scoreBreakdown: queryResults.metadata.slice(0, 5).map(m => ({
+                scoreBreakdown: (queryResults.metadata || []).slice(0, 5).map(m => ({
                     finalScore: m.score?.toFixed(3),
                     originalScore: m.originalScore?.toFixed(3),
                     keywordBoost: m.keywordBoost?.toFixed(2) || '1.00',
                     matchedKeywords: m.matchedKeywords || [],
-                    keywordBoosted: m.keywordBoosted || false
-                }))
+                    keywordBoosted: m.keywordBoosted || false,
+                })),
             });
 
             console.log(`VectHare: Retrieved ${queryResults.hashes.length} chunks from ${collectionId}`);
 
             // Build chunks with text for visualizer
-            const collectionChunks = queryResults.metadata.map((meta, idx) => {
+            const collectionChunks = (queryResults.metadata || []).map((meta, idx) => {
                 const hash = queryResults.hashes[idx];
 
                 // Prefer text from metadata (stored in vector DB)
@@ -607,7 +616,7 @@ async function queryAndMergeCollections(activeCollections, queryText, settings, 
                 // Fallback: try to find in chat messages if not in metadata
                 if (!text) {
                     const chatMessage = chat.find(msg =>
-                        msg.mes && getStringHash(substituteParams(getTextWithoutAttachments(msg))) === hash
+                        msg.mes && getStringHash(substituteParams(getTextWithoutAttachments(msg))) === hash,
                     );
                     text = chatMessage ? substituteParams(chatMessage.mes) : '(text not found)';
                     textSource = chatMessage ? 'chat_lookup' : 'not_found';
@@ -621,7 +630,7 @@ async function queryAndMergeCollections(activeCollections, queryText, settings, 
                     matchedKeywords: meta.matchedKeywords,
                     textSource,
                     textLength: text?.length || 0,
-                    collectionId
+                    collectionId,
                 });
 
                 return {
@@ -637,17 +646,18 @@ async function queryAndMergeCollections(activeCollections, queryText, settings, 
                     text: text,
                     index: meta.messageId || meta.index || 0,
                     collectionId: collectionId,
-                    decayApplied: false
+                    decayApplied: false,
                 };
             });
 
             chunksForVisualizer.push(...collectionChunks);
-        } catch (error) {
-            console.warn(`VectHare: Failed to query collection ${collectionId}:`, error.message);
-            addTrace(debugData, 'vector_search', `Query failed for ${collectionId}`, {
-                error: error.message
-            });
         }
+    } catch (error) {
+        console.error('VectHare: Batched query failed:', error.message);
+        addTrace(debugData, 'vector_search', 'Batched query failed', {
+            error: error.message,
+            collections: activeCollections,
+        });
     }
 
     // Sort merged results by score (descending) and limit to topK
@@ -682,14 +692,14 @@ async function expandSummaryChunks(chunks, activeCollections, settings, debugDat
             // Track this summary for parent lookup
             parentHashesNeeded.set(String(parentHash), {
                 summaryChunk: chunk,
-                collectionId: chunk.collectionId
+                collectionId: chunk.collectionId,
             });
 
-            addTrace(debugData, 'summary_expansion', `Summary chunk found, will expand to parent`, {
+            addTrace(debugData, 'summary_expansion', 'Summary chunk found, will expand to parent', {
                 summaryHash: chunk.hash,
                 parentHash: parentHash,
                 summaryScore: chunk.score?.toFixed(3),
-                collectionId: chunk.collectionId
+                collectionId: chunk.collectionId,
             });
         } else {
             // Not a summary, keep as-is
@@ -741,12 +751,12 @@ async function expandSummaryChunks(chunks, activeCollections, settings, debugDat
                                 ...parentData,
                                 expandedFromSummary: true,
                                 originalSummaryHash: summaryChunk.hash,
-                                originalSummaryScore: summaryChunk.score
+                                originalSummaryScore: summaryChunk.score,
                             },
                             // Keep summary's score since that's what matched the query
                             score: summaryChunk.score,
                             originalScore: summaryChunk.originalScore,
-                            expandedFromSummary: true
+                            expandedFromSummary: true,
                         };
 
                         expandedChunks.push(expandedChunk);
@@ -755,13 +765,13 @@ async function expandSummaryChunks(chunks, activeCollections, settings, debugDat
                             `Expanded from summary #${summaryChunk.hash}`, {
                                 summaryHash: summaryChunk.hash,
                                 parentTextLength: expandedChunk.text?.length || 0,
-                                inheritedScore: summaryChunk.score?.toFixed(3)
+                                inheritedScore: summaryChunk.score?.toFixed(3),
                             });
 
-                        addTrace(debugData, 'summary_expansion', `Parent chunk retrieved`, {
+                        addTrace(debugData, 'summary_expansion', 'Parent chunk retrieved', {
                             parentHash: parentHash,
                             summaryHash: summaryChunk.hash,
-                            parentTextLength: expandedChunk.text?.length || 0
+                            parentTextLength: expandedChunk.text?.length || 0,
                         });
                     } else {
                         // Parent not found - keep the summary chunk as fallback
@@ -769,9 +779,9 @@ async function expandSummaryChunks(chunks, activeCollections, settings, debugDat
                         expandedChunks.push(summaryChunk);
 
                         recordChunkFate(debugData, summaryChunk.hash, 'summary_expansion', 'passed',
-                            `Parent not found, using summary text`, {
+                            'Parent not found, using summary text', {
                                 parentHash: parentHash,
-                                fallback: true
+                                fallback: true,
                             });
                     }
                 }
@@ -793,7 +803,7 @@ async function expandSummaryChunks(chunks, activeCollections, settings, debugDat
     addTrace(debugData, 'summary_expansion', 'Summary expansion complete', {
         originalCount: chunks.length,
         summariesExpanded: parentHashesNeeded.size,
-        finalCount: expandedChunks.length
+        finalCount: expandedChunks.length,
     });
 
     return expandedChunks;
@@ -813,11 +823,11 @@ function applyThresholdFilter(chunks, threshold, debugData) {
         if (!passes) {
             recordChunkFate(debugData, chunk.hash, 'threshold', 'dropped',
                 `Score ${chunk.score.toFixed(3)} < threshold ${threshold}`,
-                { score: chunk.score, threshold }
+                { score: chunk.score, threshold },
             );
         } else {
             recordChunkFate(debugData, chunk.hash, 'threshold', 'passed', null,
-                { score: chunk.score, threshold }
+                { score: chunk.score, threshold },
             );
         }
         return passes;
@@ -827,7 +837,7 @@ function applyThresholdFilter(chunks, threshold, debugData) {
         threshold,
         before: beforeCount,
         after: filtered.length,
-        dropped: beforeCount - filtered.length
+        dropped: beforeCount - filtered.length,
     });
 
     return filtered;
@@ -847,7 +857,7 @@ function applyTemporalDecayStage(chunks, chat, settings, threshold, debugData) {
         addTrace(debugData, 'decay', 'Temporal decay skipped (disabled)', { enabled: false });
         chunks.forEach(chunk => {
             recordChunkFate(debugData, chunk.hash, 'decay', 'passed', 'Decay disabled', {
-                score: chunk.score
+                score: chunk.score,
             });
         });
         return chunks;
@@ -858,14 +868,14 @@ function applyTemporalDecayStage(chunks, chat, settings, threshold, debugData) {
         enabled: true,
         sceneAware: settings.temporal_decay.sceneAware,
         halfLife: settings.temporal_decay.halfLife || settings.temporal_decay.half_life,
-        strength: settings.temporal_decay.strength || settings.temporal_decay.rate
+        strength: settings.temporal_decay.strength || settings.temporal_decay.rate,
     });
 
     const currentMessageId = chat.length - 1;
     const chunksWithScores = chunks.map(chunk => ({
         hash: chunk.hash,
         metadata: chunk.metadata,
-        score: chunk.score
+        score: chunk.score,
     }));
 
     let decayedChunks;
@@ -910,7 +920,7 @@ function applyTemporalDecayStage(chunks, chat, settings, threshold, debugData) {
                     decayedScore: newScore,
                     decayMultiplier,
                     messageAge: decayedChunk.messageAge || decayedChunk.effectiveAge,
-                    decayType
+                    decayType,
                 });
             } else {
                 recordChunkFate(debugData, chunk.hash, 'decay', 'dropped',
@@ -920,8 +930,8 @@ function applyTemporalDecayStage(chunks, chat, settings, threshold, debugData) {
                         decayedScore: newScore,
                         decayMultiplier,
                         messageAge: decayedChunk.messageAge || decayedChunk.effectiveAge,
-                        decayType
-                    }
+                        decayType,
+                    },
                 );
             }
 
@@ -932,12 +942,12 @@ function applyTemporalDecayStage(chunks, chat, settings, threshold, debugData) {
                 messageAge: decayedChunk.messageAge || decayedChunk.effectiveAge,
                 decayApplied: true,
                 sceneAwareDecay: decayedChunk.sceneAwareDecay || false,
-                decayMultiplier
+                decayMultiplier,
             };
         }
 
         recordChunkFate(debugData, chunk.hash, 'decay', 'passed', 'No decay applied', {
-            score: chunk.score
+            score: chunk.score,
         });
         return chunk;
     });
@@ -949,7 +959,7 @@ function applyTemporalDecayStage(chunks, chat, settings, threshold, debugData) {
         decayType,
         before: beforeCount,
         after: result.length,
-        dropped: beforeCount - result.length
+        dropped: beforeCount - result.length,
     });
 
     return result;
@@ -969,7 +979,7 @@ async function applyConditionsStage(chunks, chat, settings, debugData) {
 
     addTrace(debugData, 'conditions', 'Starting condition filtering', {
         chunksToFilter: beforeCount,
-        hasConditions: chunks.some(c => c.metadata?.conditions)
+        hasConditions: chunks.some(c => c.metadata?.conditions),
     });
 
     const filtered = await applyChunkConditions(chunks, chat, settings);
@@ -980,7 +990,7 @@ async function applyConditionsStage(chunks, chat, settings, debugData) {
         if (afterConditionsHashes.has(chunk.hash)) {
             recordChunkFate(debugData, chunk.hash, 'conditions', 'passed', null, {
                 score: chunk.score,
-                hadConditions: !!chunk.metadata?.conditions
+                hadConditions: !!chunk.metadata?.conditions,
             });
         } else {
             recordChunkFate(debugData, chunk.hash, 'conditions', 'dropped',
@@ -989,8 +999,8 @@ async function applyConditionsStage(chunks, chat, settings, debugData) {
                     : 'Filtered by condition system',
                 {
                     score: chunk.score,
-                    conditions: chunk.metadata?.conditions
-                }
+                    conditions: chunk.metadata?.conditions,
+                },
             );
         }
     });
@@ -998,7 +1008,7 @@ async function applyConditionsStage(chunks, chat, settings, debugData) {
     addTrace(debugData, 'conditions', 'Condition filtering completed', {
         before: beforeCount,
         after: filtered.length,
-        dropped: beforeCount - filtered.length
+        dropped: beforeCount - filtered.length,
     });
 
     return filtered;
@@ -1021,7 +1031,7 @@ async function applyGroupsAndLinksStage(chunks, activeCollections, settings, deb
 
     addTrace(debugData, 'groups', 'Starting groups and links processing', {
         chunksCount: beforeCount,
-        collectionsToCheck: activeCollections.length
+        collectionsToCheck: activeCollections.length,
     });
 
     // Collect groups from all active collections
@@ -1039,7 +1049,7 @@ async function applyGroupsAndLinksStage(chunks, activeCollections, settings, deb
     } else {
         addTrace(debugData, 'groups', `Found ${allGroups.length} groups across collections`, {
             inclusive: allGroups.filter(g => g.mode === 'inclusive').length,
-            exclusive: allGroups.filter(g => g.mode === 'exclusive').length
+            exclusive: allGroups.filter(g => g.mode === 'exclusive').length,
         });
 
         // Build a map of all chunks for mandatory group lookup
@@ -1047,7 +1057,7 @@ async function applyGroupsAndLinksStage(chunks, activeCollections, settings, deb
 
         // Process groups
         const groupResult = processChunkGroups(chunks, allGroups, allChunksMap, {
-            softBoost: settings.group_soft_boost || 0.15
+            softBoost: settings.group_soft_boost || 0.15,
         });
 
         processedChunks = groupResult.chunks;
@@ -1058,15 +1068,15 @@ async function applyGroupsAndLinksStage(chunks, activeCollections, settings, deb
                 excluded: groupResult.debug.excluded.map(e => ({
                     hash: String(e.hash).substring(0, 8),
                     group: e.groupName,
-                    beatBy: String(e.beatBy).substring(0, 8)
-                }))
+                    beatBy: String(e.beatBy).substring(0, 8),
+                })),
             });
 
             // Record fates for excluded chunks
             for (const ex of groupResult.debug.excluded) {
                 recordChunkFate(debugData, ex.hash, 'groups', 'dropped',
                     `Excluded by group "${ex.groupName}" - beaten by chunk #${String(ex.beatBy).substring(0, 8)}`,
-                    { score: ex.score, winnerScore: ex.winnerScore }
+                    { score: ex.score, winnerScore: ex.winnerScore },
                 );
             }
         }
@@ -1075,15 +1085,15 @@ async function applyGroupsAndLinksStage(chunks, activeCollections, settings, deb
             addTrace(debugData, 'groups', `Mandatory groups force-included ${groupResult.debug.forced.length} chunks`, {
                 forced: groupResult.debug.forced.map(f => ({
                     hash: String(f.hash).substring(0, 8),
-                    group: f.groupName
-                }))
+                    group: f.groupName,
+                })),
             });
 
             // Record fates for forced chunks
             for (const f of groupResult.debug.forced) {
                 recordChunkFate(debugData, f.hash, 'groups', 'passed',
                     `Force-included by mandatory group "${f.groupName}"`,
-                    { reason: f.reason }
+                    { reason: f.reason },
                 );
             }
         }
@@ -1111,7 +1121,7 @@ async function applyGroupsAndLinksStage(chunks, activeCollections, settings, deb
             // and complex deduplication logic. Currently, hard links only boost already-matched chunks.
             if (linkResult.missingHardLinks && linkResult.missingHardLinks.length > 0) {
                 addTrace(debugData, 'groups', `Hard links require ${linkResult.missingHardLinks.length} additional chunks (not fetched)`, {
-                    hashes: linkResult.missingHardLinks.map(h => String(h).substring(0, 8))
+                    hashes: linkResult.missingHardLinks.map(h => String(h).substring(0, 8)),
                 });
             }
 
@@ -1121,8 +1131,8 @@ async function applyGroupsAndLinksStage(chunks, activeCollections, settings, deb
                 addTrace(debugData, 'groups', `Soft links boosted ${boostedChunks.length} chunks`, {
                     boosted: boostedChunks.map(c => ({
                         hash: String(c.hash).substring(0, 8),
-                        boost: c.linkBoost
-                    }))
+                        boost: c.linkBoost,
+                    })),
                 });
             }
         }
@@ -1151,7 +1161,7 @@ async function applyGroupsAndLinksStage(chunks, activeCollections, settings, deb
     addTrace(debugData, 'groups', 'Groups and links processing complete', {
         before: beforeCount,
         after: processedChunks.length,
-        groupsProcessed: allGroups.length
+        groupsProcessed: allGroups.length,
     });
 
     return processedChunks;
@@ -1167,7 +1177,7 @@ async function applyGroupsAndLinksStage(chunks, activeCollections, settings, deb
 function deduplicateChunks(chunks, chat, debugData) {
     addTrace(debugData, 'injection', 'Starting deduplication and injection', {
         chunksToInject: chunks.length,
-        chatLength: chat.length
+        chatLength: chat.length,
     });
 
     // Build set of hashes currently in chat context
@@ -1187,13 +1197,13 @@ function deduplicateChunks(chunks, chat, debugData) {
             skipped.push(chunk);
             recordChunkFate(debugData, chunk.hash, 'injection', 'skipped',
                 'Already in current chat context - no injection needed',
-                { score: chunk.score }
+                { score: chunk.score },
             );
         } else {
             toInject.push(chunk);
             recordChunkFate(debugData, chunk.hash, 'injection', 'passed',
                 'Not in current context - will inject',
-                { score: chunk.score, collectionId: chunk.collectionId }
+                { score: chunk.score, collectionId: chunk.collectionId },
             );
         }
     }
@@ -1201,7 +1211,7 @@ function deduplicateChunks(chunks, chat, debugData) {
     addTrace(debugData, 'injection', 'Deduplication complete', {
         totalChunks: chunks.length,
         toInject: toInject.length,
-        skippedDuplicates: skipped.length
+        skippedDuplicates: skipped.length,
     });
 
     return { toInject, skipped };
@@ -1351,7 +1361,7 @@ function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
             console.warn('VectHare: ⚠️ Injection verification failed!', {
                 expected: insertedText.substring(0, 100) + '...',
                 actual: verifiedPrompt?.value?.substring(0, 100) + '...',
-                promptExists: !!verifiedPrompt
+                promptExists: !!verifiedPrompt,
             });
         }
 
@@ -1359,7 +1369,7 @@ function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
         group.chunks.forEach(chunk => {
             recordChunkFate(debugData, chunk.hash, 'final', 'injected', null, {
                 score: chunk.score,
-                collectionId: chunk.collectionId
+                collectionId: chunk.collectionId,
             });
         });
 
@@ -1394,7 +1404,7 @@ function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
             console.warn(`VectHare: ⚠️ Injection verification failed for position ${key}`, {
                 tag,
                 expected: groupText.substring(0, 100) + '...',
-                actual: verifiedPrompt?.value?.substring(0, 100) + '...'
+                actual: verifiedPrompt?.value?.substring(0, 100) + '...',
             });
             allVerified = false;
         }
@@ -1405,7 +1415,7 @@ function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
                 score: chunk.score,
                 collectionId: chunk.collectionId,
                 position: group.position,
-                depth: group.depth
+                depth: group.depth,
             });
         });
 
@@ -1415,7 +1425,7 @@ function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
 
     return {
         verified: allVerified,
-        text: allTexts.join('\n\n---\n\n') // Combine for debug output
+        text: allTexts.join('\n\n---\n\n'), // Combine for debug output
     };
 }
 
@@ -1480,7 +1490,7 @@ export async function rearrangeChat(chat, settings, type) {
             generationType: type || 'normal',
             isGroupChat: getContext().groupId != null,
             currentCharacter: getContext().name2 || null,
-            activeLorebookEntries: []
+            activeLorebookEntries: [],
         });
         const activeCollections = await filterActiveCollections(collectionsToQuery, searchContext);
 
@@ -1500,7 +1510,7 @@ export async function rearrangeChat(chat, settings, type) {
             topK: settings.insert,
             temporal_decay: settings.temporal_decay,
             protect: settings.protect,
-            chatLength: chat.length
+            chatLength: chat.length,
         };
 
         addTrace(debugData, 'init', 'Pipeline started', {
@@ -1508,7 +1518,7 @@ export async function rearrangeChat(chat, settings, type) {
             queryLength: queryText.length,
             threshold: settings.score_threshold,
             topK: settings.insert,
-            protect: settings.protect
+            protect: settings.protect,
         });
 
         // === STAGE 4: Query all collections and merge results ===
@@ -1532,7 +1542,7 @@ export async function rearrangeChat(chat, settings, type) {
         if (settings.source === 'bananabread' && settings.bananabread_rerank && chunks.length > 0) {
             addTrace(debugData, 'rerank', 'Starting BananaBread reranking', {
                 chunks: chunks.length,
-                query: queryText.substring(0, 100)
+                query: queryText.substring(0, 100),
             });
             chunks = await rerankWithBananaBread(queryText, chunks, settings);
             debugData.stages.afterRerank = [...chunks];
@@ -1564,7 +1574,7 @@ export async function rearrangeChat(chat, settings, type) {
             chunks: chunks,
             query: queryText,
             timestamp: Date.now(),
-            settings: { threshold: settings.score_threshold, topK: settings.insert, temporal_decay: settings.temporal_decay }
+            settings: { threshold: settings.score_threshold, topK: settings.insert, temporal_decay: settings.temporal_decay },
         };
         console.log(`VectHare: Stored ${chunks.length} chunks for visualizer`);
 
@@ -1578,7 +1588,7 @@ export async function rearrangeChat(chat, settings, type) {
             debugData.stats.skippedDuplicates = skippedDuplicates.length;
             addTrace(debugData, 'injection', 'PIPELINE COMPLETE - NO INJECTION NEEDED', {
                 reason: 'All chunks already in current context',
-                skippedCount: skippedDuplicates.length
+                skippedCount: skippedDuplicates.length,
             });
             setLastSearchDebug(debugData);
             return;
@@ -1597,7 +1607,7 @@ export async function rearrangeChat(chat, settings, type) {
             position: settings.position,
             depth: settings.depth,
             promptTag: EXTENSION_PROMPT_TAG,
-            charCount: injection.text.length
+            charCount: injection.text.length,
         };
 
         addTrace(debugData, 'final', 'PIPELINE COMPLETE - SUCCESS', {
@@ -1607,7 +1617,7 @@ export async function rearrangeChat(chat, settings, type) {
             totalTokens: injection.text.length,
             position: settings.position,
             depth: settings.depth,
-            verified: injection.verified
+            verified: injection.verified,
         });
 
         setLastSearchDebug(debugData);
@@ -1642,7 +1652,7 @@ export async function vectorizeAll(settings, batchSize) {
         if (!backendAvailable) {
             toastr.error(
                 `Backend "${backendName}" is not available. Check your settings or start the backend service.`,
-                'Vectorization aborted'
+                'Vectorization aborted',
             );
             console.error(`VectHare: Backend ${backendName} failed health check before vectorization`);
             return;
@@ -1685,7 +1695,7 @@ export async function vectorizeAll(settings, batchSize) {
 
             progressTracker.updateProgress(
                 processedCount,
-                result.remaining > 0 ? `Processing... ${result.remaining} messages remaining` : 'Finalizing...'
+                result.remaining > 0 ? `Processing... ${result.remaining} messages remaining` : 'Finalizing...',
             );
             progressTracker.updateChunks(totalChunks);
 

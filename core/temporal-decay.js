@@ -7,7 +7,7 @@
 // =============================================================================
 
 import { isChunkTemporallyBlind } from './collection-metadata.js';
-import { DEFAULT_DECAY_HALF_LIFE, DEFAULT_DECAY_FLOOR, DEFAULT_NOSTALGIA_MAX_BOOST } from './constants.js';
+import { DEFAULT_DECAY_HALF_LIFE, DEFAULT_DECAY_FLOOR, DEFAULT_NOSTALGIA_HALF_LIFE, DEFAULT_NOSTALGIA_MAX_BOOST } from './constants.js';
 
 /**
  * Calculates exponential decay multiplier
@@ -139,7 +139,7 @@ export function applyNostalgiaToResults(chunks, currentMessageId, nostalgiaSetti
             return {
                 ...chunk,
                 temporallyBlind: true,
-                nostalgiaApplied: false
+                nostalgiaApplied: false,
             };
         }
 
@@ -152,7 +152,7 @@ export function applyNostalgiaToResults(chunks, currentMessageId, nostalgiaSetti
             score: boostedScore,
             originalScore,
             messageAge,
-            nostalgiaApplied: true
+            nostalgiaApplied: true,
         };
     });
 
@@ -190,7 +190,7 @@ export function applyDecayToResults(chunks, currentMessageId, decaySettings) {
             return {
                 ...chunk,
                 temporallyBlind: true,
-                decayApplied: false
+                decayApplied: false,
             };
         }
 
@@ -203,7 +203,7 @@ export function applyDecayToResults(chunks, currentMessageId, decaySettings) {
             score: decayedScore,
             originalScore,
             messageAge,
-            decayApplied: true
+            decayApplied: true,
         };
     });
 
@@ -221,12 +221,12 @@ export function applyDecayToResults(chunks, currentMessageId, decaySettings) {
  */
 function getSceneContext(messageId, scenes) {
     const scene = scenes.find(s =>
-        messageId >= s.start && (s.end === null || messageId <= s.end)
+        messageId >= s.start && (s.end === null || messageId <= s.end),
     );
 
     return {
         isInScene: !!scene,
-        sceneStart: scene?.start || null
+        sceneStart: scene?.start || null,
     };
 }
 
@@ -260,7 +260,7 @@ export function applySceneAwareDecay(chunks, currentMessageId, scenes, decaySett
             return {
                 ...chunk,
                 temporallyBlind: true,
-                sceneAwareDecay: false
+                sceneAwareDecay: false,
             };
         }
 
@@ -291,7 +291,7 @@ export function applySceneAwareDecay(chunks, currentMessageId, scenes, decaySett
             score: decayedScore,
             originalScore,
             effectiveAge,
-            sceneAwareDecay: true
+            sceneAwareDecay: true,
         };
     });
 
@@ -314,7 +314,7 @@ export function getDefaultDecaySettings() {
         linearRate: 0.01,           // Rate per message (linear mode)
         minRelevance: DEFAULT_DECAY_FLOOR,  // Never decay below this (decay only)
         maxBoost: DEFAULT_NOSTALGIA_MAX_BOOST, // Maximum boost multiplier (nostalgia only)
-        sceneAware: false           // Reset at scene boundaries
+        sceneAware: false,           // Reset at scene boundaries
     };
 }
 
@@ -366,7 +366,7 @@ export function validateDecaySettings(settings) {
 
     return {
         valid: errors.length === 0,
-        errors
+        errors,
     };
 }
 
@@ -380,7 +380,7 @@ export function validateDecaySettings(settings) {
 export function projectDecayCurve(baseScore, decaySettings, ages = [0, 10, 20, 50, 100, 200]) {
     return ages.map(age => ({
         age,
-        score: applyTemporalDecay(baseScore, age, decaySettings)
+        score: applyTemporalDecay(baseScore, age, decaySettings),
     }));
 }
 
@@ -406,7 +406,7 @@ export function getDecayStats(chunks) {
         affected: decayedChunks.length,
         avgReduction: reductions.reduce((a, b) => a + b, 0) / reductions.length,
         maxReduction: Math.max(...reductions),
-        avgAge: decayedChunks.reduce((sum, c) => sum + (c.messageAge || c.effectiveAge || 0), 0) / decayedChunks.length
+        avgAge: decayedChunks.reduce((sum, c) => sum + (c.messageAge || c.effectiveAge || 0), 0) / decayedChunks.length,
     };
 }
 
@@ -432,7 +432,7 @@ export function getNostalgiaStats(chunks) {
         affected: boostedChunks.length,
         avgBoost: boosts.reduce((a, b) => a + b, 0) / boosts.length,
         maxBoost: Math.max(...boosts),
-        avgAge: boostedChunks.reduce((sum, c) => sum + (c.messageAge || 0), 0) / boostedChunks.length
+        avgAge: boostedChunks.reduce((sum, c) => sum + (c.messageAge || 0), 0) / boostedChunks.length,
     };
 }
 
@@ -483,5 +483,5 @@ export default {
     validateDecaySettings,
     projectDecayCurve,
     getDecayStats,
-    getNostalgiaStats
+    getNostalgiaStats,
 };

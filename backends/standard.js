@@ -135,7 +135,7 @@ export class StandardBackend extends VectorBackend {
                 headers: getRequestHeaders(),
                 body: JSON.stringify({
                     collectionId: '__vecthare_health_check__',
-                    source: 'transformers'
+                    source: 'transformers',
                 }),
             });
             // 200 = works (empty collection), 500 = syntax error (no collection), both are "working"
@@ -232,13 +232,13 @@ export class StandardBackend extends VectorBackend {
             // Enhanced error logging for OOM debugging
             const isOOM = error.message?.includes('OrtRun') || error.message?.includes('error code = 6');
             if (isOOM) {
-                console.error(`VectHare: ONNX OOM Error while embedding. Diagnostics:`);
+                console.error('VectHare: ONNX OOM Error while embedding. Diagnostics:');
                 console.error(`  - Provider: ${settings.source}`);
                 console.error(`  - Model: ${model || '(default)'}`);
                 console.error(`  - Batch size: ${items.length} chunks`);
                 console.error(`  - Largest chunk: ${maxLen} chars (index ${longestChunkIndex})`);
                 console.error(`  - Average chunk: ${avgLen} chars`);
-                console.error(`  - Tip: Try reducing chunk size in settings, or use a smaller embedding model`);
+                console.error('  - Tip: Try reducing chunk size in settings, or use a smaller embedding model');
             }
             throw error;
         }

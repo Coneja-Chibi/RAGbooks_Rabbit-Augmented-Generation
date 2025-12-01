@@ -111,7 +111,7 @@ export function setSceneSettings(settings) {
  */
 function getSceneAtMessage(msgId) {
     return cachedSceneChunks.find(s =>
-        msgId >= s.sceneStart && msgId <= s.sceneEnd
+        msgId >= s.sceneStart && msgId <= s.sceneEnd,
     ) || null;
 }
 
@@ -302,13 +302,13 @@ async function handleStartClick(messageId) {
     // Case 1: Clicking on existing scene start - offer to delete
     if (existingSceneStart) {
         const confirmDelete = confirm(
-            `Delete scene "${existingSceneStart.title || 'Untitled'}" (messages ${existingSceneStart.sceneStart}-${existingSceneStart.sceneEnd})?\n\nThis will re-enable the individual message chunks.`
+            `Delete scene "${existingSceneStart.title || 'Untitled'}" (messages ${existingSceneStart.sceneStart}-${existingSceneStart.sceneEnd})?\n\nThis will re-enable the individual message chunks.`,
         );
         if (confirmDelete) {
             const result = await deleteSceneChunk(
                 existingSceneStart.hash,
                 existingSceneStart.containedHashes,
-                currentSettings
+                currentSettings,
             );
             if (result.success) {
                 toastr.success('Scene deleted');
@@ -333,14 +333,14 @@ async function handleStartClick(messageId) {
     // Case 3: Inside existing scene - offer to split
     if (existingSceneAt && !existingSceneStart) {
         const confirmSplit = confirm(
-            `This message is inside an existing scene (${existingSceneAt.sceneStart}-${existingSceneAt.sceneEnd}).\n\nSplit it? The existing scene will end at message ${messageId - 1}, and a new scene will start here.`
+            `This message is inside an existing scene (${existingSceneAt.sceneStart}-${existingSceneAt.sceneEnd}).\n\nSplit it? The existing scene will end at message ${messageId - 1}, and a new scene will start here.`,
         );
         if (confirmSplit) {
             // Delete old scene
             const deleteResult = await deleteSceneChunk(
                 existingSceneAt.hash,
                 existingSceneAt.containedHashes,
-                currentSettings
+                currentSettings,
             );
             if (!deleteResult.success) {
                 toastr.error('Failed to modify existing scene');
@@ -353,7 +353,7 @@ async function handleStartClick(messageId) {
                     existingSceneAt.sceneStart,
                     messageId - 1,
                     { title: existingSceneAt.title },
-                    currentSettings
+                    currentSettings,
                 );
                 if (!createResult.success) {
                     toastr.warning('Split scene created but shortened original failed');
@@ -373,7 +373,7 @@ async function handleStartClick(messageId) {
     // Case 4: Pending scene exists - offer to close it and start new
     if (pendingSceneStart !== null) {
         const confirmCloseAndStart = confirm(
-            `You have a pending scene starting at message ${pendingSceneStart}.\n\nClose it at message ${messageId - 1} and start a new scene here?`
+            `You have a pending scene starting at message ${pendingSceneStart}.\n\nClose it at message ${messageId - 1} and start a new scene here?`,
         );
         if (confirmCloseAndStart) {
             // Create the pending scene
@@ -381,7 +381,7 @@ async function handleStartClick(messageId) {
                 pendingSceneStart,
                 messageId - 1,
                 {},
-                currentSettings
+                currentSettings,
             );
             if (result.success) {
                 toastr.success(`Scene created (${pendingSceneStart}-${messageId - 1})`);
@@ -436,7 +436,7 @@ async function handleEndClick(messageId) {
         pendingSceneStart,
         messageId,
         {},
-        currentSettings
+        currentSettings,
     );
 
     if (result.success) {

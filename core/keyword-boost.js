@@ -277,7 +277,7 @@ function normalizeKeyword(kw, defaultWeight = DEFAULT_BASE_WEIGHT) {
     if (kw && typeof kw === 'object' && kw.text) {
         return {
             text: kw.text.toLowerCase(),
-            weight: typeof kw.weight === 'number' ? kw.weight : defaultWeight
+            weight: typeof kw.weight === 'number' ? kw.weight : defaultWeight,
         };
     }
     return null;

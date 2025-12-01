@@ -367,7 +367,7 @@ export function matchesPatterns(collectionId, patterns) {
 
     return patterns.some(pattern =>
         idLower === pattern ||
-        idLower.includes(pattern)
+        idLower.includes(pattern),
     );
 }
 

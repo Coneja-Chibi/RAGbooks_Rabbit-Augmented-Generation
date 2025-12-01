@@ -40,7 +40,7 @@ import {
 import {
     VALID_EMOTIONS,
     VALID_GENERATION_TYPES,
-    getExpressionsExtensionStatus
+    getExpressionsExtensionStatus,
 } from '../core/conditional-activation.js';
 import { world_names, loadWorldInfo } from '../../../../world-info.js';
 import { icons } from './icons.js';
@@ -76,7 +76,7 @@ async function checkPluginAvailable() {
     try {
         const response = await fetch('/api/plugins/similharity/health', {
             method: 'GET',
-            headers: getRequestHeaders()
+            headers: getRequestHeaders(),
         });
         pluginAvailable = response.ok;
     } catch {
@@ -94,7 +94,7 @@ let browserState = {
     filters: {
         scope: 'all',        // 'all', 'global', 'character', 'chat'
         collectionType: 'all', // 'all', 'chat', 'file', 'lorebook'
-        searchQuery: ''
+        searchQuery: '',
     },
     settings: null,
     // Bulk operations state
@@ -447,7 +447,7 @@ function bindBrowserEvents() {
         const confirmed = confirm(
             'This will clear the collection registry and rescan from disk.\n\n' +
             'Any ghost entries (collections that no longer exist on disk) will be removed.\n\n' +
-            'Continue?'
+            'Continue?',
         );
 
         if (!confirmed) return;
@@ -524,18 +524,18 @@ function bindBrowserEvents() {
             }
 
             if (validation.warnings.length > 0) {
-                message += `\n⚠️ Warnings:\n`;
+                message += '\n⚠️ Warnings:\n';
                 validation.warnings.forEach(w => {
                     message += `• ${w}\n`;
                 });
             }
 
             if (!validation.compatible && info.totalChunksWithVectors > 0) {
-                message += `\n⚠️ Your embedding settings don't match.\n`;
-                message += `To use existing vectors, change your settings to:\n`;
+                message += '\n⚠️ Your embedding settings don\'t match.\n';
+                message += 'To use existing vectors, change your settings to:\n';
                 message += `  Source: ${info.embedding?.source || 'unknown'}\n`;
                 message += `  Model: ${info.embedding?.model || 'default'}\n`;
-                message += `\nOr continue to re-embed with current settings.`;
+                message += '\nOr continue to re-embed with current settings.';
             }
 
             if (!validation.valid) {
@@ -555,7 +555,7 @@ function bindBrowserEvents() {
                 const vectorMsg = result.usedVectors ? '(used existing vectors)' : '(re-embedded)';
                 toastr.success(
                     `Imported ${result.chunkCount} chunks ${vectorMsg}`,
-                    'VectHare Import'
+                    'VectHare Import',
                 );
 
                 // Refresh collections list
@@ -701,7 +701,7 @@ function renderCollectionCard(collection) {
     const scopeBadge = {
         global: '<span class="vecthare-badge vecthare-badge-global">Global</span>',
         character: '<span class="vecthare-badge vecthare-badge-character">Character</span>',
-        chat: '<span class="vecthare-badge vecthare-badge-chat">Chat</span>'
+        chat: '<span class="vecthare-badge vecthare-badge-chat">Chat</span>',
     }[collection.scope] || '';
 
     const statusBadge = collection.enabled
@@ -723,7 +723,7 @@ function renderCollectionCard(collection) {
     const backendDisplayName = {
         standard: 'Standard',
         lancedb: 'LanceDB',
-        qdrant: 'Qdrant'
+        qdrant: 'Qdrant',
     }[collection.backend] || collection.backend;
 
     const backendBadge = collection.backend
@@ -764,6 +764,7 @@ function renderCollectionCard(collection) {
                 </span>
                 <div class="vecthare-collection-badges">
                     ${scopeBadge}
+                    ${activationBadge}
                     ${backendBadge}
                     ${sourceBadge}
                     ${modelBadge}
@@ -904,7 +905,7 @@ async function performPngExport(imageFile) {
             `PNG export complete!\n${exportData.stats.chunkCount} chunks\n` +
             `Original: ${formatBytes(jsonSize)}\n` +
             `PNG: ${formatBytes(pngSize)} (${ratio}%)`,
-            'VectHare Export'
+            'VectHare Export',
         );
     } catch (error) {
         console.error('VectHare: PNG export failed', error);
@@ -960,7 +961,7 @@ function bindCollectionCardEvents() {
 
         toastr.success(
             `Collection ${newEnabled ? 'enabled' : 'paused'}`,
-            'VectHare'
+            'VectHare',
         );
     });
 
@@ -975,7 +976,7 @@ function bindCollectionCardEvents() {
         const confirmed = confirm(
             `Delete collection "${collection.name}"?\n\n` +
             `This will remove ${collection.chunkCount} chunks from the vector index.\n` +
-            `This action cannot be undone.`
+            'This action cannot be undone.',
         );
 
         if (!confirmed) return;
@@ -1022,7 +1023,7 @@ function bindCollectionCardEvents() {
                 body: JSON.stringify({
                     collectionId: collection.id,
                     backend: collection.backend,
-                    source: collection.source
+                    source: collection.source,
                 }),
             });
 
@@ -1058,7 +1059,7 @@ function bindCollectionCardEvents() {
 
             const collectionSettings = {
                 ...browserState.settings,
-                vector_backend: collection.backend
+                vector_backend: collection.backend,
             };
 
             // Use unified plugin endpoint
@@ -1153,7 +1154,7 @@ function bindCollectionCardEvents() {
 
             toastr.success(
                 `Exported ${exportData.stats.chunkCount} chunks (${exportData.stats.chunksWithVectors} with vectors)`,
-                'VectHare Export'
+                'VectHare Export',
             );
         } catch (error) {
             console.error('VectHare: Export failed', error);
@@ -1188,7 +1189,7 @@ function bindCollectionCardEvents() {
             'Export as PNG\n\n' +
             'Would you like to use a custom image?\n\n' +
             '• Click OK to choose an image file\n' +
-            '• Click Cancel to use default VectHare image'
+            '• Click Cancel to use default VectHare image',
         );
 
         if (useCustomImage) {
@@ -1411,9 +1412,9 @@ function openModelSwitcher(collection) {
                     <span class="vecthare-model-chunks">${model.chunkCount} ${chunkLabel}</span>
                 </div>
                 ${isActive
-                    ? '<span class="vecthare-model-badge-current">Current</span>'
-                    : '<button class="vecthare-btn-sm vecthare-model-select-btn">Set as Primary</button>'
-                }
+        ? '<span class="vecthare-model-badge-current">Current</span>'
+        : '<button class="vecthare-btn-sm vecthare-model-select-btn">Set as Primary</button>'
+}
             </div>
         `;
     }).join('');
@@ -1435,7 +1436,7 @@ function openModelSwitcher(collection) {
 
         // Persist
         setCollectionMeta(coll.registryKey || coll.id, {
-            preferredModel: modelPath
+            preferredModel: modelPath,
         });
 
         toastr.success(`Set primary model: ${modelPath || '(default)'}`, 'VectHare');
@@ -1498,11 +1499,11 @@ let activationEditorState = {
         linearRate: 0.01,
         minRelevance: 0.3,
         maxBoost: 1.2,
-        sceneAware: false
+        sceneAware: false,
     },
     // Injection settings (position/depth)
     position: null,  // null = use global default
-    depth: null      // null = use global default
+    depth: null,      // null = use global default
 };
 
 /**
@@ -1537,14 +1538,14 @@ function openActivationEditor(collectionId, collectionName) {
             linearRate: decaySettings.linearRate,
             minRelevance: decaySettings.minRelevance,
             maxBoost: decaySettings.maxBoost || 1.2,
-            sceneAware: decaySettings.sceneAware
+            sceneAware: decaySettings.sceneAware,
         },
         // Prompt context
         context: meta.context || '',
         xmlTag: meta.xmlTag || '',
         // Injection position/depth (null = use global default)
         position: meta.position ?? null,
-        depth: meta.depth ?? null
+        depth: meta.depth ?? null,
     };
 
     // Create modal if needed
@@ -2055,7 +2056,7 @@ function saveActivation() {
     const conditions = {
         enabled: $('#vecthare_conditions_enabled').prop('checked'),
         logic: $('#vecthare_conditions_logic').val(),
-        rules: state.conditions.rules || []
+        rules: state.conditions.rules || [],
     };
     setCollectionConditions(state.collectionId, conditions);
 
@@ -2088,7 +2089,7 @@ function renderConditionRules() {
  */
 function renderConditionRule(rule, index) {
     const typeOptions = CONDITION_TYPES.map(t =>
-        `<option value="${t.value}" ${rule.type === t.value ? 'selected' : ''}>${t.label}</option>`
+        `<option value="${t.value}" ${rule.type === t.value ? 'selected' : ''}>${t.label}</option>`,
     ).join('');
 
     return `
@@ -2184,9 +2185,9 @@ function renderConditionSettings(rule, index) {
                 </select>
             `;
 
-        case 'emotion':
+        case 'emotion': {
             const emotionOptions = VALID_EMOTIONS.map(e =>
-                `<option value="${e}" ${(settings.values || []).includes(e) ? 'selected' : ''}>${e}</option>`
+                `<option value="${e}" ${(settings.values || []).includes(e) ? 'selected' : ''}>${e}</option>`,
             ).join('');
             const expressionsStatus = getExpressionsExtensionStatus();
             return `
@@ -2207,6 +2208,7 @@ function renderConditionSettings(rule, index) {
                     </div>
                 </div>
             `;
+        }
 
         case 'isGroupChat':
             return `
@@ -2216,21 +2218,22 @@ function renderConditionSettings(rule, index) {
                 </select>
             `;
 
-        case 'generationType':
+        case 'generationType': {
             const genOptions = VALID_GENERATION_TYPES.map(g =>
-                `<option value="${g}" ${(settings.values || []).includes(g) ? 'selected' : ''}>${g}</option>`
+                `<option value="${g}" ${(settings.values || []).includes(g) ? 'selected' : ''}>${g}</option>`,
             ).join('');
             return `
                 <select multiple data-field="values" data-rule-index="${index}" class="vecthare-multi-select">
                     ${genOptions}
                 </select>
             `;
+        }
 
-        case 'lorebookActive':
+        case 'lorebookActive': {
             // Get available world names for the picker
             const availableWorlds = world_names || [];
             const worldOptions = availableWorlds.map(w =>
-                `<option value="${w}">${w}</option>`
+                `<option value="${w}">${w}</option>`,
             ).join('');
             const selectedValues = settings.values || [];
             return `
@@ -2255,6 +2258,7 @@ function renderConditionSettings(rule, index) {
                     <input type="hidden" data-field="values" data-rule-index="${index}" value="${selectedValues.join(',')}">
                 </div>
             `;
+        }
 
         case 'timeOfDay':
             return `
@@ -2480,7 +2484,7 @@ function addConditionRule() {
     activationEditorState.conditions.rules.push({
         type: 'pattern',
         negate: false,
-        settings: {}
+        settings: {},
     });
 
     renderConditionRules();
@@ -2558,7 +2562,7 @@ async function performSearch() {
             query,
             topK,
             threshold,
-            browserState.settings
+            browserState.settings,
         );
 
         browserState.searchResults = results;
@@ -2628,7 +2632,7 @@ function renderSearchResults(results, query) {
             `;
         }
 
-        html += `</div></div>`;
+        html += '</div></div>';
     }
 
     $('#vecthare_search_results').html(html);
@@ -2800,9 +2804,9 @@ function bindBulkEvents() {
 
         const confirmed = confirm(
             `⚠️ DELETE ${browserState.bulkSelected.size} COLLECTION(S)?\n\n` +
-            `This will permanently delete all vectors in these collections.\n` +
-            `This action CANNOT be undone!\n\n` +
-            `Type "DELETE" to confirm.`
+            'This will permanently delete all vectors in these collections.\n' +
+            'This action CANNOT be undone!\n\n' +
+            'Type "DELETE" to confirm.',
         );
 
         if (!confirmed) return;

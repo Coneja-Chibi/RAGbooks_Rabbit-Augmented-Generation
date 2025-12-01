@@ -581,7 +581,7 @@ function generateCollectionId(contentType, source, settings) {
     const timestamp = Date.now();
 
     switch (contentType) {
-        case 'chat':
+        case 'chat': {
             // Use UUID-based ID (single source of truth)
             const chatCollectionId = buildChatCollectionId();
             if (chatCollectionId) {
@@ -590,6 +590,7 @@ function generateCollectionId(contentType, source, settings) {
             // Fall through to legacy generation if UUID not available
             console.warn('VectHare: Chat UUID not available, using legacy ID generation');
             break;
+        }
 
         case 'lorebook':
             return buildLorebookCollectionId(sourceName, timestamp);
@@ -600,7 +601,7 @@ function generateCollectionId(contentType, source, settings) {
         case 'document':
             return buildDocumentCollectionId(sourceName, timestamp);
 
-        case 'url':
+        case 'url': {
             // Use domain from URL or title
             let urlName = sourceName;
             try {
@@ -610,6 +611,7 @@ function generateCollectionId(contentType, source, settings) {
                 urlName = source.title || source.name || 'webpage';
             }
             return buildDocumentCollectionId(urlName, timestamp);
+        }
 
         case 'wiki':
             return buildDocumentCollectionId(source.name || 'wiki', timestamp);

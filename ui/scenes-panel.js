@@ -16,7 +16,6 @@ import {
     updateScene,
     deleteScene,
     clearAllScenes,
-    getClosedScenes,
 } from '../core/scenes.js';
 import { getContext } from '../../../../extensions.js';
 import { eventSource } from '../../../../../script.js';
@@ -26,6 +25,7 @@ import { eventSource } from '../../../../../script.js';
 // ============================================================================
 
 let isPanelOpen = false;
+let cachedScenes = [];
 
 // ============================================================================
 // HELPERS
@@ -91,7 +91,7 @@ function renderSceneCard(scene, index) {
     const preview = getScenePreview(scene);
 
     return `
-        <div class="vecthare-scene-card" data-scene-index="${index}">
+        <div class="vecthare-scene-card" data-scene-hash="${scene.hash}" data-scene-index="${index}">
             <div class="vecthare-scene-card-header">
                 <div class="vecthare-scene-card-title">
                     <i class="fa-solid fa-chevron-right vecthare-scene-expand-icon"></i>
@@ -133,11 +133,11 @@ function renderSceneCard(scene, index) {
 
 /**
  * Renders the scenes panel content
+ * @param {object[]} scenes - Pre-loaded scenes array
+ * @param {object} stats - Pre-loaded stats object
+ * @returns {string}
  */
-function renderPanelContent() {
-    const scenes = getScenes();
-    const stats = getSceneStats();
-
+function renderPanelContent(scenes, stats) {
     let bodyContent = '';
 
     if (scenes.length === 0) {
@@ -219,8 +219,7 @@ function bindEvents() {
         e.stopPropagation();
         const $card = $(this).closest('.vecthare-scene-card');
         const sceneIndex = parseInt($card.data('scene-index'));
-        const scenes = getScenes();
-        const scene = scenes[sceneIndex];
+        const scene = cachedScenes[sceneIndex];
 
         if (scene) {
             // Scroll to message
@@ -236,52 +235,68 @@ function bindEvents() {
     });
 
     // Delete scene
-    $panel.on('click', '.vecthare-scene-delete', function(e) {
+    $panel.on('click', '.vecthare-scene-delete', async function(e) {
         e.stopPropagation();
         const $card = $(this).closest('.vecthare-scene-card');
+        const sceneHash = $card.data('scene-hash');
         const sceneIndex = parseInt($card.data('scene-index'));
 
         if (confirm(`Delete Scene ${sceneIndex + 1}? This cannot be undone.`)) {
-            const result = deleteScene(sceneIndex);
-            if (result.success) {
+            const result = await deleteScene(sceneHash);
+            if (result) {
                 toastr.success('Scene deleted');
-                refreshPanel();
+                await refreshPanel();
                 eventSource.emit('vecthare_scenes_changed');
             } else {
-                toastr.error(result.error);
+                toastr.error('Failed to delete scene');
             }
         }
     });
 
-    // Update title
+    // Update title (debounced)
+    let titleDebounce = null;
     $panel.on('input', '.vecthare-scene-title-input', function() {
         const $card = $(this).closest('.vecthare-scene-card');
+        const sceneHash = $card.data('scene-hash');
         const sceneIndex = parseInt($card.data('scene-index'));
         const title = $(this).val();
 
-        updateScene(sceneIndex, { title });
-
-        // Update display title in header
+        // Update display title in header immediately
         const displayTitle = title || `Scene ${sceneIndex + 1}`;
         $card.find('.vecthare-scene-display-title').text(displayTitle);
+
+        // Debounce the save
+        clearTimeout(titleDebounce);
+        titleDebounce = setTimeout(async () => {
+            await updateScene(sceneHash, { title });
+        }, 500);
     });
 
-    // Update summary
+    // Update summary (debounced)
+    let summaryDebounce = null;
     $panel.on('input', '.vecthare-scene-summary-input', function() {
         const $card = $(this).closest('.vecthare-scene-card');
-        const sceneIndex = parseInt($card.data('scene-index'));
+        const sceneHash = $card.data('scene-hash');
         const summary = $(this).val();
 
-        updateScene(sceneIndex, { summary });
+        // Debounce the save
+        clearTimeout(summaryDebounce);
+        summaryDebounce = setTimeout(async () => {
+            await updateScene(sceneHash, { summary });
+        }, 500);
     });
 
     // Clear all scenes
-    $('#vecthare_scenes_clear_all').on('click', function() {
-        const stats = getSceneStats();
+    $('#vecthare_scenes_clear_all').on('click', async function() {
+        const stats = await getSceneStats();
         if (confirm(`Clear all ${stats.total} scenes? This cannot be undone.`)) {
-            clearAllScenes();
-            toastr.success('All scenes cleared');
-            refreshPanel();
+            const result = await clearAllScenes();
+            if (result.success) {
+                toastr.success(`Cleared ${result.deleted} scenes`);
+            } else {
+                toastr.warning(`Cleared ${result.deleted} scenes (some failed)`);
+            }
+            await refreshPanel();
             eventSource.emit('vecthare_scenes_changed');
         }
     });
@@ -294,14 +309,18 @@ function bindEvents() {
 /**
  * Opens the scenes panel
  */
-export function openPanel() {
+export async function openPanel() {
     if (isPanelOpen) return;
 
     // Remove any existing
     $('#vecthare_scenes_panel, #vecthare_scenes_overlay').remove();
 
+    // Load scenes
+    cachedScenes = await getScenes();
+    const stats = await getSceneStats();
+
     // Add to body
-    $('body').append(renderPanelContent());
+    $('body').append(renderPanelContent(cachedScenes, stats));
 
     // Bind events
     bindEvents();
@@ -324,20 +343,21 @@ export function closePanel() {
     });
 
     isPanelOpen = false;
+    cachedScenes = [];
 }
 
 /**
  * Refreshes the panel content (keeps it open)
  */
-export function refreshPanel() {
+export async function refreshPanel() {
     if (!isPanelOpen) return;
 
-    const scenes = getScenes();
-    const stats = getSceneStats();
+    cachedScenes = await getScenes();
+    const stats = await getSceneStats();
 
     // Update body
     let bodyContent = '';
-    if (scenes.length === 0) {
+    if (cachedScenes.length === 0) {
         bodyContent = `
             <div class="vecthare-scenes-empty">
                 <i class="fa-solid fa-film"></i>
@@ -348,18 +368,18 @@ export function refreshPanel() {
             </div>
         `;
     } else {
-        bodyContent = scenes.map((scene, idx) => renderSceneCard(scene, idx)).join('');
+        bodyContent = cachedScenes.map((scene, idx) => renderSceneCard(scene, idx)).join('');
     }
     $('#vecthare_scenes_body').html(bodyContent);
 
     // Update stats
-    const statsText = scenes.length > 0
+    const statsText = cachedScenes.length > 0
         ? `${stats.total} scene${stats.total !== 1 ? 's' : ''} (${stats.closed} closed, ${stats.open} open)`
         : 'No scenes';
     $('.vecthare-scenes-stats').text(statsText);
 
     // Update clear all button visibility
-    if (scenes.length > 0) {
+    if (cachedScenes.length > 0) {
         if (!$('#vecthare_scenes_clear_all').length) {
             $('.vecthare-scenes-footer-actions').html(`
                 <button class="menu_button" id="vecthare_scenes_clear_all">
@@ -375,11 +395,11 @@ export function refreshPanel() {
 /**
  * Toggles the scenes panel
  */
-export function togglePanel() {
+export async function togglePanel() {
     if (isPanelOpen) {
         closePanel();
     } else {
-        openPanel();
+        await openPanel();
     }
 }
 

@@ -27,7 +27,7 @@ export async function testConditionalActivation() {
             validateConditionRule,
             processChunkLinks,
             VALID_EMOTIONS,
-            VALID_GENERATION_TYPES
+            VALID_GENERATION_TYPES,
         } = await import('../core/conditional-activation.js');
 
         // Build mock context for all tests
@@ -36,14 +36,14 @@ export async function testConditionalActivation() {
             { mes: 'Hi! How are you doing today?', name: 'Luna', is_user: false },
             { mes: 'I am feeling happy and excited today!', name: 'User', is_user: true },
             { mes: '*smiles warmly* That makes me so glad to hear!', name: 'Luna', is_user: false },
-            { mes: 'Do you want to go on an adventure?', name: 'User', is_user: true }
+            { mes: 'Do you want to go on an adventure?', name: 'User', is_user: true },
         ];
 
         const context = buildSearchContext(mockChat, 10, [], {
             generationType: 'normal',
             isGroupChat: false,
             currentCharacter: 'Luna',
-            activeLorebookEntries: [{ key: 'adventure', uid: '123' }]
+            activeLorebookEntries: [{ key: 'adventure', uid: '123' }],
         });
 
         // Helper to add test result
@@ -52,7 +52,7 @@ export async function testConditionalActivation() {
                 name: `Condition: ${name}`,
                 status: passed ? 'pass' : 'fail',
                 message: passed ? (detail || 'Test passed') : (detail || 'Test failed'),
-                category: 'production'
+                category: 'production',
             });
         };
 
@@ -130,15 +130,15 @@ export async function testConditionalActivation() {
         // Test: AND logic
         const chunkWithAndLogic = { text: 'test', hash: 55555, conditions: { enabled: true, logic: 'AND', rules: [
             { type: 'messageCount', settings: { count: 3, operator: 'gte' } },
-            { type: 'isGroupChat', settings: { isGroup: false } }
-        ]}};
+            { type: 'isGroupChat', settings: { isGroup: false } },
+        ] } };
         addTest('AND Logic', evaluateConditions(chunkWithAndLogic, context) === true, 'Both conditions passed');
 
         // Test: OR logic
         const chunkWithOrLogic = { text: 'test', hash: 66666, conditions: { enabled: true, logic: 'OR', rules: [
             { type: 'messageCount', settings: { count: 1000, operator: 'gte' } },
-            { type: 'isGroupChat', settings: { isGroup: false } }
-        ]}};
+            { type: 'isGroupChat', settings: { isGroup: false } },
+        ] } };
         addTest('OR Logic', evaluateConditions(chunkWithOrLogic, context) === true, 'One condition passed');
 
         // Test: Negation
@@ -162,7 +162,7 @@ export async function testConditionalActivation() {
         const chunksToFilter = [
             { hash: 1, text: 'A', score: 0.8 },
             { hash: 2, text: 'B', score: 0.7, conditions: { enabled: true, logic: 'AND', rules: [{ type: 'messageCount', settings: { count: 3, operator: 'gte' } }] } },
-            { hash: 3, text: 'C', score: 0.6, conditions: { enabled: true, logic: 'AND', rules: [{ type: 'messageCount', settings: { count: 1000, operator: 'gte' } }] } }
+            { hash: 3, text: 'C', score: 0.6, conditions: { enabled: true, logic: 'AND', rules: [{ type: 'messageCount', settings: { count: 1000, operator: 'gte' } }] } },
         ];
         const filtered = filterChunksByConditions(chunksToFilter, context);
         addTest('Filter Chunks', filtered.length === 2, `Filtered to ${filtered.length} chunks (expected 2)`);
@@ -182,7 +182,7 @@ export async function testConditionalActivation() {
             name: 'Conditional Activation',
             status: 'fail',
             message: `Test error: ${error.message}`,
-            category: 'production'
+            category: 'production',
         }];
     }
 }
@@ -202,14 +202,14 @@ export async function testActivationTriggers() {
             name: '[PROD] Activation Triggers',
             status: 'pass',
             message: 'Activation triggers system available',
-            category: 'production'
+            category: 'production',
         };
     } catch (error) {
         return {
             name: '[PROD] Activation Triggers',
             status: 'fail',
             message: `Triggers test error: ${error.message}`,
-            category: 'production'
+            category: 'production',
         };
     }
 }

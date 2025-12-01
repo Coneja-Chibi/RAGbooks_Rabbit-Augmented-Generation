@@ -124,28 +124,16 @@ export function openTextCleaningManager() {
                     <div class="vecthare-tcm-section">
                         <div class="vecthare-tcm-section-header">
                             <h4>Pattern Tester</h4>
-                            <span class="vecthare-tcm-hint">Test regex patterns before adding them</span>
                         </div>
                         <div class="vecthare-tcm-tester">
                             <div class="vecthare-tcm-tester-row">
-                                <label>Pattern:</label>
-                                <input type="text" id="vecthare_tcm_test_pattern" placeholder="e.g. <font[^>]*>|</font>" class="vecthare-input">
-                                <label>Flags:</label>
-                                <input type="text" id="vecthare_tcm_test_flags" value="gi" placeholder="gi" class="vecthare-input vecthare-input-xs">
-                            </div>
-                            <div class="vecthare-tcm-tester-row">
-                                <label>Replace with:</label>
-                                <input type="text" id="vecthare_tcm_test_replacement" placeholder="Leave empty to remove matched text" class="vecthare-input">
-                            </div>
-                            <div class="vecthare-tcm-tester-row">
-                                <label>Sample text:</label>
-                                <textarea id="vecthare_tcm_test_input" rows="3" placeholder="Paste or type text to test the pattern against..." class="vecthare-textarea"></textarea>
-                            </div>
-                            <div class="vecthare-tcm-tester-actions">
+                                <input type="text" id="vecthare_tcm_test_pattern" placeholder="Find regex (e.g. /pattern/gi)" class="vecthare-input">
+                                <input type="text" id="vecthare_tcm_test_replacement" placeholder="Replace with" class="vecthare-input">
                                 <button class="vecthare-btn-primary" id="vecthare_tcm_test_run">
-                                    <i class="fa-solid fa-play"></i> Run Test
+                                    <i class="fa-solid fa-play"></i> Test
                                 </button>
                             </div>
+                            <textarea id="vecthare_tcm_test_input" rows="3" placeholder="Sample text to test against..." class="vecthare-textarea"></textarea>
                             <div class="vecthare-tcm-test-result" id="vecthare_tcm_test_result"></div>
                         </div>
                     </div>
@@ -191,32 +179,25 @@ function renderCustomPatterns(patterns) {
         return `<div class="vecthare-tcm-empty">No custom patterns. Click "Add" or "Import" to create patterns.</div>`;
     }
 
-    return patterns.map(p => `
-        <div class="vecthare-tcm-custom-item" data-id="${p.id}">
-            <input type="checkbox" class="vecthare-tcm-custom-enabled" ${p.enabled !== false ? 'checked' : ''} title="Enable/disable this pattern">
-            <div class="vecthare-tcm-custom-fields">
-                <div class="vecthare-tcm-field">
-                    <label>Name</label>
-                    <input type="text" class="vecthare-tcm-custom-name" value="${escapeHtml(p.name)}" placeholder="My Pattern">
-                </div>
-                <div class="vecthare-tcm-field vecthare-tcm-field-wide">
-                    <label>Regex Pattern</label>
-                    <input type="text" class="vecthare-tcm-custom-pattern" value="${escapeHtml(p.pattern)}" placeholder="<tag[^>]*>">
-                </div>
-                <div class="vecthare-tcm-field">
-                    <label>Replace With</label>
-                    <input type="text" class="vecthare-tcm-custom-replacement" value="${escapeHtml(p.replacement || '')}" placeholder="(empty = delete)">
-                </div>
-                <div class="vecthare-tcm-field vecthare-tcm-field-xs">
-                    <label>Flags</label>
-                    <input type="text" class="vecthare-tcm-custom-flags" value="${p.flags || 'gi'}" placeholder="gi" title="g=global, i=case-insensitive, m=multiline">
-                </div>
+    return patterns.map(p => {
+        // Convert old format (pattern + flags) to /pattern/flags format if needed
+        let displayPattern = p.pattern || '';
+        if (displayPattern && !displayPattern.startsWith('/') && p.flags) {
+            displayPattern = `/${displayPattern}/${p.flags}`;
+        }
+
+        return `
+            <div class="vecthare-tcm-custom-item" data-id="${p.id}">
+                <input type="checkbox" class="vecthare-tcm-custom-enabled" ${p.enabled !== false ? 'checked' : ''} title="Enable/disable">
+                <input type="text" class="vecthare-tcm-custom-name" value="${escapeHtml(p.name)}" placeholder="Name">
+                <input type="text" class="vecthare-tcm-custom-pattern" value="${escapeHtml(displayPattern)}" placeholder="/pattern/gi">
+                <input type="text" class="vecthare-tcm-custom-replacement" value="${escapeHtml(p.replacement || '')}" placeholder="Replace with (empty = remove)">
+                <button class="vecthare-btn-icon vecthare-btn-danger" data-action="delete" title="Delete">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
             </div>
-            <button class="vecthare-btn-icon vecthare-btn-danger" data-action="delete" title="Delete pattern">
-                <i class="fa-solid fa-trash"></i>
-            </button>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 /**
@@ -227,6 +208,40 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+/**
+ * Parses a regex string in /pattern/flags format (like ST's native regex)
+ * Also accepts plain patterns (assumes 'gi' flags)
+ * @param {string} input - Regex string
+ * @returns {{pattern: string, flags: string}|null}
+ */
+function parseRegexString(input) {
+    if (!input) return null;
+
+    // Try to parse /pattern/flags format
+    const match = input.match(/^\/(.+)\/([gimsuy]*)$/);
+    if (match) {
+        return { pattern: match[1], flags: match[2] || 'g' };
+    }
+
+    // Plain pattern - use default flags
+    return { pattern: input, flags: 'gi' };
+}
+
+/**
+ * Validates a regex pattern
+ * @param {string} pattern
+ * @param {string} flags
+ * @returns {{valid: boolean, error?: string}}
+ */
+function validateRegex(pattern, flags) {
+    try {
+        new RegExp(pattern, flags);
+        return { valid: true };
+    } catch (e) {
+        return { valid: false, error: e.message };
+    }
 }
 
 /**
@@ -375,17 +390,22 @@ function bindEvents() {
 
     // Test pattern
     $('#vecthare_tcm_test_run').on('click', () => {
-        const pattern = $('#vecthare_tcm_test_pattern').val();
-        const flags = $('#vecthare_tcm_test_flags').val() || 'gi';
+        const rawPattern = $('#vecthare_tcm_test_pattern').val();
         const replacement = $('#vecthare_tcm_test_replacement').val();
         const sampleText = $('#vecthare_tcm_test_input').val();
 
-        if (!pattern || !sampleText) {
+        if (!rawPattern || !sampleText) {
             toastr.warning('Enter a pattern and sample text');
             return;
         }
 
-        const result = testPattern(pattern, flags, replacement, sampleText);
+        const parsed = parseRegexString(rawPattern);
+        if (!parsed) {
+            toastr.error('Invalid pattern format');
+            return;
+        }
+
+        const result = testPattern(parsed.pattern, parsed.flags, replacement, sampleText);
         const resultEl = $('#vecthare_tcm_test_result');
 
         if (result.success) {
@@ -421,18 +441,19 @@ function bindEvents() {
         let hasInvalidPattern = false;
         $('#vecthare_tcm_custom_patterns .vecthare-tcm-custom-item').each(function() {
             const id = $(this).data('id');
-            const patternStr = $(this).find('.vecthare-tcm-custom-pattern').val();
-            const flags = $(this).find('.vecthare-tcm-custom-flags').val() || 'gi';
+            const rawPattern = $(this).find('.vecthare-tcm-custom-pattern').val();
             const enabled = $(this).find('.vecthare-tcm-custom-enabled').is(':checked');
 
+            // Parse /pattern/flags format
+            const parsed = parseRegexString(rawPattern);
+
             // Validate regex if pattern is enabled and has content
-            if (enabled && patternStr) {
-                try {
-                    new RegExp(patternStr, flags);
-                } catch (e) {
+            if (enabled && parsed) {
+                const validation = validateRegex(parsed.pattern, parsed.flags);
+                if (!validation.valid) {
                     hasInvalidPattern = true;
                     $(this).find('.vecthare-tcm-custom-pattern').css('border-color', 'var(--vecthare-danger)');
-                    toastr.error(`Invalid regex: ${e.message}`, 'VectHare');
+                    toastr.error(`Invalid regex: ${validation.error}`, 'VectHare');
                     return false; // break out of .each()
                 }
             }
@@ -443,9 +464,9 @@ function bindEvents() {
             const update = {
                 enabled: enabled,
                 name: $(this).find('.vecthare-tcm-custom-name').val(),
-                pattern: patternStr,
+                pattern: parsed?.pattern || '',
                 replacement: $(this).find('.vecthare-tcm-custom-replacement').val(),
-                flags: flags,
+                flags: parsed?.flags || 'gi',
             };
             updateCustomPattern(id, update);
         });

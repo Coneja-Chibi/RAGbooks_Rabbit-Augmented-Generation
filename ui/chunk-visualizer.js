@@ -1664,19 +1664,19 @@ function bindDetailEvents() {
             // Delete old
             await deleteVectorItems(currentCollectionId, [chunk.hash], currentSettings);
 
-            // Insert new with new hash
-            const newHash = String(getStringHash(newText));
+            // Insert new with new hash (keep as number for Qdrant compatibility)
+            const newHash = getStringHash(newText);
             await insertVectorItems(currentCollectionId, [{
                 hash: newHash,
                 text: newText,
                 index: chunk.index
             }], currentSettings);
 
-            // Update metadata
-            const oldMeta = getChunkMetadata(chunk.hash);
+            // Update metadata (use string keys for metadata storage)
+            const oldMeta = getChunkMetadata(String(chunk.hash));
             if (oldMeta) {
-                deleteChunkMetadata(chunk.hash);
-                saveChunkMetadata(newHash, { ...oldMeta });
+                deleteChunkMetadata(String(chunk.hash));
+                saveChunkMetadata(String(newHash), { ...oldMeta });
             }
 
             // Update local state
@@ -1923,19 +1923,19 @@ function openTextEditor(chunk) {
             // Delete old
             await deleteVectorItems(currentCollectionId, [chunk.hash], currentSettings);
 
-            // Insert new with new hash
-            const newHash = String(getStringHash(newText));
+            // Insert new with new hash (keep as number for Qdrant compatibility)
+            const newHash = getStringHash(newText);
             await insertVectorItems(currentCollectionId, [{
                 hash: newHash,
                 text: newText,
                 index: chunk.index
             }], currentSettings);
 
-            // Update metadata
-            const oldMeta = getChunkMetadata(chunk.hash);
+            // Update metadata (use string keys for metadata storage)
+            const oldMeta = getChunkMetadata(String(chunk.hash));
             if (oldMeta) {
-                deleteChunkMetadata(chunk.hash);
-                saveChunkMetadata(newHash, { ...oldMeta });
+                deleteChunkMetadata(String(chunk.hash));
+                saveChunkMetadata(String(newHash), { ...oldMeta });
             }
 
             // Update local state - update hash but keep same uniqueId for selection

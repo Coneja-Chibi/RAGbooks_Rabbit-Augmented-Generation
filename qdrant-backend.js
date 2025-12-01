@@ -343,7 +343,7 @@ class QdrantBackend {
 
                 // ===== CORE FIELDS (override metadata) =====
                 text: item.text,
-                hash: item.hash,
+                hash: typeof item.hash === 'string' ? parseInt(item.hash, 10) : item.hash, // Keep consistent with ID
 
                 // ===== MULTITENANCY FIELDS (CRITICAL - must not be overwritten) =====
                 type: tenantMetadata.type || 'chat',
@@ -769,10 +769,13 @@ class QdrantBackend {
 
         const mainCollection = 'vecthare_main';
 
+        // Ensure hash is numeric for consistent matching with stored payload
+        const numericHash = typeof hash === 'string' ? parseInt(hash, 10) : hash;
+
         try {
             // Build filter to find specific item
             const must = [
-                { key: 'hash', match: { value: hash } }
+                { key: 'hash', match: { value: numericHash } }
             ];
 
             if (filters.type) {

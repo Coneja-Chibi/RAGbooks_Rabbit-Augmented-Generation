@@ -793,12 +793,25 @@ function getGroups() {
 }
 
 /**
- * Saves groups to collection metadata
+ * Saves groups to collection metadata after validation
  * @param {object[]} groups - Array of group definitions
+ * @returns {boolean} Whether save succeeded
  */
 function saveGroups(groups) {
-    if (!currentCollectionId) return;
+    if (!currentCollectionId) return false;
+
+    // Validate all groups before saving
+    for (const group of groups) {
+        const validation = validateGroup(group);
+        if (!validation.valid) {
+            console.warn(`VectHare: Invalid group "${group.name}":`, validation.errors);
+            toastr.warning(`Group "${group.name}" has issues: ${validation.errors[0]}`);
+            // Still save - validation is informational, not blocking
+        }
+    }
+
     setCollectionMeta(currentCollectionId, { groups });
+    return true;
 }
 
 /**

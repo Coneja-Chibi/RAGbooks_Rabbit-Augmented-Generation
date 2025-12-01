@@ -17,7 +17,7 @@ import { getWebLlmProvider as getSharedWebLlmProvider } from '../providers/webll
 import { openVisualizer } from './chunk-visualizer.js';
 import { openDatabaseBrowser } from './database-browser.js';
 import { openContentVectorizer } from './content-vectorizer.js';
-import { openSearchDebugModal, getLastSearchDebug } from './search-debug.js';
+import { openSearchDebugModal } from './search-debug.js';
 import { openTextCleaningManager } from './text-cleaning-manager.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
 import { getChatCollectionId } from '../core/chat-vectorization.js';

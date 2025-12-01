@@ -218,6 +218,7 @@ export async function deleteSceneChunk(sceneHash, containedHashes, settings) {
         for (const hash of containedHashes) {
             const existing = getChunkMetadata(hash);
             if (existing && existing.disabledByScene === sceneHash) {
+                // eslint-disable-next-line no-unused-vars -- rest spread excludes these properties intentionally
                 const { disabledByScene, disabledAt, ...rest } = existing;
                 if (Object.keys(rest).length > 0) {
                     saveChunkMetadata(hash, rest);

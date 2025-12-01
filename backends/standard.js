@@ -15,6 +15,7 @@
 import { getRequestHeaders } from '../../../../../script.js';
 import { VectorBackend } from './backend-interface.js';
 import { getModelField } from '../core/providers.js';
+// eslint-disable-next-line no-unused-vars -- reserved for pagination implementation
 import { VECTOR_LIST_LIMIT } from '../core/constants.js';
 import { extension_settings } from '../../../../extensions.js';
 import { textgen_types, textgenerationwebui_settings } from '../../../../textgen-settings.js';

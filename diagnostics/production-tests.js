@@ -12,7 +12,7 @@
 import { getCurrentChatId, getRequestHeaders } from '../../../../../script.js';
 import { getSavedHashes, purgeVectorIndex } from '../core/core-vector-api.js';
 import { getChatCollectionId } from '../core/chat-vectorization.js';
-import { getModelField, getProviderConfig } from '../core/providers.js';
+import { getModelField } from '../core/providers.js';
 import { unregisterCollection } from '../core/collection-loader.js';
 
 /**
@@ -424,7 +424,7 @@ export async function testVectorDimensions(settings) {
  */
 export async function testTemporalDecay(settings) {
     try {
-        const { applyTemporalDecay, getDefaultDecaySettings } = await import('../core/temporal-decay.js');
+        const { applyTemporalDecay } = await import('../core/temporal-decay.js');
         const { getDefaultDecayForType } = await import('../core/collection-metadata.js');
 
         // Test with chat defaults (enabled by default)

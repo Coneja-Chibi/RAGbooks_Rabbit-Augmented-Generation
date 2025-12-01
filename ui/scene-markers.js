@@ -18,11 +18,9 @@ import {
     createSceneChunk,
     deleteSceneChunk,
     getCurrentCollectionId,
-    filterSceneChunks,
 } from '../core/scenes.js';
 import { getSavedHashes } from '../core/core-vector-api.js';
 import { eventSource, event_types } from '../../../../../script.js';
-import { getContext } from '../../../../extensions.js';
 
 // ============================================================================
 // CONSTANTS
@@ -225,7 +223,9 @@ function updateMessageMarkerState(messageElement, messageId) {
 
     const existingScene = getSceneAtMessage(messageId);
     const isExistingStart = getSceneStartingAt(messageId) !== null;
+    // eslint-disable-next-line no-unused-vars -- reserved for end-button state UI
     const isExistingEnd = getSceneEndingAt(messageId) !== null;
+    // eslint-disable-next-line no-unused-vars -- reserved for pending-range styling UI
     const isInPendingRange = pendingSceneStart !== null && messageId > pendingSceneStart;
 
     // START button visibility

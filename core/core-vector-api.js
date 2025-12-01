@@ -36,7 +36,6 @@ import {
     getSecretKey,
     requiresApiKey,
     requiresUrl,
-    getUrlProviders,
 } from './providers.js';
 import { applyKeywordBoosts, getOverfetchAmount } from './keyword-boost.js';
 import AsyncUtils from '../utils/async-utils.js';
@@ -762,27 +761,6 @@ export async function queryActiveCollections(collectionIds, searchText, topK, th
     // Query only the active collections
     const backend = await getBackend(settings);
     return await backend.queryMultipleCollections(activeCollectionIds, searchText, topK, threshold, settings);
-}
-
-/**
- * Queries multiple collections in a single batched request.
- * Unlike queryActiveCollections, this does NOT filter by activation conditions.
- * Use when filtering has already been done (e.g., in rearrangeChat pipeline).
- *
- * @param {string[]} collectionIds - Collection IDs to query (already filtered)
- * @param {string} searchText - Text to query
- * @param {number} topK - Number of results per collection
- * @param {object} settings - VectHare settings object
- * @returns {Promise<Record<string, { hashes: number[], metadata: object[] }>>} - Results mapped to collection IDs
- */
-export async function queryMultipleCollections(collectionIds, searchText, topK, settings) {
-    if (!collectionIds || collectionIds.length === 0) {
-        return {};
-    }
-
-    const backend = await getBackend(settings);
-    const threshold = settings.score_threshold || 0;
-    return await backend.queryMultipleCollections(collectionIds, searchText, topK, threshold, settings);
 }
 
 /**

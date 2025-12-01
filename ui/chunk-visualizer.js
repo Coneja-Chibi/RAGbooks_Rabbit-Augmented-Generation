@@ -12,7 +12,6 @@
  */
 
 import {
-    isChunkTemporallyBlind,
     setChunkTemporallyBlind,
     getChunkMetadata,
     saveChunkMetadata,
@@ -39,7 +38,6 @@ import {
     validateGroup,
     getGroupStats,
 } from '../core/chunk-groups.js';
-import { getContext } from '../../../../extensions.js';
 import { eventSource } from '../../../../../script.js';
 
 // ============================================================================
@@ -1336,7 +1334,9 @@ function renderDetailPanel() {
     const listPosition = filteredChunks.findIndex(c => c.uniqueId === selectedChunkId);
     const displayNumber = listPosition >= 0 ? listPosition + 1 : '?';
 
+    // eslint-disable-next-line no-unused-vars -- reserved for conditional/summary badges in UI
     const hasConditions = data.conditions?.enabled && data.conditions?.rules?.length > 0;
+    // eslint-disable-next-line no-unused-vars -- reserved for conditional/summary badges in UI
     const hasSummaries = data.summaries?.length > 0;
 
     panel.html(`

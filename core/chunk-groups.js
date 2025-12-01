@@ -216,7 +216,7 @@ export function processChunkGroups(chunks, groups, allChunksMap, options = {}) {
         };
     }
 
-    const softBoost = options.softBoost ?? 0.15;
+    // Note: softBoost is passed through options but applied by caller via processChunkLinks()
     const matchedHashes = new Set(chunks.map(c => String(c.hash)));
 
     // Step 1: Expand inclusive groups into virtual links

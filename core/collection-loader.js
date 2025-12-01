@@ -12,14 +12,10 @@
 import { extension_settings } from '../../../../extensions.js';
 import { getContext } from '../../../../extensions.js';
 import { characters, substituteParams, getRequestHeaders, saveSettingsDebounced } from '../../../../../script.js';
-import { getSavedHashes, queryCollection } from './core-vector-api.js';
+import { getSavedHashes } from './core-vector-api.js';
 import { getStringHash } from '../../../../utils.js';
 import {
     isCollectionEnabled,
-    setCollectionEnabled,
-    getChunkMetadata,
-    saveChunkMetadata,
-    deleteChunkMetadata,
     deleteCollectionMeta,
     ensureCollectionMeta,
     getCollectionMeta,

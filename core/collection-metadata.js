@@ -887,7 +887,6 @@ export function hasCustomDecaySettings(collectionId) {
  * @returns {object} Summary { isCustom, enabled, mode, description }
  */
 export function getCollectionDecaySummary(collectionId) {
-    const meta = getCollectionMeta(collectionId);
     const isCustom = hasCustomDecaySettings(collectionId);
     const settings = getCollectionDecaySettings(collectionId);
 

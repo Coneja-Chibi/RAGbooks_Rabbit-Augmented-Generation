@@ -21,9 +21,8 @@ import {
     buildLorebookCollectionId,
     buildCharacterCollectionId,
     buildDocumentCollectionId,
-    COLLECTION_PREFIXES,
 } from './collection-ids.js';
-import { extractLorebookKeywords, extractTextKeywords, extractChatKeywords, EXTRACTION_LEVELS, DEFAULT_EXTRACTION_LEVEL, DEFAULT_BASE_WEIGHT } from './keyword-boost.js';
+import { extractLorebookKeywords, extractTextKeywords, extractChatKeywords } from './keyword-boost.js';
 import { cleanText, cleanMessages } from './text-cleaning.js';
 import { progressTracker } from '../ui/progress-tracker.js';
 import { extension_settings, getContext } from '../../../../extensions.js';

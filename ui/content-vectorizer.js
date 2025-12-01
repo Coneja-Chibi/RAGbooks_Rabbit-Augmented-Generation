@@ -11,20 +11,15 @@
  */
 
 import {
-    CONTENT_TYPES,
-    CHUNKING_STRATEGIES,
     getContentType,
     getAllContentTypes,
     getChunkingStrategies,
     getChunkingStrategy,
-    strategyNeedsSize,
-    strategyNeedsOverlap,
     getContentTypeDefaults,
     hasFeature,
-    SCOPE_OPTIONS,
     CHARACTER_FIELDS,
 } from '../core/content-types.js';
-import { extension_settings, getContext } from '../../../../extensions.js';
+import { getContext } from '../../../../extensions.js';
 import { saveSettingsDebounced, chat_metadata } from '../../../../../script.js';
 import { getChatUUID } from '../core/chat-vectorization.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
@@ -1123,7 +1118,6 @@ function bindEvents() {
     // Strategy change
     $('#vecthare_cv_strategy').on('change', function() {
         const strategy = $(this).val();
-        const type = getContentType(currentContentType);
         const strategies = getChunkingStrategies(currentContentType);
         const selected = strategies.find(s => s.id === strategy);
 
@@ -1513,7 +1507,7 @@ function handleFileUpload(e) {
                     $('#vecthare_cv_upload_info').show();
                     $('#vecthare_cv_upload_filename').text(file.name);
 
-                    toastr.success(`Loaded lorebook: ${entries.length} entries (${enabledCount} enabled)`, 'VectHare');
+                    toastr.success(`Loaded lorebook: ${entries.length} entries (${enabledCount} enabled, ${(totalChars / 1000).toFixed(1)}k chars)`, 'VectHare');
                 } else {
                     throw new Error('Invalid lorebook format - missing entries');
                 }
@@ -2171,6 +2165,10 @@ function handleChatFileUpload(e) {
                     <span class="vecthare-cv-stat-label">Messages</span>
                 </div>
                 <div class="vecthare-cv-stat">
+                    <span class="vecthare-cv-stat-value">${userCount}/${charCount}</span>
+                    <span class="vecthare-cv-stat-label">User/Char</span>
+                </div>
+                <div class="vecthare-cv-stat">
                     <span class="vecthare-cv-stat-value">${characterName}</span>
                     <span class="vecthare-cv-stat-label">Character</span>
                 </div>
@@ -2384,7 +2382,6 @@ function getSourceData() {
  * Starts the vectorization process
  */
 async function startVectorization() {
-    const type = getContentType(currentContentType);
     const source = getSourceData();
 
     if (!source) {

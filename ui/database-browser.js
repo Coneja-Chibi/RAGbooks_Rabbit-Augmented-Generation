@@ -13,29 +13,23 @@
 import {
     loadAllCollections,
     setCollectionEnabled,
-    registerCollection,
-    unregisterCollection,
     clearCollectionRegistry,
     deleteCollection,
 } from '../core/collection-loader.js';
-import { purgeVectorIndex, queryMultipleCollections } from '../core/core-vector-api.js';
+import { queryMultipleCollections } from '../core/core-vector-api.js';
 import { getRequestHeaders } from '../../../../../script.js';
 import {
     cleanupOrphanedMeta,
-    deleteCollectionMeta,
     getCollectionConditions,
     setCollectionConditions,
     getCollectionTriggers,
-    setCollectionTriggers,
     getCollectionMeta,
     setCollectionMeta,
     getCollectionActivationSummary,
     getCollectionDecaySummary,
     getCollectionDecaySettings,
-    setCollectionDecaySettings,
     hasCustomDecaySettings,
     getDefaultDecayForType,
-    isCollectionEnabled,
 } from '../core/collection-metadata.js';
 import {
     VALID_EMOTIONS,
@@ -45,7 +39,6 @@ import {
 import { world_names, loadWorldInfo } from '../../../../world-info.js';
 import { icons } from './icons.js';
 import { openVisualizer } from './chunk-visualizer.js';
-import { queryCollection } from '../core/core-vector-api.js';
 import {
     exportCollection,
     importCollection,
@@ -60,7 +53,6 @@ import {
     downloadPNG,
     readPNGFile,
     convertToPNG,
-    isVectHarePNG,
 } from '../core/png-export.js';
 
 // Plugin availability cache
@@ -501,6 +493,12 @@ function bindBrowserEvents() {
 
                 if (!data) {
                     toastr.error('This PNG does not contain VectHare data.', 'VectHare Import');
+                    return;
+                }
+
+                // Validate it's actually a VectHare export (not just any PNG with tEXt chunk)
+                if (data.generator !== 'VectHare' && !data.version) {
+                    toastr.error('This PNG contains data but is not a valid VectHare export.', 'VectHare Import');
                     return;
                 }
 

@@ -17,20 +17,15 @@
  * ============================================================================
  */
 
-import { extension_settings } from '../../../../extensions.js';
 import { getRequestHeaders, saveSettingsDebounced } from '../../../../../script.js';
 import { getSavedHashes, insertVectorItems, purgeVectorIndex } from './core-vector-api.js';
 import {
     getCollectionMeta,
     setCollectionMeta,
-    getChunkMetadata,
     saveChunkMetadata,
     getAllChunkMetadata,
 } from './collection-metadata.js';
-import {
-    registerCollection,
-    getCollectionRegistry,
-} from './collection-loader.js';
+import { registerCollection } from './collection-loader.js';
 import { progressTracker } from '../ui/progress-tracker.js';
 import { getStringHash } from '../../../../utils.js';
 
@@ -45,6 +40,7 @@ const EXPORT_VERSION = '1.0.0';
 export const EXPORT_FILE_EXTENSION = '.vecthare.json';
 
 /** Maximum chunks to export at once (for progress updates) - reserved for future batched export */
+// eslint-disable-next-line no-unused-vars
 const _EXPORT_BATCH_SIZE = 100;
 
 // ============================================================================
@@ -112,10 +108,14 @@ export async function exportCollection(collectionId, settings, collectionInfo = 
         progressTracker.updateProgress(2, 'Loading chunks and vectors...');
         const rawChunks = await fetchChunksWithVectors(collectionId, exportSettings);
 
+        // Get all chunk metadata in one call (batch) instead of N individual calls
+        const allChunkMeta = getAllChunkMetadata();
+
         const chunks = rawChunks.map(item => {
             const meta = item.metadata || item;
+            const hash = meta.hash || item.hash;
             const chunk = {
-                hash: meta.hash || item.hash,
+                hash,
                 text: meta.text || item.text || '',
                 index: meta.index ?? item.index,
                 vector: item.vector || meta.vector || null, // The actual embedding!
@@ -141,10 +141,9 @@ export async function exportCollection(collectionId, settings, collectionInfo = 
                 },
             };
 
-            // Get per-chunk metadata from VectHare settings
-            const chunkMeta = getChunkMetadata(chunk.hash);
-            if (chunkMeta) {
-                chunk.chunkMeta = chunkMeta;
+            // Get per-chunk metadata from batch lookup
+            if (allChunkMeta[hash]) {
+                chunk.chunkMeta = allChunkMeta[hash];
             }
 
             return chunk;
@@ -261,40 +260,45 @@ export async function exportMultipleCollections(collectionIds, settings) {
             const collectionMeta = getCollectionMeta(collectionId) || {};
             const chunksResult = await getSavedHashes(collectionId, settings, true);
 
+            // Get all chunk metadata in one call (batch) instead of N individual calls
+            const allChunkMeta = getAllChunkMetadata();
+
             let chunks = [];
             if (chunksResult && chunksResult.metadata) {
-                chunks = chunksResult.metadata.map(meta => ({
-                    hash: meta.hash,
-                    text: meta.text || '',
-                    index: meta.index,
-                    metadata: {
-                        contentType: meta.contentType,
-                        sourceName: meta.sourceName,
-                        entryName: meta.entryName,
-                        entryUid: meta.entryUid,
-                        keywords: meta.keywords || [],
-                        customWeights: meta.customWeights,
-                        disabledKeywords: meta.disabledKeywords,
-                        keywordLevel: meta.keywordLevel,
-                        keywordBaseWeight: meta.keywordBaseWeight,
-                        importance: meta.importance,
-                        conditions: meta.conditions,
-                        chunkGroup: meta.chunkGroup,
-                        summary: meta.summary,
-                        isSummaryChunk: meta.isSummaryChunk,
-                        parentHash: meta.parentHash,
-                        speaker: meta.speaker,
-                        isUser: meta.isUser,
-                        messageId: meta.messageId,
-                    },
-                }));
+                chunks = chunksResult.metadata.map(meta => {
+                    const chunk = {
+                        hash: meta.hash,
+                        text: meta.text || '',
+                        index: meta.index,
+                        metadata: {
+                            contentType: meta.contentType,
+                            sourceName: meta.sourceName,
+                            entryName: meta.entryName,
+                            entryUid: meta.entryUid,
+                            keywords: meta.keywords || [],
+                            customWeights: meta.customWeights,
+                            disabledKeywords: meta.disabledKeywords,
+                            keywordLevel: meta.keywordLevel,
+                            keywordBaseWeight: meta.keywordBaseWeight,
+                            importance: meta.importance,
+                            conditions: meta.conditions,
+                            chunkGroup: meta.chunkGroup,
+                            summary: meta.summary,
+                            isSummaryChunk: meta.isSummaryChunk,
+                            parentHash: meta.parentHash,
+                            speaker: meta.speaker,
+                            isUser: meta.isUser,
+                            messageId: meta.messageId,
+                        },
+                    };
 
-                for (const chunk of chunks) {
-                    const chunkMeta = getChunkMetadata(chunk.hash);
-                    if (chunkMeta) {
-                        chunk.chunkMeta = chunkMeta;
+                    // Get per-chunk metadata from batch lookup
+                    if (allChunkMeta[meta.hash]) {
+                        chunk.chunkMeta = allChunkMeta[meta.hash];
                     }
-                }
+
+                    return chunk;
+                });
             }
 
             exports.push({

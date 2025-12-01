@@ -9,17 +9,15 @@
  * ============================================================================
  */
 
-import { getCurrentChatId, is_send_press, setExtensionPrompt, substituteParams, chat_metadata, extension_prompts } from '../../../../../script.js';
+import { getCurrentChatId, is_send_press, setExtensionPrompt, substituteParams, extension_prompts } from '../../../../../script.js';
 import { getContext } from '../../../../extensions.js';
-import { getStringHash as calculateHash, waitUntilCondition, onlyUnique } from '../../../../utils.js';
-import { isUnitStrategy } from './chunking.js';
+import { getStringHash as calculateHash, waitUntilCondition } from '../../../../utils.js';
 import { extractChatKeywords } from './keyword-boost.js';
 import { cleanText } from './text-cleaning.js';
 import {
     getSavedHashes,
     insertVectorItems,
     queryMultipleCollections,
-    deleteVectorItems,
     purgeVectorIndex,
 } from './core-vector-api.js';
 import { isBackendAvailable } from '../backends/backend-manager.js';
@@ -1348,7 +1346,7 @@ function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
 
     // If all chunks go to the same position, use the simple single-injection path
     if (positionGroups.size === 1) {
-        const [_, group] = [...positionGroups.entries()][0];
+        const [/* position key */, group] = [...positionGroups.entries()][0];
         const insertedText = buildNestedInjectionText(group.chunks, settings);
 
         setExtensionPrompt(EXTENSION_PROMPT_TAG, insertedText, group.position, group.depth, false);

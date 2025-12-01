@@ -344,6 +344,7 @@ export class QdrantBackend extends VectorBackend {
      * Get a single chunk by hash
      */
     async getChunk(collectionId, hash, settings) {
+        // eslint-disable-next-line no-unused-vars -- hash is globally unique, type/sourceId reserved for validation
         const { type, sourceId } = this._parseCollectionId(collectionId);
 
         const response = await fetch(`/api/plugins/similharity/chunks/${encodeURIComponent(hash)}?` + new URLSearchParams({

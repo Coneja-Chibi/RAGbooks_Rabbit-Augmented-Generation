@@ -13,7 +13,7 @@ import { getCurrentChatId, chat_metadata } from '../../../../../script.js';
 import { getSavedHashes } from '../core/core-vector-api.js';
 import { getChatCollectionId, getChatUUID, parseCollectionId } from '../core/chat-vectorization.js';
 import { VALID_EMOTIONS, VALID_GENERATION_TYPES, validateConditionRule } from '../core/conditional-activation.js';
-import { getTemporallyBlindCount, getTemporallyBlindChunks, isChunkTemporallyBlind, isCollectionEnabled } from '../core/collection-metadata.js';
+import { getTemporallyBlindCount, getTemporallyBlindChunks, isCollectionEnabled } from '../core/collection-metadata.js';
 import { getCollectionRegistry } from '../core/collection-loader.js';
 
 /**
@@ -71,7 +71,7 @@ export function checkChatEnabled(settings) {
         const names = otherEnabledNames.length < otherEnabledCount
             ? `${otherEnabledNames.join(', ')}... (+${otherEnabledCount - otherEnabledNames.length} more)`
             : otherEnabledNames.join(', ');
-        parts.push(`Other collections: ${otherEnabledCount} enabled`);
+        parts.push(`Other: ${names}`);
     }
 
     return {
@@ -311,8 +311,6 @@ export async function checkTemporallyBlindChunks(settings) {
  * Verifies the visualizer can perform edit/delete operations
  */
 export function checkVisualizerApiReadiness(settings) {
-    const checks = [];
-
     // Check if settings are valid for API operations
     if (!settings) {
         return {
@@ -403,6 +401,16 @@ export function checkCollectionIdFormat() {
     // UUID format check (should be like a1b2c3d4-e5f6-7890-abcd-ef1234567890)
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const isValidUUID = uuidRegex.test(parsed.sourceId);
+
+    // Verify UUID consistency between getChatUUID() and collection ID
+    if (uuid && parsed.sourceId !== uuid) {
+        return {
+            name: 'Collection ID Format',
+            status: 'warning',
+            message: `UUID mismatch: collection has ${parsed.sourceId.substring(0, 8)}..., chat UUID is ${uuid.substring(0, 8)}...`,
+            category: 'configuration',
+        };
+    }
 
     return {
         name: 'Collection ID Format',
@@ -717,7 +725,7 @@ export async function checkCollectionRegistryStatus(settings) {
 export async function checkChunkGroupsModule() {
     try {
         // Dynamically import to check if module is available
-        const { validateGroup, createGroup, getGroupStats } = await import('../core/chunk-groups.js');
+        const { validateGroup, createGroup } = await import('../core/chunk-groups.js');
 
         if (typeof validateGroup !== 'function') {
             return {
@@ -770,7 +778,7 @@ export async function checkChunkGroupsModule() {
  */
 export async function checkChunkGroupsValidity(settings) {
     try {
-        const { validateGroup, getGroupStats } = await import('../core/chunk-groups.js');
+        const { validateGroup } = await import('../core/chunk-groups.js');
         const { getCollectionMeta } = await import('../core/collection-metadata.js');
         const registry = getCollectionRegistry();
 

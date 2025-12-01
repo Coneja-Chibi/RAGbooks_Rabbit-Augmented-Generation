@@ -14,7 +14,6 @@ import {
     deleteVectorItems,
     insertVectorItems,
     getSavedHashes,
-    queryCollection,
     purgeVectorIndex,
 } from '../core/core-vector-api.js';
 import {
@@ -207,7 +206,7 @@ export function checkMetadataOperations() {
         };
     } catch (error) {
         // Cleanup attempt
-        try { deleteChunkMetadata(testHash); } catch {}
+        try { deleteChunkMetadata(testHash); } catch { /* ignore cleanup errors */ }
         return {
             name: 'Metadata Operations',
             status: 'fail',
@@ -265,7 +264,7 @@ export async function checkVectorInsert(settings) {
         };
     } catch (error) {
         // Cleanup even on failure
-        try { await cleanupTestCollection(testCollectionId, settings); } catch {}
+        try { await cleanupTestCollection(testCollectionId, settings); } catch { /* ignore cleanup errors */ }
         return {
             name: 'Vector Insert',
             status: 'fail',
@@ -339,7 +338,7 @@ export async function checkVectorDelete(settings) {
         };
     } catch (error) {
         // Cleanup even on failure
-        try { await cleanupTestCollection(testCollectionId, settings); } catch {}
+        try { await cleanupTestCollection(testCollectionId, settings); } catch { /* ignore cleanup errors */ }
         return {
             name: 'Vector Delete',
             status: 'fail',
@@ -451,7 +450,7 @@ export async function checkReVectorization(settings) {
         // Cleanup attempts
         deleteChunkMetadata(String(originalHash));
         deleteChunkMetadata(String(editedHash));
-        try { await cleanupTestCollection(testCollectionId, settings); } catch {}
+        try { await cleanupTestCollection(testCollectionId, settings); } catch { /* ignore cleanup errors */ }
 
         return {
             name: 'Re-Vectorization',
@@ -541,7 +540,7 @@ export async function checkSummaryVectorCreate(settings) {
     } catch (error) {
         // Cleanup
         deleteChunkMetadata(String(summaryHash));
-        try { await cleanupTestCollection(testCollectionId, settings); } catch {}
+        try { await cleanupTestCollection(testCollectionId, settings); } catch { /* ignore cleanup errors */ }
 
         return {
             name: 'Summary Vector Create',
@@ -624,7 +623,7 @@ export async function checkSummaryVectorDelete(settings) {
     } catch (error) {
         // Cleanup
         deleteChunkMetadata(String(summaryHash));
-        try { await cleanupTestCollection(testCollectionId, settings); } catch {}
+        try { await cleanupTestCollection(testCollectionId, settings); } catch { /* ignore cleanup errors */ }
 
         return {
             name: 'Summary Vector Delete',
@@ -705,7 +704,7 @@ export async function checkBackendResponsiveness(settings) {
         };
     } catch (error) {
         // Cleanup attempt
-        try { await cleanupTestCollection(testCollectionId, settings); } catch {}
+        try { await cleanupTestCollection(testCollectionId, settings); } catch { /* ignore cleanup errors */ }
 
         return {
             name: 'Backend Responsiveness',

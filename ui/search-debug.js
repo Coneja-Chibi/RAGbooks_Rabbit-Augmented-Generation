@@ -229,8 +229,9 @@ function createModalHtml(data, historyIndex = 0) {
         return `
                     <button class="vecthare-debug-history-tab ${isActive ? 'active' : ''} ${statusClass}"
                             data-history-index="${idx}"
-                            title="${escapeHtml(q.query.substring(0, 100))}">
+                            title="${tabTime}: ${escapeHtml(q.query.substring(0, 100))}">
                         <span class="tab-num">#${idx + 1}</span>
+                        <span class="tab-query">${escapeHtml(tabQuery)}</span>
                         <span class="tab-injected">${injectedCount}</span>
                     </button>
                 `;
@@ -415,6 +416,11 @@ function createKeywordBoostStage(data) {
         ? `<div class="vecthare-debug-stage-boost">+${boostedCount}</div>`
         : '';
 
+    // Show total keywords matched as additional info
+    const keywordInfo = totalKeywordsMatched > 0
+        ? `<div class="vecthare-debug-stage-detail" title="${totalKeywordsMatched} keywords matched across ${boostedCount} chunks">${totalKeywordsMatched} kw</div>`
+        : '';
+
     return `
         <div class="vecthare-debug-pipeline-stage vecthare-debug-stage-keyword">
             <div class="vecthare-debug-stage-icon">
@@ -422,6 +428,7 @@ function createKeywordBoostStage(data) {
             </div>
             <div class="vecthare-debug-stage-count">${boostedCount}</div>
             <div class="vecthare-debug-stage-label">Keywords</div>
+            ${keywordInfo}
             ${badge}
         </div>
     `;
@@ -461,20 +468,6 @@ function renderStageChunks(chunks, stageName, data) {
 
         // Check if this chunk was excluded in later stages
         const wasExcluded = getExclusionStatus(chunk, stageName, data);
-
-        // Build full metadata for expanded view
-        const fullMeta = {
-            hash: chunk.hash,
-            index: chunk.index,
-            messageAge: chunk.messageAge,
-            score: chunk.score,
-            originalScore: chunk.originalScore,
-            keywordBoost: chunk.keywordBoost,
-            decayMultiplier: chunk.decayMultiplier,
-            keywords: chunk.matchedKeywordsWithWeights || chunk.matchedKeywords || [],
-            collection: chunk.collection || chunk.collectionId,
-            metadata: chunk.metadata,
-        };
 
         html += `
             <div class="vecthare-debug-chunk vecthare-debug-chunk-expandable ${wasExcluded ? 'vecthare-debug-chunk-excluded' : ''}" data-chunk-idx="${idx}">
@@ -1444,9 +1437,6 @@ async function copyDiagnosticDump() {
 // EVENT BINDING
 // ============================================================================
 
-// Track current history index for refreshing modal
-let currentHistoryIndex = 0;
-
 function bindEvents() {
     // Close button
     $('#vecthare_search_debug_close').on('click', closeSearchDebugModal);
@@ -1467,7 +1457,6 @@ function bindEvents() {
     $('.vecthare-debug-history-tab').on('click', function() {
         const historyIndex = parseInt($(this).data('history-index'));
         if (queryHistory[historyIndex]) {
-            currentHistoryIndex = historyIndex;
             lastDebugData = queryHistory[historyIndex];
             // Refresh the modal content
             const newHtml = createModalHtml(lastDebugData, historyIndex);

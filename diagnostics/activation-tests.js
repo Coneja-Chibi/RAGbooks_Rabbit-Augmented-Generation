@@ -26,8 +26,6 @@ export async function testConditionalActivation() {
             filterChunksByConditions,
             validateConditionRule,
             processChunkLinks,
-            VALID_EMOTIONS,
-            VALID_GENERATION_TYPES,
         } = await import('../core/conditional-activation.js');
 
         // Build mock context for all tests
@@ -193,10 +191,11 @@ export async function testConditionalActivation() {
  */
 export async function testActivationTriggers() {
     try {
-        const { getChunkMetadata } = await import('../core/collection-metadata.js');
+        // Verify the chunk metadata module is available
+        await import('../core/collection-metadata.js');
 
-        // This test would check activation triggers on chunks
-        // For now, just verify the metadata system works
+        // This test verifies activation triggers infrastructure is loaded
+        // Actual trigger testing requires chunks with trigger configurations
 
         return {
             name: '[PROD] Activation Triggers',

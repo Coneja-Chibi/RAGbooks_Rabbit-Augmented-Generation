@@ -31,7 +31,8 @@ const PNG_SIGNATURE = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 
 /** Keyword for VectHare data in PNG tEXt/zTXt chunks */
 const VECTHARE_KEYWORD = 'vecthare';
 
-/** Maximum keyword length in PNG text chunks */
+/** Maximum keyword length in PNG text chunks - reserved for validation */
+// eslint-disable-next-line no-unused-vars
 const MAX_KEYWORD_LENGTH = 79;
 
 // ============================================================================

@@ -13,15 +13,12 @@ import { getRequestHeaders } from '../../../../../script.js';
 import { secret_state } from '../../../../secrets.js';
 import { textgen_types, textgenerationwebui_settings } from '../../../../textgen-settings.js';
 import {
-    EMBEDDING_PROVIDERS,
-    getValidProviderIds,
     isValidProvider,
     getProviderConfig,
     getModelField,
     getSecretKey,
     requiresApiKey,
     requiresUrl,
-    getUrlProviders,
 } from '../core/providers.js';
 
 /**

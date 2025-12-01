@@ -1303,9 +1303,9 @@ function buildNestedInjectionText(chunks, settings) {
  */
 function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
     // Build nested structure with context/XML wrapping
-    const injectionText = buildNestedInjectionText(chunksToInject, settings);
+    // (includes global rag_context and rag_xml_tag from buildNestedInjectionText)
+    const insertedText = buildNestedInjectionText(chunksToInject, settings);
 
-    const insertedText = settings.template.replace('{{text}}', injectionText);
     setExtensionPrompt(EXTENSION_PROMPT_TAG, insertedText, settings.position, settings.depth, false);
 
     // Verify injection

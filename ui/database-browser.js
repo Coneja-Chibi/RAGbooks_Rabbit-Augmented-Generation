@@ -63,9 +63,32 @@ import {
     isVectHarePNG,
 } from '../core/png-export.js';
 
+// Plugin availability cache
+let pluginAvailable = null;
+
+/**
+ * Check if the Similharity plugin is available
+ * @returns {Promise<boolean>}
+ */
+async function checkPluginAvailable() {
+    if (pluginAvailable !== null) return pluginAvailable;
+
+    try {
+        const response = await fetch('/api/plugins/similharity/health', {
+            method: 'GET',
+            headers: getRequestHeaders()
+        });
+        pluginAvailable = response.ok;
+    } catch {
+        pluginAvailable = false;
+    }
+    return pluginAvailable;
+}
+
 // Browser state
 let browserState = {
     isOpen: false,
+    pluginAvailable: null,
     collections: [],
     selectedCollection: null,
     filters: {
@@ -104,10 +127,16 @@ export async function openDatabaseBrowser() {
 
     browserState.isOpen = true;
 
+    // Check plugin availability
+    browserState.pluginAvailable = await checkPluginAvailable();
+
     // Create modal if it doesn't exist
     if ($('#vecthare_database_browser_modal').length === 0) {
         createBrowserModal();
     }
+
+    // Show/hide plugin warning banner
+    updatePluginWarningBanner();
 
     // Load collections
     await refreshCollections();
@@ -115,6 +144,18 @@ export async function openDatabaseBrowser() {
     // Show modal
     $('#vecthare_database_browser_modal').fadeIn(200);
     console.log('VectHare Database Browser: Opened');
+}
+
+/**
+ * Updates the plugin warning banner visibility
+ */
+function updatePluginWarningBanner() {
+    const banner = $('#vecthare_plugin_warning_banner');
+    if (browserState.pluginAvailable) {
+        banner.hide();
+    } else {
+        banner.show();
+    }
 }
 
 /**
@@ -137,6 +178,17 @@ function createBrowserModal() {
                 <div class="vecthare-modal-header">
                     <h3>🗃️ VectHare Database Browser</h3>
                     <button class="vecthare-btn-icon" id="vecthare_browser_close">✕</button>
+                </div>
+
+                <!-- Plugin Warning Banner (hidden by default, shown when plugin unavailable) -->
+                <div id="vecthare_plugin_warning_banner" class="vecthare-warning-banner" style="display: none;">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <div class="vecthare-warning-text">
+                        <strong>Limited Discovery Mode</strong>
+                        <span>Similharity plugin not detected. Only registered collections and current chat can be discovered.
+                        Collections created outside VectHare won't appear here.
+                        <a href="https://github.com/SillyTavern/SillyTavern-Similharity-Plugin" target="_blank">Install the plugin</a> for full filesystem scanning.</span>
+                    </div>
                 </div>
 
                 <!-- Browser Tabs -->

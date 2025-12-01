@@ -1,14 +1,14 @@
 /**
  * ============================================================================
- * STANDARD BACKEND (Vectra via Unified Plugin API)
+ * STANDARD BACKEND (Vectra - ST Native + Plugin)
  * ============================================================================
- * Uses the Similharity plugin's unified /chunks/* endpoints.
- * Backend: Vectra (file-based JSON storage)
+ * Uses ST's native /api/vector/* endpoints as the primary method.
+ * Falls back to Similharity plugin endpoints if available for extended features.
  *
  * This is the default backend - no setup required.
  *
  * @author VectHare
- * @version 3.0.0
+ * @version 3.1.0
  * ============================================================================
  */
 
@@ -21,8 +21,6 @@ import { textgen_types, textgenerationwebui_settings } from '../../../../textgen
 import { oai_settings } from '../../../../openai.js';
 import { secret_state } from '../../../../secrets.js';
 
-const BACKEND_TYPE = 'vectra';
-
 /**
  * Get the model value from settings based on provider
  */
@@ -32,13 +30,10 @@ function getModelFromSettings(settings) {
 }
 
 /**
- * Build provider-specific parameters for the plugin API.
- * This ensures all provider-specific fields (URLs, API keys, input_type, etc.)
- * are passed through to the server-side embedding handlers.
- *
+ * Build provider-specific parameters for API requests.
  * @param {object} settings - VectHare settings
- * @param {boolean} isQuery - Whether this is a query operation (affects Cohere input_type)
- * @returns {object} Provider-specific parameters to merge into request body
+ * @param {boolean} isQuery - Whether this is a query operation
+ * @returns {object} Provider-specific parameters
  */
 function getProviderSpecificParams(settings, isQuery = false) {
     const params = {};
@@ -46,19 +41,15 @@ function getProviderSpecificParams(settings, isQuery = false) {
 
     switch (source) {
         case 'extras':
-            // Extras requires URL and key from extension_settings
             params.extrasUrl = extension_settings.apiUrl;
             params.extrasKey = extension_settings.apiKey;
             break;
 
         case 'cohere':
-            // Cohere requires input_type to distinguish queries from documents
-            // This is CRITICAL for proper embedding quality
             params.input_type = isQuery ? 'search_query' : 'search_document';
             break;
 
         case 'ollama':
-            // Ollama needs apiUrl and keep_alive setting
             params.apiUrl = settings.use_alt_endpoint
                 ? settings.alt_endpoint_url
                 : textgenerationwebui_settings.server_urls[textgen_types.OLLAMA];
@@ -81,7 +72,6 @@ function getProviderSpecificParams(settings, isQuery = false) {
             params.apiUrl = settings.use_alt_endpoint
                 ? settings.alt_endpoint_url
                 : 'http://localhost:8008';
-            // Pass API key if available
             if (secret_state['bananabread_api_key']) {
                 const secrets = secret_state['bananabread_api_key'];
                 const activeSecret = Array.isArray(secrets) ? (secrets.find(s => s.active) || secrets[0]) : null;
@@ -103,7 +93,6 @@ function getProviderSpecificParams(settings, isQuery = false) {
             break;
 
         default:
-            // No additional params needed
             break;
     }
 
@@ -123,250 +112,236 @@ export class StandardBackend extends VectorBackend {
             this.pluginAvailable = response.ok;
 
             if (this.pluginAvailable) {
-                // Initialize the vectra backend
                 await fetch('/api/plugins/similharity/backend/init/vectra', {
                     method: 'POST',
                     headers: getRequestHeaders(),
                 });
-                console.log('VectHare: Using Standard backend (Vectra via plugin)');
+                console.log('VectHare: Standard backend initialized (plugin available)');
             } else {
-                console.warn('VectHare: Similharity plugin not available');
+                console.log('VectHare: Standard backend initialized (native ST API only)');
             }
         } catch (e) {
-            console.warn('VectHare: Plugin health check failed:', e.message);
+            console.log('VectHare: Standard backend initialized (native ST API only)');
             this.pluginAvailable = false;
         }
     }
 
     async healthCheck() {
+        // Native ST API is always available if ST is running
         try {
-            const response = await fetch('/api/plugins/similharity/backend/health/vectra', {
+            // Quick test: try to list a non-existent collection (should return empty array or error)
+            const response = await fetch('/api/vector/list', {
+                method: 'POST',
                 headers: getRequestHeaders(),
+                body: JSON.stringify({
+                    collectionId: '__vecthare_health_check__',
+                    source: 'transformers'
+                }),
             });
-
-            if (!response.ok) return false;
-
-            const data = await response.json();
-            return data.healthy === true;
+            // 200 = works (empty collection), 500 = syntax error (no collection), both are "working"
+            return response.status === 200 || response.status === 500;
         } catch (error) {
             console.error('[Standard] Health check failed:', error);
             return false;
         }
     }
 
+    /**
+     * Get saved hashes for a collection
+     * Uses native ST API
+     */
     async getSavedHashes(collectionId, settings) {
-        // Get provider-specific params (not a query, just listing)
         const providerParams = getProviderSpecificParams(settings, false);
+        const model = getModelFromSettings(settings);
 
-        const response = await fetch('/api/plugins/similharity/chunks/list', {
+        const response = await fetch('/api/vector/list', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
-                backend: BACKEND_TYPE,
                 collectionId: collectionId,
                 source: settings.source || 'transformers',
-                model: getModelFromSettings(settings),
-                limit: VECTOR_LIST_LIMIT, // Get all for hash comparison
-                // Merge provider-specific params
+                model: model,
                 ...providerParams,
             }),
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
-            throw new Error(`Failed to get saved hashes for ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
+            // Collection doesn't exist or error
+            if (response.status === 500) {
+                // Likely collection doesn't exist
+                return [];
+            }
+            throw new Error(`Failed to get saved hashes: ${response.status}`);
         }
 
         const data = await response.json();
-        return data.items ? data.items.map(item => item.hash) : [];
+        // Native API returns array of hashes directly
+        return Array.isArray(data) ? data : [];
     }
 
+    /**
+     * Insert vector items into a collection
+     * Uses native ST API
+     */
     async insertVectorItems(collectionId, items, settings) {
         if (items.length === 0) return;
 
-        // Get provider-specific params (isQuery=false for inserts - these are documents)
         const providerParams = getProviderSpecificParams(settings, false);
+        const model = getModelFromSettings(settings);
 
-        const response = await fetch('/api/plugins/similharity/chunks/insert', {
+        const response = await fetch('/api/vector/insert', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
-                backend: BACKEND_TYPE,
                 collectionId: collectionId,
                 items: items.map(item => ({
                     hash: item.hash,
                     text: item.text,
-                    index: item.index,
-                    vector: item.vector,
-                    metadata: {
-                        ...item.metadata,
-                        // Pass through VectHare-specific fields
-                        importance: item.importance,
-                        keywords: item.keywords,
-                        customWeights: item.customWeights,
-                        disabledKeywords: item.disabledKeywords,
-                        chunkGroup: item.chunkGroup,
-                        conditions: item.conditions,
-                        summary: item.summary,
-                        isSummaryChunk: item.isSummaryChunk,
-                        parentHash: item.parentHash,
-                    }
+                    index: item.index ?? 0,
                 })),
                 source: settings.source || 'transformers',
-                model: getModelFromSettings(settings),
-                // Merge provider-specific params (extras URL/key, cohere input_type, etc.)
+                model: model,
+                // Pass embeddings if pre-computed (for webllm, koboldcpp, bananabread)
+                embeddings: items[0]?.vector ? Object.fromEntries(items.map(i => [i.text, i.vector])) : undefined,
                 ...providerParams,
             }),
         });
 
         if (!response.ok) {
             const errorBody = await response.text().catch(() => 'No response body');
-            throw new Error(`Failed to insert vectors into ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
+            throw new Error(`Failed to insert vectors: ${response.status} - ${errorBody}`);
         }
 
         console.log(`VectHare Standard: Inserted ${items.length} vectors into ${collectionId}`);
     }
 
+    /**
+     * Delete vector items from a collection
+     * Uses native ST API
+     */
     async deleteVectorItems(collectionId, hashes, settings) {
-        const response = await fetch('/api/plugins/similharity/chunks/delete', {
+        const response = await fetch('/api/vector/delete', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
-                backend: BACKEND_TYPE,
                 collectionId: collectionId,
                 hashes: hashes,
                 source: settings.source || 'transformers',
-                model: getModelFromSettings(settings),
             }),
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
-            throw new Error(`Failed to delete vectors from ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
+            throw new Error(`Failed to delete vectors: ${response.status}`);
         }
     }
 
+    /**
+     * Query a collection for similar vectors
+     * Uses native ST API
+     */
     async queryCollection(collectionId, searchText, topK, settings, queryVector = null) {
-        // Get provider-specific params (isQuery=true for queries)
         const providerParams = getProviderSpecificParams(settings, true);
+        const model = getModelFromSettings(settings);
 
-        // Build request body - use queryVector if provided, otherwise searchText
         const requestBody = {
-            backend: BACKEND_TYPE,
             collectionId: collectionId,
+            searchText: searchText,
             topK: topK,
-            threshold: settings.score_threshold || 0.0, // Use user's threshold setting
+            threshold: settings.score_threshold || 0.0,
             source: settings.source || 'transformers',
-            model: getModelFromSettings(settings),
-            // Merge provider-specific params (cohere input_type='search_query', etc.)
+            model: model,
             ...providerParams,
         };
 
+        // If we have a pre-computed query vector (for webllm, koboldcpp, bananabread)
         if (queryVector) {
-            requestBody.queryVector = queryVector;
-        } else {
-            requestBody.searchText = searchText;
+            requestBody.embeddings = { [searchText]: queryVector };
         }
 
-        const response = await fetch('/api/plugins/similharity/chunks/query', {
+        const response = await fetch('/api/vector/query', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
-            throw new Error(`Failed to query collection ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
+            throw new Error(`Failed to query collection: ${response.status}`);
         }
 
         const data = await response.json();
 
-        // Format results to match expected output
-        const hashes = data.results.map(r => r.hash);
-        const metadata = data.results.map(r => ({
-            hash: r.hash,
-            text: r.text,
-            score: r.score,
-            ...r.metadata,
-        }));
-
-        return { hashes, metadata };
+        // Native API returns { hashes: [], metadata: [] }
+        return {
+            hashes: data.hashes || [],
+            metadata: (data.metadata || []).map((m, idx) => ({
+                hash: data.hashes?.[idx],
+                text: m.text,
+                score: m.score || 0,
+                ...m,
+            })),
+        };
     }
 
+    /**
+     * Query multiple collections
+     * Uses native ST API
+     */
     async queryMultipleCollections(collectionIds, searchText, topK, threshold, settings, queryVector = null) {
-        // Get provider-specific params (isQuery=true for queries)
         const providerParams = getProviderSpecificParams(settings, true);
+        const model = getModelFromSettings(settings);
 
-        // Query each collection separately (unified API handles one at a time)
-        const results = {};
+        const requestBody = {
+            collectionIds: collectionIds,
+            searchText: searchText,
+            topK: topK,
+            threshold: threshold,
+            source: settings.source || 'transformers',
+            model: model,
+            ...providerParams,
+        };
 
-        for (const collectionId of collectionIds) {
-            try {
-                // Build request body - use queryVector if provided
-                const requestBody = {
-                    backend: BACKEND_TYPE,
-                    collectionId: collectionId,
-                    topK: topK,
-                    threshold: threshold,
-                    source: settings.source || 'transformers',
-                    model: getModelFromSettings(settings),
-                    // Merge provider-specific params (cohere input_type='search_query', etc.)
-                    ...providerParams,
-                };
-
-                if (queryVector) {
-                    requestBody.queryVector = queryVector;
-                } else {
-                    requestBody.searchText = searchText;
-                }
-
-                const response = await fetch('/api/plugins/similharity/chunks/query', {
-                    method: 'POST',
-                    headers: getRequestHeaders(),
-                    body: JSON.stringify(requestBody),
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    const resultArray = data.results || data.chunks || [];
-
-                    results[collectionId] = {
-                        hashes: resultArray.map(r => r.hash),
-                        metadata: resultArray.map(r => ({
-                            hash: r.hash,
-                            text: r.text,
-                            score: r.score,
-                            ...r.metadata,
-                        })),
-                    };
-                } else {
-                    console.error(`VectHare: Query failed for ${collectionId}: ${response.status} ${response.statusText}`);
-                    results[collectionId] = { hashes: [], metadata: [] };
-                }
-            } catch (error) {
-                console.error(`Failed to query collection ${collectionId}:`, error);
-                results[collectionId] = { hashes: [], metadata: [] };
-            }
+        if (queryVector) {
+            requestBody.embeddings = { [searchText]: queryVector };
         }
 
-        return results;
+        const response = await fetch('/api/vector/query-multi', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+            // Fallback: query each collection individually
+            console.warn('VectHare: query-multi failed, falling back to individual queries');
+            const results = {};
+            for (const collectionId of collectionIds) {
+                try {
+                    results[collectionId] = await this.queryCollection(collectionId, searchText, topK, settings, queryVector);
+                } catch (e) {
+                    results[collectionId] = { hashes: [], metadata: [] };
+                }
+            }
+            return results;
+        }
+
+        return await response.json();
     }
 
+    /**
+     * Purge (delete) a collection
+     * Uses native ST API
+     */
     async purgeVectorIndex(collectionId, settings) {
-        const response = await fetch('/api/plugins/similharity/chunks/purge', {
+        const response = await fetch('/api/vector/purge', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
-                backend: BACKEND_TYPE,
                 collectionId: collectionId,
-                source: settings.source || 'transformers',
-                model: getModelFromSettings(settings),
             }),
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
-            throw new Error(`Failed to purge collection ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
+            throw new Error(`Failed to purge collection: ${response.status}`);
         }
     }
 
@@ -374,91 +349,103 @@ export class StandardBackend extends VectorBackend {
         return this.purgeVectorIndex(collectionId, settings);
     }
 
+    /**
+     * Purge all vector indexes
+     * Uses native ST API
+     */
     async purgeAllVectorIndexes(settings) {
-        // Get all collections and purge ALL of them - no filtering
-        const response = await fetch('/api/plugins/similharity/collections', {
-            headers: getRequestHeaders(),
-        });
-
-        if (!response.ok) {
-            throw new Error(`Failed to get collections: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-
-        // Purge ALL collections - don't filter by backend or source
-        for (const collection of data.collections || []) {
-            try {
-                await this.purgeVectorIndex(collection.id, {
-                    ...settings,
-                    source: collection.source,
-                });
-            } catch (e) {
-                console.error(`Failed to purge ${collection.id}:`, e);
-            }
-        }
-    }
-
-    // ========================================================================
-    // EXTENDED API METHODS (for UI components)
-    // ========================================================================
-
-    /**
-     * Get a single chunk by hash
-     */
-    async getChunk(collectionId, hash, settings) {
-        const response = await fetch(`/api/plugins/similharity/chunks/${encodeURIComponent(hash)}?` + new URLSearchParams({
-            backend: BACKEND_TYPE,
-            collectionId: collectionId,
-            source: settings.source || 'transformers',
-            model: getModelFromSettings(settings),
-        }), {
-            headers: getRequestHeaders(),
-        });
-
-        if (!response.ok) {
-            if (response.status === 404) return null;
-            throw new Error(`Failed to get chunk: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        return data.chunk;
-    }
-
-    /**
-     * List chunks with pagination
-     */
-    async listChunks(collectionId, settings, options = {}) {
-        const response = await fetch('/api/plugins/similharity/chunks/list', {
+        const response = await fetch('/api/vector/purge-all', {
             method: 'POST',
             headers: getRequestHeaders(),
-            body: JSON.stringify({
-                backend: BACKEND_TYPE,
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to purge all: ${response.status}`);
+        }
+    }
+
+    // ========================================================================
+    // EXTENDED API METHODS (plugin-only, graceful fallback)
+    // ========================================================================
+
+    /**
+     * List chunks with pagination (plugin-only feature)
+     * Falls back to basic hash list if plugin unavailable
+     */
+    async listChunks(collectionId, settings, options = {}) {
+        if (this.pluginAvailable) {
+            try {
+                const response = await fetch('/api/plugins/similharity/chunks/list', {
+                    method: 'POST',
+                    headers: getRequestHeaders(),
+                    body: JSON.stringify({
+                        backend: 'vectra',
+                        collectionId: collectionId,
+                        source: settings.source || 'transformers',
+                        model: getModelFromSettings(settings),
+                        offset: options.offset || 0,
+                        limit: options.limit || 100,
+                        includeVectors: options.includeVectors || false,
+                    }),
+                });
+
+                if (response.ok) {
+                    return await response.json();
+                }
+            } catch (e) {
+                console.warn('VectHare: Plugin listChunks failed, using native fallback');
+            }
+        }
+
+        // Fallback: use native list (hashes only)
+        const hashes = await this.getSavedHashes(collectionId, settings);
+        return {
+            items: hashes.map(hash => ({ hash, text: '', metadata: {} })),
+            total: hashes.length,
+        };
+    }
+
+    /**
+     * Get a single chunk by hash (plugin-only feature)
+     * Returns null if plugin unavailable
+     */
+    async getChunk(collectionId, hash, settings) {
+        if (!this.pluginAvailable) return null;
+
+        try {
+            const response = await fetch(`/api/plugins/similharity/chunks/${encodeURIComponent(hash)}?` + new URLSearchParams({
+                backend: 'vectra',
                 collectionId: collectionId,
                 source: settings.source || 'transformers',
                 model: getModelFromSettings(settings),
-                offset: options.offset || 0,
-                limit: options.limit || 100,
-                includeVectors: options.includeVectors || false,
-            }),
-        });
+            }), {
+                headers: getRequestHeaders(),
+            });
 
-        if (!response.ok) {
-            throw new Error(`Failed to list chunks: ${response.statusText}`);
+            if (response.ok) {
+                const data = await response.json();
+                return data.chunk;
+            }
+        } catch (e) {
+            console.warn('VectHare: Plugin getChunk failed');
         }
 
-        return await response.json();
+        return null;
     }
 
     /**
-     * Update chunk text (triggers re-embedding)
+     * Update chunk text (plugin-only feature)
      */
     async updateChunkText(collectionId, hash, newText, settings) {
+        if (!this.pluginAvailable) {
+            throw new Error('Chunk text editing requires the Similharity plugin');
+        }
+
         const response = await fetch(`/api/plugins/similharity/chunks/${encodeURIComponent(hash)}/text`, {
             method: 'PATCH',
             headers: getRequestHeaders(),
             body: JSON.stringify({
-                backend: BACKEND_TYPE,
+                backend: 'vectra',
                 collectionId: collectionId,
                 text: newText,
                 source: settings.source || 'transformers',
@@ -474,14 +461,18 @@ export class StandardBackend extends VectorBackend {
     }
 
     /**
-     * Update chunk metadata (no re-embedding)
+     * Update chunk metadata (plugin-only feature)
      */
     async updateChunkMetadata(collectionId, hash, metadata, settings) {
+        if (!this.pluginAvailable) {
+            throw new Error('Chunk metadata editing requires the Similharity plugin');
+        }
+
         const response = await fetch(`/api/plugins/similharity/chunks/${encodeURIComponent(hash)}/metadata`, {
             method: 'PATCH',
             headers: getRequestHeaders(),
             body: JSON.stringify({
-                backend: BACKEND_TYPE,
+                backend: 'vectra',
                 collectionId: collectionId,
                 metadata: metadata,
                 source: settings.source || 'transformers',
@@ -497,25 +488,67 @@ export class StandardBackend extends VectorBackend {
     }
 
     /**
-     * Get collection statistics
+     * Get collection statistics (plugin-only feature)
+     * Falls back to basic count if plugin unavailable
      */
     async getStats(collectionId, settings) {
-        const response = await fetch('/api/plugins/similharity/chunks/stats', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify({
-                backend: BACKEND_TYPE,
-                collectionId: collectionId,
-                source: settings.source || 'transformers',
-                model: getModelFromSettings(settings),
-            }),
-        });
+        if (this.pluginAvailable) {
+            try {
+                const response = await fetch('/api/plugins/similharity/chunks/stats', {
+                    method: 'POST',
+                    headers: getRequestHeaders(),
+                    body: JSON.stringify({
+                        backend: 'vectra',
+                        collectionId: collectionId,
+                        source: settings.source || 'transformers',
+                        model: getModelFromSettings(settings),
+                    }),
+                });
 
-        if (!response.ok) {
-            throw new Error(`Failed to get stats: ${response.statusText}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.stats;
+                }
+            } catch (e) {
+                console.warn('VectHare: Plugin getStats failed, using native fallback');
+            }
         }
 
-        const data = await response.json();
-        return data.stats;
+        // Fallback: just return count from hash list
+        const hashes = await this.getSavedHashes(collectionId, settings);
+        return {
+            count: hashes.length,
+            source: 'native',
+        };
+    }
+
+    /**
+     * Discover all collections on disk
+     * Plugin provides this; native API requires probing
+     */
+    async discoverCollections(settings) {
+        if (this.pluginAvailable) {
+            try {
+                const response = await fetch('/api/plugins/similharity/collections', {
+                    headers: getRequestHeaders(),
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    return (data.collections || []).map(c => ({
+                        id: c.id,
+                        source: c.source,
+                        chunkCount: c.chunkCount || 0,
+                        backend: c.backend || 'vectra',
+                    }));
+                }
+            } catch (e) {
+                console.warn('VectHare: Plugin discoverCollections failed');
+            }
+        }
+
+        // No native way to list collections - return empty
+        // Discovery will be handled by collection-loader probing known patterns
+        return null;
     }
 }

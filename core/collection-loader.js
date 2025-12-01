@@ -380,67 +380,126 @@ async function discoverViaPlugin(settings) {
 }
 
 /**
- * Discovers existing collections by trying to load them (fallback method)
- * This finds collections that existed before auto-registration was added
+ * Probes a collection ID to check if it exists
+ * @param {string} collectionId - Collection ID to probe
+ * @param {object} settings - VectHare settings
+ * @returns {Promise<{exists: boolean, count: number}>}
+ */
+async function probeCollection(collectionId, settings) {
+    try {
+        const hashes = await getSavedHashes(collectionId, settings);
+        if (hashes && hashes.length > 0) {
+            return { exists: true, count: hashes.length };
+        }
+    } catch (error) {
+        // Collection doesn't exist or error - that's fine
+    }
+    return { exists: false, count: 0 };
+}
+
+/**
+ * Discovers existing collections by probing the registry and known patterns
+ * Without the plugin, we can't scan the filesystem directly, so we:
+ * 1. Check all collections already in the registry (may have been created before)
+ * 2. Probe for current chat's collection
+ * 3. Probe for collections based on known character names
+ *
  * @param {object} settings VectHare settings
  * @returns {Promise<string[]>} Array of discovered collection IDs
  */
 async function discoverViaFallback(settings) {
     const context = getContext();
     const discovered = [];
+    const probed = new Set();
 
-    // Try to discover chat collections from current context
-    // Check BOTH formats: new (vh:chat:uuid) and legacy (vecthare_chat_chatId)
+    console.log('VectHare: Running fallback discovery (no plugin)...');
+
+    // 1. Validate existing registry entries - remove stale ones
+    const registry = getCollectionRegistry();
+    const validRegistryEntries = [];
+
+    for (const registryKey of [...registry]) {
+        if (probed.has(registryKey)) continue;
+        probed.add(registryKey);
+
+        // Parse the registry key to get the actual collection ID
+        const parsed = parseRegistryKey(registryKey);
+        const collectionId = parsed.collectionId;
+
+        const result = await probeCollection(collectionId, settings);
+        if (result.exists) {
+            validRegistryEntries.push(registryKey);
+            if (!discovered.includes(registryKey)) {
+                discovered.push(registryKey);
+            }
+            console.log(`VectHare: Verified registry entry: ${collectionId} (${result.count} chunks)`);
+        } else {
+            // Remove stale entry
+            unregisterCollection(registryKey);
+            console.log(`VectHare: Removed stale registry entry: ${registryKey}`);
+        }
+    }
+
+    // 2. Probe for current chat's collection (both formats)
     if (context.chatId) {
-        // Try NEW format first (vh:chat:uuid)
+        // New format: vecthare_chat_{charName}_{uuid}
         const newFormatId = getChatCollectionId();
-        if (newFormatId) {
-            try {
-                const hashes = await getSavedHashes(newFormatId, settings);
-                if (hashes && hashes.length > 0) {
-                    discovered.push(newFormatId);
-                    registerCollection(newFormatId);
-                    console.log(`VectHare: Discovered existing collection: ${newFormatId} (${hashes.length} chunks)`);
-                }
-            } catch (error) {
-                console.debug(`VectHare: Collection discovery skipped ${newFormatId}:`, error.message);
+        if (newFormatId && !probed.has(newFormatId)) {
+            probed.add(newFormatId);
+            const result = await probeCollection(newFormatId, settings);
+            if (result.exists) {
+                registerCollection(newFormatId);
+                discovered.push(newFormatId);
+                console.log(`VectHare: Discovered current chat collection: ${newFormatId} (${result.count} chunks)`);
             }
         }
 
-        // Also try LEGACY format (vecthare_chat_chatId) for backwards compatibility
+        // Legacy format: vecthare_chat_{chatId}
         const legacyFormatId = getLegacyChatCollectionId(context.chatId);
-        if (!discovered.includes(legacyFormatId)) {
-            try {
-                const hashes = await getSavedHashes(legacyFormatId, settings);
-                if (hashes && hashes.length > 0) {
-                    discovered.push(legacyFormatId);
-                    registerCollection(legacyFormatId);
-                    console.log(`VectHare: Discovered existing legacy collection: ${legacyFormatId} (${hashes.length} chunks)`);
-                }
-            } catch (error) {
-                console.debug(`VectHare: Collection discovery skipped ${legacyFormatId}:`, error.message);
+        if (legacyFormatId && !probed.has(legacyFormatId)) {
+            probed.add(legacyFormatId);
+            const result = await probeCollection(legacyFormatId, settings);
+            if (result.exists) {
+                registerCollection(legacyFormatId);
+                discovered.push(legacyFormatId);
+                console.log(`VectHare: Discovered legacy chat collection: ${legacyFormatId} (${result.count} chunks)`);
             }
         }
     }
 
-    // Try to discover character-based collections from CarrotKernel
+    // 3. Probe for character-based collections
     for (const char of characters) {
-        if (char.name) {
-            const carrotCollectionId = `carrotkernel_char_${char.name}`;
-            try {
-                const hashes = await getSavedHashes(carrotCollectionId, settings);
-                if (hashes && hashes.length > 0) {
-                    discovered.push(carrotCollectionId);
-                    registerCollection(carrotCollectionId);
-                    console.log(`VectHare: Discovered existing collection: ${carrotCollectionId} (${hashes.length} chunks)`);
-                }
-            } catch (error) {
-                // Collection doesn't exist or query failed - this is normal during discovery
-                console.debug(`VectHare: Collection discovery skipped ${carrotCollectionId}:`, error.message);
+        if (!char.name) continue;
+
+        const sanitizedName = char.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').substring(0, 30);
+
+        // VectHare character collection format
+        const charCollectionId = `${COLLECTION_PREFIXES.VECTHARE_CHARACTER}${sanitizedName}`;
+        if (!probed.has(charCollectionId)) {
+            probed.add(charCollectionId);
+            const result = await probeCollection(charCollectionId, settings);
+            if (result.exists) {
+                registerCollection(charCollectionId);
+                discovered.push(charCollectionId);
+                console.log(`VectHare: Discovered character collection: ${charCollectionId} (${result.count} chunks)`);
             }
         }
     }
 
+    // 4. Probe for common content type patterns that might exist
+    const contentPatterns = [
+        // Lorebook patterns
+        `${COLLECTION_PREFIXES.VECTHARE_LOREBOOK}`,
+        // Document patterns
+        `${COLLECTION_PREFIXES.VECTHARE_DOCUMENT}`,
+        // File patterns (legacy)
+        `${COLLECTION_PREFIXES.FILE}`,
+    ];
+
+    // Note: Without filesystem access, we can't discover collections with unknown IDs
+    // The registry is our primary source of truth for non-current-chat collections
+
+    console.log(`VectHare: Fallback discovery complete. Found ${discovered.length} collections.`);
     return discovered;
 }
 

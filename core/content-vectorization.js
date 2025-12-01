@@ -65,6 +65,12 @@ export async function vectorizeContent({ contentType, source, settings }) {
             throw new Error('No chunks generated from content');
         }
 
+        // Log chunking results for debugging
+        const chunkLengths = chunks.map(c => (typeof c === 'string' ? c : c.text || '').length);
+        const maxChunkLen = Math.max(...chunkLengths);
+        const avgChunkLen = Math.round(chunkLengths.reduce((a, b) => a + b, 0) / chunkLengths.length);
+        console.log(`VectHare: Chunked "${sourceName}" into ${chunks.length} chunks (avg: ${avgChunkLen} chars, max: ${maxChunkLen} chars)`);
+
         progressTracker.updateChunks(chunks.length);
 
         // Step 3: Enrich and hash

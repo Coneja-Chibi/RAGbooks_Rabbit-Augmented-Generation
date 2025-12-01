@@ -189,30 +189,59 @@ export class StandardBackend extends VectorBackend {
         const providerParams = getProviderSpecificParams(settings, false);
         const model = getModelFromSettings(settings);
 
-        const response = await fetch('/api/vector/insert', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify({
-                collectionId: collectionId,
-                items: items.map(item => ({
-                    hash: item.hash,
-                    text: item.text,
-                    index: item.index ?? 0,
-                })),
-                source: settings.source || 'transformers',
-                model: model,
-                // Pass embeddings if pre-computed (for webllm, koboldcpp, bananabread)
-                embeddings: items[0]?.vector ? Object.fromEntries(items.map(i => [i.text, i.vector])) : undefined,
-                ...providerParams,
-            }),
-        });
+        // Log chunk statistics for debugging OOM issues
+        const textLengths = items.map(item => (item.text || '').length);
+        const maxLen = Math.max(...textLengths);
+        const avgLen = Math.round(textLengths.reduce((a, b) => a + b, 0) / textLengths.length);
+        const longestChunkIndex = textLengths.indexOf(maxLen);
 
-        if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
-            throw new Error(`Failed to insert vectors: ${response.status} - ${errorBody}`);
+        console.log(`VectHare: Embedding ${items.length} chunks (avg: ${avgLen} chars, max: ${maxLen} chars at index ${longestChunkIndex})`);
+
+        // Warn if chunks are unusually large (potential OOM risk)
+        if (maxLen > 2000) {
+            console.warn(`VectHare: Large chunk detected (${maxLen} chars). If you see OOM errors, try reducing chunk size.`);
+            console.warn(`VectHare: Problematic chunk preview: "${(items[longestChunkIndex]?.text || '').substring(0, 100)}..."`);
         }
 
-        console.log(`VectHare Standard: Inserted ${items.length} vectors into ${collectionId}`);
+        try {
+            const response = await fetch('/api/vector/insert', {
+                method: 'POST',
+                headers: getRequestHeaders(),
+                body: JSON.stringify({
+                    collectionId: collectionId,
+                    items: items.map(item => ({
+                        hash: item.hash,
+                        text: item.text,
+                        index: item.index ?? 0,
+                    })),
+                    source: settings.source || 'transformers',
+                    model: model,
+                    // Pass embeddings if pre-computed (for webllm, koboldcpp, bananabread)
+                    embeddings: items[0]?.vector ? Object.fromEntries(items.map(i => [i.text, i.vector])) : undefined,
+                    ...providerParams,
+                }),
+            });
+
+            if (!response.ok) {
+                const errorBody = await response.text().catch(() => 'No response body');
+                throw new Error(`Failed to insert vectors: ${response.status} - ${errorBody}`);
+            }
+
+            console.log(`VectHare Standard: Inserted ${items.length} vectors into ${collectionId}`);
+        } catch (error) {
+            // Enhanced error logging for OOM debugging
+            const isOOM = error.message?.includes('OrtRun') || error.message?.includes('error code = 6');
+            if (isOOM) {
+                console.error(`VectHare: ONNX OOM Error while embedding. Diagnostics:`);
+                console.error(`  - Provider: ${settings.source}`);
+                console.error(`  - Model: ${model || '(default)'}`);
+                console.error(`  - Batch size: ${items.length} chunks`);
+                console.error(`  - Largest chunk: ${maxLen} chars (index ${longestChunkIndex})`);
+                console.error(`  - Average chunk: ${avgLen} chars`);
+                console.error(`  - Tip: Try reducing chunk size in settings, or use a smaller embedding model`);
+            }
+            throw error;
+        }
     }
 
     /**

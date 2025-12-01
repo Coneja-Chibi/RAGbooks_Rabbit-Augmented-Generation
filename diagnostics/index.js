@@ -19,6 +19,7 @@ import {
     checkQdrantBackend,
     checkQdrantDimensionMatch,
     checkEmbeddingProvider,
+    checkTransformersMemoryLimits,
     checkApiKeys,
     checkApiUrls,
     checkProviderConnectivity,
@@ -97,6 +98,12 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
     categories.infrastructure.push(await checkQdrantBackend(settings));
     categories.infrastructure.push(await checkQdrantDimensionMatch(settings));
     categories.infrastructure.push(await checkEmbeddingProvider(settings));
+
+    // WASM memory warning for Transformers users
+    const wasmCheck = checkTransformersMemoryLimits(settings);
+    if (wasmCheck.status !== 'skipped') {
+        categories.infrastructure.push(wasmCheck);
+    }
 
     const apiKeyCheck = checkApiKeys(settings);
     if (apiKeyCheck.status !== 'skipped') {

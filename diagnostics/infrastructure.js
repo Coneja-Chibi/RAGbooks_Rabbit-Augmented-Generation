@@ -694,6 +694,30 @@ export async function checkEmbeddingProvider(settings) {
 }
 
 /**
+ * Check: Transformers WASM memory limitations
+ * WASM has a 4GB memory cap regardless of system RAM.
+ * Large content vectorization can hit this limit and cause OOM errors.
+ */
+export function checkTransformersMemoryLimits(settings) {
+    // Only relevant for transformers provider
+    if (settings.source !== 'transformers') {
+        return {
+            name: 'WASM Memory',
+            status: 'skipped',
+            message: 'Not using local Transformers'
+        };
+    }
+
+    // Check if user has Data Bank content or large collections
+    // This is informational - we can't know exact memory usage
+    return {
+        name: 'WASM Memory',
+        status: 'info',
+        message: 'Transformers uses WASM with 4GB memory limit. For large documents, consider using Ollama or an API provider instead.'
+    };
+}
+
+/**
  * Check: API keys are present for cloud providers
  */
 export function checkApiKeys(settings) {

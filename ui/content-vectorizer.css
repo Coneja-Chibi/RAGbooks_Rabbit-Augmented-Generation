@@ -1176,6 +1176,98 @@
     min-width: 150px;
 }
 
+/* Inline pattern selection (Custom mode) */
+.vecthare-cv-cleaning-patterns {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 30%, transparent);
+}
+
+.vecthare-cv-cleaning-patterns-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-size: 0.9em;
+    font-weight: 500;
+}
+
+.vecthare-cv-cleaning-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.vecthare-cv-cleaning-patterns-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.vecthare-cv-cleaning-pattern-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--SmartThemeBlurTintColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-size: 0.85em;
+}
+
+.vecthare-cv-cleaning-pattern-option:hover {
+    background: color-mix(in srgb, var(--vecthare-primary) 10%, var(--SmartThemeBlurTintColor));
+    border-color: color-mix(in srgb, var(--vecthare-primary) 30%, var(--SmartThemeBorderColor));
+}
+
+.vecthare-cv-cleaning-pattern-option:has(input:checked) {
+    background: color-mix(in srgb, var(--vecthare-primary) 15%, var(--SmartThemeBlurTintColor));
+    border-color: var(--vecthare-primary);
+}
+
+.vecthare-cv-cleaning-pattern-option input[type="checkbox"] {
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.vecthare-cv-custom-patterns-list {
+    margin-top: 8px;
+}
+
+.vecthare-cv-custom-patterns-header {
+    font-size: 0.85em;
+    font-weight: 500;
+    margin-bottom: 8px;
+    opacity: 0.8;
+}
+
+.vecthare-cv-custom-pattern {
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+}
+
+.vecthare-cv-pattern-regex {
+    font-family: monospace;
+    font-size: 0.75em;
+    opacity: 0.6;
+    margin-left: auto;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vecthare-cv-no-custom-patterns {
+    font-size: 0.85em;
+    opacity: 0.6;
+    font-style: italic;
+    padding: 8px;
+    text-align: center;
+}
+
 /* ============================================================================
  * TEXT CLEANING MODAL
  * ============================================================================ */

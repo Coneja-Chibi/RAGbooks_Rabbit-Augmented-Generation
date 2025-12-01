@@ -935,10 +935,9 @@ function renderTemporalDecayOptions() {
 }
 
 /**
- * Renders text cleaning options with preset dropdown and manage button
+ * Renders text cleaning options with preset dropdown and inline pattern selection
  */
 function renderTextCleaningOptions() {
-    // Import dynamically to get current settings
     const presets = [
         { id: 'none', name: 'None', desc: 'No cleaning applied' },
         { id: 'html_formatting', name: 'Strip HTML Formatting', desc: 'Removes font, color, bold/italic tags' },
@@ -946,18 +945,29 @@ function renderTextCleaningOptions() {
         { id: 'ai_reasoning', name: 'Strip AI Reasoning Tags', desc: 'Removes thinking, tucao tags' },
         { id: 'comprehensive', name: 'Comprehensive Clean', desc: 'All formatting + metadata + reasoning' },
         { id: 'nuclear', name: 'Strip All HTML', desc: 'Plain text only' },
-        { id: 'custom', name: 'Custom', desc: 'Your own pattern selection' },
+        { id: 'custom', name: 'Custom', desc: 'Select patterns below' },
+    ];
+
+    // Built-in patterns for inline display
+    const builtinPatterns = [
+        { id: 'strip_font_tags', name: 'Strip Font Tags', desc: 'Removes <font> tags, keeps text' },
+        { id: 'strip_color_spans', name: 'Strip Color Spans', desc: 'Removes colored <span> tags' },
+        { id: 'strip_bold_italic', name: 'Strip Bold/Italic', desc: 'Removes <b>, <i>, <em>, <strong>' },
+        { id: 'strip_hidden_divs', name: 'Strip Hidden Divs', desc: 'Removes display:none elements' },
+        { id: 'strip_details_blocks', name: 'Strip Details Blocks', desc: 'Removes <details> sections' },
+        { id: 'strip_thinking_tags', name: 'Strip <thinking>', desc: 'Removes AI thinking tags' },
+        { id: 'strip_tucao_tags', name: 'Strip <tucao>', desc: 'Removes tucao commentary' },
+        { id: 'strip_all_html', name: 'Strip ALL HTML', desc: 'Removes all HTML tags' },
     ];
 
     const currentPreset = currentSettings.cleaningPreset || 'none';
+    const enabledBuiltins = currentSettings.enabledCleaningPatterns || [];
+    const isCustom = currentPreset === 'custom';
 
     return `
         <div class="vecthare-cv-option-row vecthare-cv-cleaning-settings">
             <div class="vecthare-cv-cleaning-header">
                 <span>Text Cleaning</span>
-                <button class="vecthare-btn-icon" id="vecthare_cv_manage_cleaning" title="Manage Cleaning Patterns">
-                    <i class="fa-solid fa-gear"></i>
-                </button>
             </div>
             <div class="vecthare-cv-cleaning-controls">
                 <div class="vecthare-cv-cleaning-preset">
@@ -974,6 +984,31 @@ function renderTextCleaningOptions() {
             <span class="vecthare-cv-option-hint" id="vecthare_cv_cleaning_hint">
                 ${presets.find(p => p.id === currentPreset)?.desc || ''}
             </span>
+
+            <!-- Inline pattern selection (shown when Custom is selected) -->
+            <div class="vecthare-cv-cleaning-patterns" id="vecthare_cv_cleaning_patterns" style="${isCustom ? '' : 'display: none;'}">
+                <div class="vecthare-cv-cleaning-patterns-header">
+                    <span>Select Patterns:</span>
+                    <div class="vecthare-cv-cleaning-actions">
+                        <button class="vecthare-btn-sm vecthare-btn-secondary" id="vecthare_cv_import_patterns" title="Import custom regex patterns">
+                            <i class="fa-solid fa-upload"></i> Import
+                        </button>
+                        <input type="file" id="vecthare_cv_import_file" accept=".json" hidden>
+                    </div>
+                </div>
+                <div class="vecthare-cv-cleaning-patterns-grid">
+                    ${builtinPatterns.map(p => `
+                        <label class="vecthare-cv-cleaning-pattern-option" title="${p.desc}">
+                            <input type="checkbox" data-pattern-id="${p.id}"
+                                   ${enabledBuiltins.includes(p.id) ? 'checked' : ''}>
+                            <span>${p.name}</span>
+                        </label>
+                    `).join('')}
+                </div>
+                <div class="vecthare-cv-custom-patterns-list" id="vecthare_cv_custom_patterns_list">
+                    <!-- Custom patterns will be rendered here -->
+                </div>
+            </div>
         </div>
     `;
 }
@@ -1082,17 +1117,65 @@ function bindEvents() {
             ai_reasoning: 'Removes thinking, tucao tags',
             comprehensive: 'All formatting + metadata + reasoning',
             nuclear: 'Plain text only',
-            custom: 'Your own pattern selection',
+            custom: 'Select patterns below',
         };
         $('#vecthare_cv_cleaning_hint').text(hints[presetId] || '');
+
+        // Show/hide inline pattern selection for Custom mode
+        if (presetId === 'custom') {
+            $('#vecthare_cv_cleaning_patterns').slideDown(200);
+            loadCustomPatternsInline();
+        } else {
+            $('#vecthare_cv_cleaning_patterns').slideUp(200);
+        }
 
         // Save to extension settings
         saveCleaningPresetToSettings(presetId);
     });
 
-    // Manage cleaning patterns button
-    $(document).on('click', '#vecthare_cv_manage_cleaning', function() {
-        openTextCleaningModal();
+    // Pattern checkbox changes (inline Custom mode)
+    $(document).on('change', '#vecthare_cv_cleaning_patterns input[type="checkbox"]', function() {
+        const patternId = $(this).data('pattern-id');
+        const isChecked = $(this).is(':checked');
+
+        if (!currentSettings.enabledCleaningPatterns) {
+            currentSettings.enabledCleaningPatterns = [];
+        }
+
+        if (isChecked && !currentSettings.enabledCleaningPatterns.includes(patternId)) {
+            currentSettings.enabledCleaningPatterns.push(patternId);
+        } else if (!isChecked) {
+            currentSettings.enabledCleaningPatterns = currentSettings.enabledCleaningPatterns.filter(p => p !== patternId);
+        }
+
+        // Save to extension settings
+        saveCleaningPatternsToSettings(currentSettings.enabledCleaningPatterns);
+    });
+
+    // Import patterns button
+    $(document).on('click', '#vecthare_cv_import_patterns', function() {
+        $('#vecthare_cv_import_file').click();
+    });
+
+    // Import file handler
+    $(document).on('change', '#vecthare_cv_import_file', async function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const { importPatterns } = await import('../core/text-cleaning.js');
+            const result = importPatterns(event.target.result);
+
+            if (result.success) {
+                toastr.success(`Imported ${result.count} custom patterns`, 'VectHare');
+                loadCustomPatternsInline();
+            } else {
+                toastr.error(`Import failed: ${result.error}`, 'VectHare');
+            }
+        };
+        reader.readAsText(file);
+        $(this).val('');
     });
 
     // Preview button
@@ -2317,6 +2400,47 @@ async function saveCleaningPresetToSettings(presetId) {
     settings.selectedPreset = presetId;
     saveCleaningSettings(settings);
     saveSettingsDebounced();
+}
+
+/**
+ * Saves enabled cleaning patterns to extension settings
+ */
+async function saveCleaningPatternsToSettings(enabledPatterns) {
+    const { saveCleaningSettings, getCleaningSettings } = await import('../core/text-cleaning.js');
+    const settings = getCleaningSettings();
+    settings.enabledBuiltins = enabledPatterns;
+    saveCleaningSettings(settings);
+    saveSettingsDebounced();
+}
+
+/**
+ * Loads custom patterns inline in the Options section
+ */
+async function loadCustomPatternsInline() {
+    const { getCleaningSettings } = await import('../core/text-cleaning.js');
+    const settings = getCleaningSettings();
+    const customPatterns = settings.customPatterns || [];
+
+    const container = $('#vecthare_cv_custom_patterns_list');
+
+    if (customPatterns.length === 0) {
+        container.html('<div class="vecthare-cv-no-custom-patterns">No custom patterns. Use Import to add regex patterns.</div>');
+        return;
+    }
+
+    let html = '<div class="vecthare-cv-custom-patterns-header">Custom Patterns:</div>';
+    for (const pattern of customPatterns) {
+        const isEnabled = currentSettings.enabledCleaningPatterns?.includes(pattern.id);
+        html += `
+            <label class="vecthare-cv-cleaning-pattern-option vecthare-cv-custom-pattern" title="${escapeHtml(pattern.pattern)}">
+                <input type="checkbox" data-pattern-id="${pattern.id}" ${isEnabled ? 'checked' : ''}>
+                <span>${escapeHtml(pattern.name)}</span>
+                <code class="vecthare-cv-pattern-regex">${escapeHtml(pattern.pattern.substring(0, 30))}${pattern.pattern.length > 30 ? '...' : ''}</code>
+            </label>
+        `;
+    }
+
+    container.html(html);
 }
 
 /**

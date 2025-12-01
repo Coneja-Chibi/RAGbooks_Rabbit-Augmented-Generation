@@ -919,6 +919,11 @@ function renderTemporalDecayOptions() {
     const decay = currentSettings.temporalDecay || {};
     const isEnabled = decay.enabled || false;
     const decayType = decay.type || 'decay';
+    const decayMode = decay.mode || 'exponential';
+    const halfLife = decay.halfLife || 50;
+    const linearRate = decay.linearRate || 0.01;
+    const minRelevance = decay.minRelevance || 0.3;
+    const maxBoost = decay.maxBoost || 1.2;
 
     return `
         <div class="vecthare-cv-decay-options">
@@ -937,6 +942,7 @@ function renderTemporalDecayOptions() {
             </div>
 
             <div class="vecthare-cv-decay-type-section" style="display: ${isEnabled ? 'block' : 'none'};">
+                <!-- Type: Decay vs Nostalgia -->
                 <div class="vecthare-type-toggle">
                     <label class="vecthare-type-option ${decayType === 'decay' ? 'selected' : ''}" data-type="decay">
                         <input type="radio" name="vecthare_cv_decay_type" value="decay" ${decayType === 'decay' ? 'checked' : ''}>
@@ -958,6 +964,67 @@ function renderTemporalDecayOptions() {
                             <small>Older messages score higher. Ancient history becomes more relevant.</small>
                         </div>
                     </label>
+                </div>
+
+                <!-- Curve: Exponential vs Linear -->
+                <div class="vecthare-curve-label">Curve</div>
+                <div class="vecthare-type-toggle vecthare-curve-toggle">
+                    <label class="vecthare-type-option ${decayMode === 'exponential' ? 'selected' : ''}" data-mode="exponential">
+                        <input type="radio" name="vecthare_cv_decay_mode" value="exponential" ${decayMode === 'exponential' ? 'checked' : ''}>
+                        <div class="vecthare-type-card">
+                            <div class="vecthare-type-header">
+                                <span class="vecthare-type-icon">📐</span>
+                                <strong>Exponential</strong>
+                            </div>
+                            <small>Smooth half-life curve. Effect halves every N messages. Natural decay pattern.</small>
+                        </div>
+                    </label>
+                    <label class="vecthare-type-option ${decayMode === 'linear' ? 'selected' : ''}" data-mode="linear">
+                        <input type="radio" name="vecthare_cv_decay_mode" value="linear" ${decayMode === 'linear' ? 'checked' : ''}>
+                        <div class="vecthare-type-card">
+                            <div class="vecthare-type-header">
+                                <span class="vecthare-type-icon">📏</span>
+                                <strong>Linear</strong>
+                            </div>
+                            <small>Fixed rate per message. Predictable, steady change. Hits limits faster.</small>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Exponential settings -->
+                <div class="vecthare-cv-decay-exponential" style="display: ${decayMode === 'exponential' ? 'block' : 'none'};">
+                    <div class="vecthare-cv-inline-setting">
+                        <label>Half-life:</label>
+                        <input type="number" id="vecthare_cv_decay_halflife" min="1" max="500" value="${halfLife}" class="vecthare-input-number">
+                        <small>messages until 50% effect</small>
+                    </div>
+                </div>
+
+                <!-- Linear settings -->
+                <div class="vecthare-cv-decay-linear" style="display: ${decayMode === 'linear' ? 'block' : 'none'};">
+                    <div class="vecthare-cv-inline-setting">
+                        <label>Rate:</label>
+                        <input type="number" id="vecthare_cv_decay_rate" min="0.001" max="0.5" step="0.001" value="${linearRate}" class="vecthare-input-number">
+                        <small>per message (0.01 = 1%)</small>
+                    </div>
+                </div>
+
+                <!-- Decay floor (for decay mode) -->
+                <div class="vecthare-cv-decay-floor" style="display: ${decayType === 'decay' ? 'block' : 'none'};">
+                    <div class="vecthare-cv-inline-setting">
+                        <label>Min relevance:</label>
+                        <input type="number" id="vecthare_cv_decay_min" min="0" max="1" step="0.05" value="${minRelevance}" class="vecthare-input-number">
+                        <small>floor (0-1)</small>
+                    </div>
+                </div>
+
+                <!-- Nostalgia ceiling (for nostalgia mode) -->
+                <div class="vecthare-cv-nostalgia-ceiling" style="display: ${decayType === 'nostalgia' ? 'block' : 'none'};">
+                    <div class="vecthare-cv-inline-setting">
+                        <label>Max boost:</label>
+                        <input type="number" id="vecthare_cv_decay_max_boost" min="1" max="3" step="0.1" value="${maxBoost}" class="vecthare-input-number">
+                        <small>ceiling (1.2 = 20% boost)</small>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1103,7 +1170,7 @@ function bindEvents() {
     $(document).on('change', '#vecthare_cv_temporal_decay', function() {
         const isEnabled = $(this).prop('checked');
         if (!currentSettings.temporalDecay) {
-            currentSettings.temporalDecay = { enabled: false, type: 'decay' };
+            currentSettings.temporalDecay = { enabled: false, type: 'decay', mode: 'exponential' };
         }
         currentSettings.temporalDecay.enabled = isEnabled;
         $('.vecthare-cv-decay-type-section').toggle(isEnabled);
@@ -1113,12 +1180,48 @@ function bindEvents() {
     $(document).on('change', 'input[name="vecthare_cv_decay_type"]', function() {
         const type = $(this).val();
         if (!currentSettings.temporalDecay) {
-            currentSettings.temporalDecay = { enabled: true, type: 'decay' };
+            currentSettings.temporalDecay = { enabled: true, type: 'decay', mode: 'exponential' };
         }
         currentSettings.temporalDecay.type = type;
-        // Update visual selection state
-        $('.vecthare-cv-decay-options .vecthare-type-option').removeClass('selected');
+        // Update visual selection state for type cards only
+        $('.vecthare-cv-decay-options .vecthare-type-toggle:not(.vecthare-curve-toggle) .vecthare-type-option').removeClass('selected');
         $(this).closest('.vecthare-type-option').addClass('selected');
+        // Show/hide floor vs ceiling based on type
+        $('.vecthare-cv-decay-floor').toggle(type === 'decay');
+        $('.vecthare-cv-nostalgia-ceiling').toggle(type === 'nostalgia');
+    });
+
+    // Temporal weighting curve toggle (exponential vs linear)
+    $(document).on('change', 'input[name="vecthare_cv_decay_mode"]', function() {
+        const mode = $(this).val();
+        if (!currentSettings.temporalDecay) {
+            currentSettings.temporalDecay = { enabled: true, type: 'decay', mode: 'exponential' };
+        }
+        currentSettings.temporalDecay.mode = mode;
+        // Update visual selection state for curve cards only
+        $('.vecthare-curve-toggle .vecthare-type-option').removeClass('selected');
+        $(this).closest('.vecthare-type-option').addClass('selected');
+        // Show/hide exponential vs linear settings
+        $('.vecthare-cv-decay-exponential').toggle(mode === 'exponential');
+        $('.vecthare-cv-decay-linear').toggle(mode === 'linear');
+    });
+
+    // Temporal weighting numeric inputs
+    $(document).on('change', '#vecthare_cv_decay_halflife', function() {
+        if (!currentSettings.temporalDecay) currentSettings.temporalDecay = {};
+        currentSettings.temporalDecay.halfLife = parseInt($(this).val()) || 50;
+    });
+    $(document).on('change', '#vecthare_cv_decay_rate', function() {
+        if (!currentSettings.temporalDecay) currentSettings.temporalDecay = {};
+        currentSettings.temporalDecay.linearRate = parseFloat($(this).val()) || 0.01;
+    });
+    $(document).on('change', '#vecthare_cv_decay_min', function() {
+        if (!currentSettings.temporalDecay) currentSettings.temporalDecay = {};
+        currentSettings.temporalDecay.minRelevance = parseFloat($(this).val()) || 0.3;
+    });
+    $(document).on('change', '#vecthare_cv_decay_max_boost', function() {
+        if (!currentSettings.temporalDecay) currentSettings.temporalDecay = {};
+        currentSettings.temporalDecay.maxBoost = parseFloat($(this).val()) || 1.2;
     });
 
     // Cleaning preset dropdown

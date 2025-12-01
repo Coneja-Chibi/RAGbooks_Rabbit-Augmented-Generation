@@ -2134,6 +2134,44 @@
     line-height: 1.4;
 }
 
+/* Curve section label */
+.vecthare-curve-label {
+    font-size: 0.9em;
+    font-weight: 500;
+    color: color-mix(in srgb, var(--SmartThemeBodyColor) 80%, transparent);
+    margin: 16px 0 8px 0;
+}
+
+/* Inline settings row (for half-life, rate, etc.) */
+.vecthare-cv-inline-setting {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+.vecthare-cv-inline-setting label {
+    font-size: 0.9em;
+    color: var(--SmartThemeBodyColor);
+    min-width: 80px;
+}
+
+.vecthare-cv-inline-setting input[type="number"] {
+    width: 80px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 20%, transparent);
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, var(--SmartThemeBlurTintColor));
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.9em;
+}
+
+.vecthare-cv-inline-setting small {
+    font-size: 0.82em;
+    color: color-mix(in srgb, var(--SmartThemeBodyColor) 60%, transparent);
+}
+
 /* Responsive: stack vertically on small screens */
 @media (max-width: 500px) {
     .vecthare-type-toggle {

@@ -1709,12 +1709,28 @@ function createActivationEditorModal() {
                                     </label>
                                 </div>
 
-                                <div class="vecthare-option-row">
-                                    <label>Curve:</label>
-                                    <select id="vecthare_decay_mode">
-                                        <option value="exponential">Exponential (half-life)</option>
-                                        <option value="linear">Linear (fixed rate)</option>
-                                    </select>
+                                <div class="vecthare-curve-label">Curve</div>
+                                <div class="vecthare-type-toggle vecthare-curve-toggle">
+                                    <label class="vecthare-type-option" data-mode="exponential">
+                                        <input type="radio" name="vecthare_decay_mode" value="exponential" checked>
+                                        <div class="vecthare-type-card">
+                                            <div class="vecthare-type-header">
+                                                <span class="vecthare-type-icon">📐</span>
+                                                <strong>Exponential</strong>
+                                            </div>
+                                            <small>Smooth half-life curve. Effect halves every N messages. Natural decay pattern.</small>
+                                        </div>
+                                    </label>
+                                    <label class="vecthare-type-option" data-mode="linear">
+                                        <input type="radio" name="vecthare_decay_mode" value="linear">
+                                        <div class="vecthare-type-card">
+                                            <div class="vecthare-type-header">
+                                                <span class="vecthare-type-icon">📏</span>
+                                                <strong>Linear</strong>
+                                            </div>
+                                            <small>Fixed rate per message. Predictable, steady change. Hits limits faster.</small>
+                                        </div>
+                                    </label>
                                 </div>
 
                                 <div class="vecthare-option-row vecthare-decay-exponential">
@@ -1881,11 +1897,14 @@ function bindActivationEditorEvents() {
     });
 
     // Decay mode toggle shows/hides exponential vs linear settings
-    $('#vecthare_decay_mode').on('change', function(e) {
+    $('input[name="vecthare_decay_mode"]').on('change', function(e) {
         e.stopPropagation();
         const mode = $(this).val();
         $('.vecthare-decay-exponential').toggle(mode === 'exponential');
         $('.vecthare-decay-linear').toggle(mode === 'linear');
+        // Update visual selection state
+        $('.vecthare-curve-toggle .vecthare-type-option').removeClass('selected');
+        $(this).closest('.vecthare-type-option').addClass('selected');
     });
 
     // Decay type toggle shows/hides decay-specific vs nostalgia-specific fields
@@ -1942,7 +1961,9 @@ function renderActivationEditor() {
     $(`input[name="vecthare_decay_type"][value="${decayType}"]`).prop('checked', true);
     $('.vecthare-type-option').removeClass('selected');
     $(`.vecthare-type-option[data-type="${decayType}"]`).addClass('selected');
-    $('#vecthare_decay_mode').val(decay.mode);
+    const decayMode = decay.mode || 'exponential';
+    $(`input[name="vecthare_decay_mode"][value="${decayMode}"]`).prop('checked', true);
+    $(`.vecthare-type-option[data-mode="${decayMode}"]`).addClass('selected');
     $('#vecthare_decay_halflife').val(decay.halfLife);
     $('#vecthare_decay_rate').val(decay.linearRate);
     $('#vecthare_decay_min').val(decay.minRelevance);
@@ -1998,7 +2019,7 @@ function saveActivation() {
     const temporalDecay = {
         enabled: $('#vecthare_decay_enabled').prop('checked'),
         type: $('input[name="vecthare_decay_type"]:checked').val() || 'decay',
-        mode: $('#vecthare_decay_mode').val(),
+        mode: $('input[name="vecthare_decay_mode"]:checked').val() || 'exponential',
         halfLife: parseInt($('#vecthare_decay_halflife').val()) || 50,
         linearRate: parseFloat($('#vecthare_decay_rate').val()) || 0.01,
         minRelevance: parseFloat($('#vecthare_decay_min').val()) || 0.3,

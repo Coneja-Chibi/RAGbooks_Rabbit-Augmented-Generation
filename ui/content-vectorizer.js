@@ -1092,9 +1092,11 @@ function bindEvents() {
     });
 
     // Manage cleaning patterns button - opens the standalone Text Cleaning Manager
-    $('#vecthare_cv_manage_cleaning').on('click', function(e) {
+    // Uses document delegation since the button is inside a dynamically rendered section
+    $(document).on('click', '#vecthare_cv_manage_cleaning', function(e) {
         e.preventDefault();
         e.stopPropagation();
+        console.log('VectHare: Opening Text Cleaning Manager');
         openTextCleaningManager();
     });
 

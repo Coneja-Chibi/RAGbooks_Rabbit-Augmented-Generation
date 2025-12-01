@@ -1126,6 +1126,35 @@
 }
 
 /* ============================================================================
+ * TEMPORAL WEIGHTING STYLES
+ * ============================================================================ */
+
+/* Temporal settings section - purple styling when enabled */
+.vecthare-cv-temporal-settings {
+    border-radius: 8px;
+    padding: 12px !important;
+    margin: 4px 0;
+    transition: background-color 0.2s ease;
+}
+
+.vecthare-cv-temporal-settings.enabled {
+    background: color-mix(in srgb, var(--vecthare-primary) 5%, transparent);
+}
+
+.vecthare-cv-temporal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+    margin-bottom: 10px;
+    transition: color 0.2s ease;
+}
+
+.vecthare-cv-temporal-settings.enabled .vecthare-cv-temporal-header {
+    color: var(--vecthare-primary);
+}
+
+/* ============================================================================
  * TEXT CLEANING STYLES
  * ============================================================================ */
 

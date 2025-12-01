@@ -926,20 +926,18 @@ function renderTemporalDecayOptions() {
     const maxBoost = decay.maxBoost || 1.2;
 
     return `
-        <div class="vecthare-cv-decay-options">
-            <div class="vecthare-cv-option-row">
-                <label class="vecthare-cv-toggle-label">
-                    <span>Temporal Weighting</span>
-                    <label class="vecthare-toggle-switch">
-                        <input type="checkbox" id="vecthare_cv_temporal_decay"
-                               ${isEnabled ? 'checked' : ''}>
-                        <span class="vecthare-toggle-slider"></span>
-                    </label>
+        <div class="vecthare-cv-option-row vecthare-cv-temporal-settings ${isEnabled ? 'enabled' : ''}">
+            <div class="vecthare-cv-temporal-header">
+                <span>Temporal Weighting</span>
+                <label class="vecthare-toggle-switch">
+                    <input type="checkbox" id="vecthare_cv_temporal_decay"
+                           ${isEnabled ? 'checked' : ''}>
+                    <span class="vecthare-toggle-slider"></span>
                 </label>
-                <span class="vecthare-cv-option-hint">
-                    Adjust relevance based on message age
-                </span>
             </div>
+            <span class="vecthare-cv-option-hint">
+                Adjust relevance based on message age
+            </span>
 
             <div class="vecthare-cv-decay-type-section" style="display: ${isEnabled ? 'block' : 'none'};">
                 <!-- Type: Decay vs Nostalgia -->
@@ -1174,6 +1172,8 @@ function bindEvents() {
         }
         currentSettings.temporalDecay.enabled = isEnabled;
         $('.vecthare-cv-decay-type-section').toggle(isEnabled);
+        // Toggle the enabled class for purple styling
+        $('.vecthare-cv-temporal-settings').toggleClass('enabled', isEnabled);
     });
 
     // Temporal weighting type toggle (decay vs nostalgia)

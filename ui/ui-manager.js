@@ -22,6 +22,7 @@ import { resetBackendHealth } from '../backends/backend-manager.js';
 import { getChatCollectionId } from '../core/chat-vectorization.js';
 import { doesChatHaveVectors } from '../core/collection-loader.js';
 import { getModelField } from '../core/providers.js';
+import { getChunkingStrategies } from '../core/content-types.js';
 
 /**
  * Renders the VectHare settings UI
@@ -444,18 +445,12 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <small>Chunking Strategy</small>
                             </label>
                             <select id="vecthare_chunking_strategy" class="vecthare-select">
-                                <option value="per_message">Per Message</option>
-                                <option value="conversation_turns">Conversation Turns</option>
-                                <option value="message_batch">Message Batches</option>
-                                <option value="per_scene">Per Scene</option>
+                                <!-- Populated dynamically from content-types.js -->
                             </select>
 
-                            <!-- Strategy descriptions -->
+                            <!-- Strategy description (populated dynamically) -->
                             <div id="vecthare_strategy_info" class="vecthare_hint" style="margin-top: 4px; margin-bottom: 12px;">
-                                <span id="vecthare_strategy_desc_per_message">Each message becomes one chunk</span>
-                                <span id="vecthare_strategy_desc_conversation_turns" style="display:none;">Each user + AI pair becomes one chunk</span>
-                                <span id="vecthare_strategy_desc_message_batch" style="display:none;">Every N messages becomes one chunk</span>
-                                <span id="vecthare_strategy_desc_per_scene" style="display:none;">Each scene becomes one chunk (vectorized on scene completion)</span>
+                                <span id="vecthare_strategy_description"></span>
                             </div>
 
                             <!-- Message Batch settings (only shown for message_batch strategy) -->
@@ -1383,24 +1378,29 @@ function bindSettingsEvents(settings, callbacks) {
             console.log(`VectHare: Chat auto-sync for ${collectionId}: ${enabling ? 'enabled' : 'disabled'}`);
         });
 
-    // Chunking strategy
-    function updateStrategyUI(strategy) {
-        // Hide all descriptions
-        $('#vecthare_strategy_desc_per_message, #vecthare_strategy_desc_conversation_turns, #vecthare_strategy_desc_message_batch, #vecthare_strategy_desc_per_scene').hide();
-        // Show selected description
-        $(`#vecthare_strategy_desc_${strategy}`).show();
-        // Show/hide batch settings
-        $('#vecthare_batch_settings').toggle(strategy === 'message_batch');
+    // Chunking strategy - populate from content-types.js (single source of truth)
+    const chatStrategies = getChunkingStrategies('chat');
+    const strategySelect = $('#vecthare_chunking_strategy');
+    strategySelect.empty();
+    for (const strategy of chatStrategies) {
+        const selected = strategy.id === (settings.chunking_strategy || 'per_message');
+        strategySelect.append(`<option value="${strategy.id}" ${selected ? 'selected' : ''}>${strategy.name}</option>`);
     }
 
-    $('#vecthare_chunking_strategy')
-        .val(settings.chunking_strategy || 'per_message')
-        .on('change', function() {
-            settings.chunking_strategy = String($(this).val());
-            Object.assign(extension_settings.vecthare, settings);
-            saveSettingsDebounced();
-            updateStrategyUI(settings.chunking_strategy);
-        });
+    function updateStrategyUI(strategyId) {
+        // Update description from content-types.js
+        const strategy = chatStrategies.find(s => s.id === strategyId);
+        $('#vecthare_strategy_description').text(strategy?.description || '');
+        // Show/hide batch settings
+        $('#vecthare_batch_settings').toggle(strategyId === 'message_batch');
+    }
+
+    strategySelect.on('change', function() {
+        settings.chunking_strategy = String($(this).val());
+        Object.assign(extension_settings.vecthare, settings);
+        saveSettingsDebounced();
+        updateStrategyUI(settings.chunking_strategy);
+    });
     updateStrategyUI(settings.chunking_strategy || 'per_message');
 
     // Batch size (for message_batch strategy)

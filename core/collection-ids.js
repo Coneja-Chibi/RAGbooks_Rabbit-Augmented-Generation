@@ -282,13 +282,13 @@ export function parseCollectionId(collectionId) {
         };
     }
 
-    // CarrotKernel character format: carrotkernel_char_*
+    // CarrotKernel/Fullsheet character format: carrotkernel_char_*
     if (collectionId.startsWith(COLLECTION_PREFIXES.CARROTKERNEL_CHAR)) {
         return {
-            type: COLLECTION_TYPES.CHAT,
+            type: COLLECTION_TYPES.CHARACTER,
             rawId: collectionId.replace(COLLECTION_PREFIXES.CARROTKERNEL_CHAR, ''),
             scope: COLLECTION_SCOPES.CHARACTER,
-            format: 'carrotkernel',
+            format: 'fullsheet',
         };
     }
 

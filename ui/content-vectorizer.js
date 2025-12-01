@@ -27,6 +27,7 @@ import {
 import { extension_settings, getContext } from '../../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../../script.js';
 import { getChatUUID } from '../core/chat-vectorization.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 
 // ============================================================================
 // STATE
@@ -2159,6 +2160,43 @@ async function startVectorization() {
     if (!source) {
         toastr.warning('Please select or enter content first');
         return;
+    }
+
+    // Check if vectors already exist for this content (chat specifically)
+    if (currentContentType === 'chat' && source.sourceType === 'current') {
+        try {
+            const { doesChatHaveVectors } = await import('../core/collection-loader.js');
+            const existing = await doesChatHaveVectors(currentSettings);
+
+            if (existing.hasVectors && existing.chunkCount > 0) {
+                const confirmed = await callGenericPopup(
+                    `<div style="text-align: center;">
+                        <p>This chat already has <strong>${existing.chunkCount} chunks</strong> vectorized.</p>
+                        <p style="margin-top: 10px;">What would you like to do?</p>
+                    </div>`,
+                    POPUP_TYPE.CONFIRM,
+                    '',
+                    {
+                        okButton: 'Replace All',
+                        cancelButton: 'Cancel',
+                    }
+                );
+
+                if (!confirmed) {
+                    return;
+                }
+
+                // User wants to replace - purge existing first
+                const { purgeVectorIndex } = await import('../core/core-vector-api.js');
+                const { unregisterCollection } = await import('../core/collection-loader.js');
+                await purgeVectorIndex(existing.collectionId, currentSettings);
+                unregisterCollection(existing.collectionId);
+                toastr.info('Cleared existing vectors', 'VectHare');
+            }
+        } catch (e) {
+            console.warn('VectHare: Could not check for existing vectors:', e);
+            // Continue anyway
+        }
     }
 
     const btn = $('#vecthare_cv_vectorize');

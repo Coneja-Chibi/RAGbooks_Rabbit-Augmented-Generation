@@ -18,6 +18,7 @@ import { openVisualizer } from './chunk-visualizer.js';
 import { openDatabaseBrowser } from './database-browser.js';
 import { openContentVectorizer } from './content-vectorizer.js';
 import { openSearchDebugModal, getLastSearchDebug } from './search-debug.js';
+import { openTextCleaningManager } from './text-cleaning-manager.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
 import { getChatCollectionId } from '../core/chat-vectorization.js';
 import { doesChatHaveVectors } from '../core/collection-loader.js';
@@ -502,6 +503,10 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <button id="vecthare_purge" class="vecthare-action-btn vecthare-btn-danger-outline">
                                     <i class="fa-solid fa-trash"></i>
                                     <span>Purge</span>
+                                </button>
+                                <button id="vecthare_text_cleaning" class="vecthare-action-btn vecthare-btn-secondary">
+                                    <i class="fa-solid fa-broom"></i>
+                                    <span>Text Cleaning</span>
                                 </button>
                             </div>
 
@@ -1879,6 +1884,9 @@ function bindSettingsEvents(settings, callbacks) {
     });
     $('#vecthare_view_results').on('click', () => {
         openSearchDebugModal();
+    });
+    $('#vecthare_text_cleaning').on('click', () => {
+        openTextCleaningManager();
     });
 
     // Initialize provider-specific settings visibility

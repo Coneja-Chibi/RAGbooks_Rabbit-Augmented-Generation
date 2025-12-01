@@ -2070,3 +2070,86 @@
     background: color-mix(in srgb, var(--vecthare-danger) 15%, transparent);
     border-color: var(--vecthare-danger);
 }
+
+/* ============================================================================
+ * TEMPORAL WEIGHTING TYPE TOGGLE (Decay vs Nostalgia)
+ * ============================================================================ */
+
+.vecthare-type-toggle {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.vecthare-type-option {
+    flex: 1;
+    cursor: pointer;
+}
+
+.vecthare-type-option input[type="radio"] {
+    display: none;
+}
+
+.vecthare-type-card {
+    padding: 14px 16px;
+    border: 2px solid color-mix(in srgb, var(--SmartThemeBodyColor) 15%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, var(--SmartThemeBlurTintColor));
+    transition: all 0.2s ease;
+}
+
+.vecthare-type-card:hover {
+    border-color: color-mix(in srgb, var(--vecthare-primary) 40%, transparent);
+    background: color-mix(in srgb, var(--vecthare-primary) 8%, var(--SmartThemeBlurTintColor));
+}
+
+.vecthare-type-option.selected .vecthare-type-card,
+.vecthare-type-option input:checked + .vecthare-type-card {
+    border-color: var(--vecthare-primary);
+    background: color-mix(in srgb, var(--vecthare-primary) 15%, var(--SmartThemeBlurTintColor));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--vecthare-primary) 20%, transparent);
+}
+
+.vecthare-type-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.vecthare-type-icon {
+    font-size: 1.3em;
+}
+
+.vecthare-type-header strong {
+    font-size: 1em;
+    font-weight: 600;
+    color: var(--SmartThemeBodyColor);
+}
+
+.vecthare-type-card small {
+    display: block;
+    font-size: 0.82em;
+    color: color-mix(in srgb, var(--SmartThemeBodyColor) 70%, transparent);
+    line-height: 1.4;
+}
+
+/* Responsive: stack vertically on small screens */
+@media (max-width: 500px) {
+    .vecthare-type-toggle {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .vecthare-type-card {
+        padding: 12px 14px;
+    }
+
+    .vecthare-type-header {
+        gap: 8px;
+    }
+
+    .vecthare-type-icon {
+        font-size: 1.1em;
+    }
+}

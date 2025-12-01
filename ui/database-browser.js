@@ -1686,13 +1686,27 @@ function createActivationEditorModal() {
                             </div>
 
                             <div class="vecthare-decay-advanced" id="vecthare_decay_advanced">
-                                <div class="vecthare-option-row">
-                                    <label>Weighting type:</label>
-                                    <select id="vecthare_decay_type">
-                                        <option value="decay">Decay (recency bias)</option>
-                                        <option value="nostalgia">Nostalgia (history bias)</option>
-                                    </select>
-                                    <small id="vecthare_decay_type_hint">Newer messages score higher</small>
+                                <div class="vecthare-type-toggle">
+                                    <label class="vecthare-type-option" data-type="decay">
+                                        <input type="radio" name="vecthare_decay_type" value="decay" checked>
+                                        <div class="vecthare-type-card">
+                                            <div class="vecthare-type-header">
+                                                <span class="vecthare-type-icon">📉</span>
+                                                <strong>Decay</strong>
+                                            </div>
+                                            <small>Recent messages score higher. Older memories fade over time.</small>
+                                        </div>
+                                    </label>
+                                    <label class="vecthare-type-option" data-type="nostalgia">
+                                        <input type="radio" name="vecthare_decay_type" value="nostalgia">
+                                        <div class="vecthare-type-card">
+                                            <div class="vecthare-type-header">
+                                                <span class="vecthare-type-icon">📈</span>
+                                                <strong>Nostalgia</strong>
+                                            </div>
+                                            <small>Older messages score higher. Ancient history becomes more relevant.</small>
+                                        </div>
+                                    </label>
                                 </div>
 
                                 <div class="vecthare-option-row">
@@ -1875,12 +1889,15 @@ function bindActivationEditorEvents() {
     });
 
     // Decay type toggle shows/hides decay-specific vs nostalgia-specific fields
-    $('#vecthare_decay_type').on('change', function(e) {
+    $('input[name="vecthare_decay_type"]').on('change', function(e) {
         e.stopPropagation();
         const isNostalgia = $(this).val() === 'nostalgia';
         $('.vecthare-decay-floor').toggle(!isNostalgia);
         $('.vecthare-nostalgia-ceiling').toggle(isNostalgia);
         updateTemporalWeightingHints(isNostalgia);
+        // Update visual selection state
+        $('.vecthare-type-option').removeClass('selected');
+        $(this).closest('.vecthare-type-option').addClass('selected');
     });
 
     // Injection position toggle shows/hides depth row
@@ -1921,7 +1938,10 @@ function renderActivationEditor() {
     // Temporal Weighting (decay or nostalgia)
     const decay = state.temporalDecay;
     $('#vecthare_decay_enabled').prop('checked', decay.enabled);
-    $('#vecthare_decay_type').val(decay.type || 'decay');
+    const decayType = decay.type || 'decay';
+    $(`input[name="vecthare_decay_type"][value="${decayType}"]`).prop('checked', true);
+    $('.vecthare-type-option').removeClass('selected');
+    $(`.vecthare-type-option[data-type="${decayType}"]`).addClass('selected');
     $('#vecthare_decay_mode').val(decay.mode);
     $('#vecthare_decay_halflife').val(decay.halfLife);
     $('#vecthare_decay_rate').val(decay.linearRate);
@@ -1937,7 +1957,7 @@ function renderActivationEditor() {
     $('.vecthare-decay-linear').toggle(decay.mode === 'linear');
 
     // Show/hide type-specific fields and update hints
-    const isNostalgia = (decay.type || 'decay') === 'nostalgia';
+    const isNostalgia = decayType === 'nostalgia';
     $('.vecthare-decay-floor').toggle(!isNostalgia);
     $('.vecthare-nostalgia-ceiling').toggle(isNostalgia);
     updateTemporalWeightingHints(isNostalgia);
@@ -1977,7 +1997,7 @@ function saveActivation() {
     // Build temporal weighting settings (decay or nostalgia)
     const temporalDecay = {
         enabled: $('#vecthare_decay_enabled').prop('checked'),
-        type: $('#vecthare_decay_type').val() || 'decay',
+        type: $('input[name="vecthare_decay_type"]:checked').val() || 'decay',
         mode: $('#vecthare_decay_mode').val(),
         halfLife: parseInt($('#vecthare_decay_halflife').val()) || 50,
         linearRate: parseFloat($('#vecthare_decay_rate').val()) || 0.01,

@@ -913,23 +913,52 @@ function renderFieldSelection() {
 }
 
 /**
- * Renders temporal decay options
+ * Renders temporal weighting options with toggle cards
  */
 function renderTemporalDecayOptions() {
+    const decay = currentSettings.temporalDecay || {};
+    const isEnabled = decay.enabled || false;
+    const decayType = decay.type || 'decay';
+
     return `
         <div class="vecthare-cv-decay-options">
             <div class="vecthare-cv-option-row">
                 <label class="vecthare-cv-toggle-label">
-                    <span>Temporal Decay</span>
+                    <span>Temporal Weighting</span>
                     <label class="vecthare-toggle-switch">
                         <input type="checkbox" id="vecthare_cv_temporal_decay"
-                               ${currentSettings.temporalDecay?.enabled ? 'checked' : ''}>
+                               ${isEnabled ? 'checked' : ''}>
                         <span class="vecthare-toggle-slider"></span>
                     </label>
                 </label>
                 <span class="vecthare-cv-option-hint">
-                    Reduce relevance of older content over time
+                    Adjust relevance based on message age
                 </span>
+            </div>
+
+            <div class="vecthare-cv-decay-type-section" style="display: ${isEnabled ? 'block' : 'none'};">
+                <div class="vecthare-type-toggle">
+                    <label class="vecthare-type-option ${decayType === 'decay' ? 'selected' : ''}" data-type="decay">
+                        <input type="radio" name="vecthare_cv_decay_type" value="decay" ${decayType === 'decay' ? 'checked' : ''}>
+                        <div class="vecthare-type-card">
+                            <div class="vecthare-type-header">
+                                <span class="vecthare-type-icon">📉</span>
+                                <strong>Decay</strong>
+                            </div>
+                            <small>Recent messages score higher. Older memories fade over time.</small>
+                        </div>
+                    </label>
+                    <label class="vecthare-type-option ${decayType === 'nostalgia' ? 'selected' : ''}" data-type="nostalgia">
+                        <input type="radio" name="vecthare_cv_decay_type" value="nostalgia" ${decayType === 'nostalgia' ? 'checked' : ''}>
+                        <div class="vecthare-type-card">
+                            <div class="vecthare-type-header">
+                                <span class="vecthare-type-icon">📈</span>
+                                <strong>Nostalgia</strong>
+                            </div>
+                            <small>Older messages score higher. Ancient history becomes more relevant.</small>
+                        </div>
+                    </label>
+                </div>
             </div>
         </div>
     `;
@@ -1068,6 +1097,28 @@ function bindEvents() {
         const value = parseFloat($(this).val());
         currentSettings.keywordBaseWeight = isNaN(value) ? 1.5 : Math.min(3.0, Math.max(0.01, value));
         $(this).val(currentSettings.keywordBaseWeight);
+    });
+
+    // Temporal weighting enable/disable
+    $(document).on('change', '#vecthare_cv_temporal_decay', function() {
+        const isEnabled = $(this).prop('checked');
+        if (!currentSettings.temporalDecay) {
+            currentSettings.temporalDecay = { enabled: false, type: 'decay' };
+        }
+        currentSettings.temporalDecay.enabled = isEnabled;
+        $('.vecthare-cv-decay-type-section').toggle(isEnabled);
+    });
+
+    // Temporal weighting type toggle (decay vs nostalgia)
+    $(document).on('change', 'input[name="vecthare_cv_decay_type"]', function() {
+        const type = $(this).val();
+        if (!currentSettings.temporalDecay) {
+            currentSettings.temporalDecay = { enabled: true, type: 'decay' };
+        }
+        currentSettings.temporalDecay.type = type;
+        // Update visual selection state
+        $('.vecthare-cv-decay-options .vecthare-type-option').removeClass('selected');
+        $(this).closest('.vecthare-type-option').addClass('selected');
     });
 
     // Cleaning preset dropdown

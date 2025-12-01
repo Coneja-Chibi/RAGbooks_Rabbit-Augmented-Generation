@@ -731,6 +731,26 @@ export function checkApiKeys(settings) {
         };
     }
 
+    // BananaBread stores API key in extension settings (not ST's secret store)
+    // because custom keys aren't reliably returned by ST's readSecretState()
+    if (source === 'bananabread') {
+        if (settings.bananabread_api_key) {
+            return {
+                name: 'API Key',
+                status: 'pass',
+                message: 'API key configured'
+            };
+        } else {
+            return {
+                name: 'API Key',
+                status: 'fail',
+                message: 'BananaBread requires an API key',
+                fixable: true,
+                fixAction: 'configure_api_key'
+            };
+        }
+    }
+
     const secretKey = getSecretKey(source);
     const keyPresent = secretKey && secret_state[secretKey];
 

@@ -193,14 +193,26 @@ function renderCustomPatterns(patterns) {
 
     return patterns.map(p => `
         <div class="vecthare-tcm-custom-item" data-id="${p.id}">
-            <input type="checkbox" class="vecthare-tcm-custom-enabled" ${p.enabled !== false ? 'checked' : ''}>
+            <input type="checkbox" class="vecthare-tcm-custom-enabled" ${p.enabled !== false ? 'checked' : ''} title="Enable/disable this pattern">
             <div class="vecthare-tcm-custom-fields">
-                <input type="text" class="vecthare-tcm-custom-name" value="${escapeHtml(p.name)}" placeholder="Name">
-                <input type="text" class="vecthare-tcm-custom-pattern" value="${escapeHtml(p.pattern)}" placeholder="Regex pattern">
-                <input type="text" class="vecthare-tcm-custom-replacement" value="${escapeHtml(p.replacement || '')}" placeholder="Replacement">
-                <input type="text" class="vecthare-tcm-custom-flags" value="${p.flags || 'gi'}" placeholder="Flags">
+                <div class="vecthare-tcm-field">
+                    <label>Name</label>
+                    <input type="text" class="vecthare-tcm-custom-name" value="${escapeHtml(p.name)}" placeholder="My Pattern">
+                </div>
+                <div class="vecthare-tcm-field vecthare-tcm-field-wide">
+                    <label>Regex Pattern</label>
+                    <input type="text" class="vecthare-tcm-custom-pattern" value="${escapeHtml(p.pattern)}" placeholder="<tag[^>]*>">
+                </div>
+                <div class="vecthare-tcm-field">
+                    <label>Replace With</label>
+                    <input type="text" class="vecthare-tcm-custom-replacement" value="${escapeHtml(p.replacement || '')}" placeholder="(empty = delete)">
+                </div>
+                <div class="vecthare-tcm-field vecthare-tcm-field-xs">
+                    <label>Flags</label>
+                    <input type="text" class="vecthare-tcm-custom-flags" value="${p.flags || 'gi'}" placeholder="gi" title="g=global, i=case-insensitive, m=multiline">
+                </div>
             </div>
-            <button class="vecthare-btn-icon vecthare-btn-danger" data-action="delete" title="Delete">
+            <button class="vecthare-btn-icon vecthare-btn-danger" data-action="delete" title="Delete pattern">
                 <i class="fa-solid fa-trash"></i>
             </button>
         </div>

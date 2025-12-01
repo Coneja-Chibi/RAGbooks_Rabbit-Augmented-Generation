@@ -331,8 +331,11 @@ class QdrantBackend {
 
         // Format points for Qdrant with multitenancy payload
         // NOTE: Spread item.metadata FIRST so critical fields can override it
+        // IMPORTANT: Ensure hash is a number - Qdrant accepts unsigned integers or UUID strings,
+        // but NOT numeric strings like "977206". JSON parsing from HTTP requests can sometimes
+        // convert numbers to strings, so we explicitly coerce here.
         const points = items.map(item => ({
-            id: item.hash, // Use hash as ID (must be number or UUID string)
+            id: typeof item.hash === 'string' ? parseInt(item.hash, 10) : item.hash, // Ensure numeric ID for Qdrant
             vector: item.vector,
             payload: {
                 // ===== SPREAD ADDITIONAL METADATA FIRST (so it can be overridden) =====
@@ -659,8 +662,10 @@ class QdrantBackend {
 
         try {
             // Delete points by ID (hash)
+            // Ensure hashes are numbers - Qdrant requires unsigned integers or UUID strings
+            const numericHashes = hashes.map(h => typeof h === 'string' ? parseInt(h, 10) : h);
             await this._request('POST', `/collections/${mainCollection}/points/delete?wait=true`, {
-                points: hashes,
+                points: numericHashes,
             });
 
             console.log(`[Qdrant] Deleted ${hashes.length} items from ${mainCollection}`);

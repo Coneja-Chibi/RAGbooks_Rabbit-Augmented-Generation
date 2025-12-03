@@ -157,7 +157,7 @@ async function saveAllChanges() {
     try {
         for (const [hash, updates] of pendingChanges) {
             // Check what kind of update is needed
-            if (updates.text !== undefined) {
+            if (updates.text) {
                 // Text changed - requires re-embedding
                 await updateChunkText(currentCollectionId, hash, updates.text, currentSettings);
             }
@@ -187,22 +187,25 @@ async function saveAllChanges() {
                 await deleteVectorItems(currentCollectionId, hashesToDelete, currentSettings);
             }
 
-            // Metadata updates (keywords, enabled, conditions, etc.) - no re-embedding
+            // Save to local settings FIRST (without temp tracking fields)
+            const toSave = { ...updates };
+            delete toSave._newSummaries;
+            delete toSave._deletedSummaries;
+            delete toSave.text; // Don't save text to metadata here
+            const existing = getChunkMetadata(hash) || {};
+            saveChunkMetadata(hash, { ...existing, ...toSave });
+
+            // Only call updateChunkMetadata if there are non-metadata changes
+            // (metadata-only updates should skip the API call)
             const metadataUpdates = { ...updates };
             delete metadataUpdates.text;
             delete metadataUpdates._newSummaries;
             delete metadataUpdates._deletedSummaries;
 
-            if (Object.keys(metadataUpdates).length > 0) {
+            if (Object.keys(metadataUpdates).length > 0 && updates.text) {
+                // Only update via API if text was changed (which needs re-vectorization)
                 await updateChunkMetadata(currentCollectionId, hash, metadataUpdates, currentSettings);
             }
-
-            // Save to local settings (without temp tracking fields)
-            const toSave = { ...updates };
-            delete toSave._newSummaries;
-            delete toSave._deletedSummaries;
-            const existing = getChunkMetadata(hash) || {};
-            saveChunkMetadata(hash, { ...existing, ...toSave });
         }
 
         pendingChanges.clear();
@@ -396,6 +399,7 @@ function createModal() {
                                     <option value="keywords">Sort: Most Keywords</option>
                                     <option value="modified">Sort: Recently Modified</option>
                                     <option value="index-r">Sort: Message order Reversed</option>
+
                                 </select>
                                 <select class="vecthare-list-filter" id="vecthare_chunk_filter">
                                     <option value="all">Filter: All</option>

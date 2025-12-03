@@ -11,74 +11,76 @@
  */
 
 import {
-    loadAllCollections,
-    setCollectionEnabled,
-    registerCollection,
-    unregisterCollection,
-    clearCollectionRegistry,
-    deleteCollection,
-} from '../core/collection-loader.js';
-import { purgeVectorIndex, queryMultipleCollections } from '../core/core-vector-api.js';
-import { getRequestHeaders } from '../../../../../script.js';
+  loadAllCollections,
+  setCollectionEnabled,
+  registerCollection,
+  unregisterCollection,
+  clearCollectionRegistry,
+  deleteCollection,
+} from "../core/collection-loader.js";
 import {
-    cleanupOrphanedMeta,
-    deleteCollectionMeta,
-    getCollectionConditions,
-    setCollectionConditions,
-    getCollectionTriggers,
-    setCollectionTriggers,
-    getCollectionMeta,
-    setCollectionMeta,
-    getCollectionActivationSummary,
-    getCollectionDecaySummary,
-    getCollectionDecaySettings,
-    setCollectionDecaySettings,
-    hasCustomDecaySettings,
-    getDefaultDecayForType,
-    isCollectionEnabled,
-    // Locking API
-    getCollectionLock,
-    getCollectionLocks,
-    setCollectionLock,
-    removeCollectionLock,
-    clearCollectionLock,
-    isCollectionLockedToChat,
-    getCollectionLockCount,
-    // Character Locking API
-    getCollectionCharacterLocks,
-    setCollectionCharacterLock,
-    removeCollectionCharacterLock,
-    clearCollectionCharacterLocks,
-    isCollectionLockedToCharacter,
-    getCollectionCharacterLockCount,
-} from '../core/collection-metadata.js';
+  purgeVectorIndex,
+  queryMultipleCollections,
+} from "../core/core-vector-api.js";
+import { getRequestHeaders, getCurrentChatId, eventSource, event_types } from "../../../../../script.js";
 import {
-    VALID_EMOTIONS,
-    VALID_GENERATION_TYPES,
-    getExpressionsExtensionStatus
-} from '../core/conditional-activation.js';
-import { getContext } from '../../../../extensions.js';
-import { getCurrentChatId, eventSource, event_types } from '../../../../../script.js';
-import { world_names, loadWorldInfo } from '../../../../world-info.js';
-import { icons } from './icons.js';
-import { openVisualizer } from './chunk-visualizer.js';
-import { queryCollection } from '../core/core-vector-api.js';
+  cleanupOrphanedMeta,
+  deleteCollectionMeta,
+  getCollectionConditions,
+  setCollectionConditions,
+  getCollectionTriggers,
+  setCollectionTriggers,
+  getCollectionMeta,
+  setCollectionMeta,
+  getCollectionActivationSummary,
+  getCollectionDecaySummary,
+  getCollectionDecaySettings,
+  setCollectionDecaySettings,
+  hasCustomDecaySettings,
+  getDefaultDecayForType,
+  isCollectionEnabled,
+  // Locking API
+  getCollectionLock,
+  getCollectionLocks,
+  setCollectionLock,
+  removeCollectionLock,
+  clearCollectionLock,
+  isCollectionLockedToChat,
+  getCollectionLockCount,
+  // Character Locking API
+  getCollectionCharacterLocks,
+  setCollectionCharacterLock,
+  removeCollectionCharacterLock,
+  clearCollectionCharacterLocks,
+  isCollectionLockedToCharacter,
+  getCollectionCharacterLockCount,
+} from "../core/collection-metadata.js";
+import { getContext } from "../../../../extensions.js";
 import {
-    exportCollection,
-    importCollection,
-    downloadExport,
-    readImportFile,
-    validateImportData,
-    getExportInfo,
-} from '../core/collection-export.js';
+  VALID_EMOTIONS,
+  VALID_GENERATION_TYPES,
+  getExpressionsExtensionStatus,
+} from "../core/conditional-activation.js";
+import { world_names, loadWorldInfo } from "../../../../world-info.js";
+import { icons } from "./icons.js";
+import { openVisualizer } from "./chunk-visualizer.js";
+import { queryCollection } from "../core/core-vector-api.js";
 import {
-    embedDataInPNG,
-    extractDataFromPNG,
-    downloadPNG,
-    readPNGFile,
-    convertToPNG,
-    isVectHarePNG,
-} from '../core/png-export.js';
+  exportCollection,
+  importCollection,
+  downloadExport,
+  readImportFile,
+  validateImportData,
+  getExportInfo,
+} from "../core/collection-export.js";
+import {
+  embedDataInPNG,
+  extractDataFromPNG,
+  downloadPNG,
+  readPNGFile,
+  convertToPNG,
+  isVectHarePNG,
+} from "../core/png-export.js";
 
 // Plugin availability cache
 let pluginAvailable = null;
@@ -88,40 +90,40 @@ let pluginAvailable = null;
  * @returns {Promise<boolean>}
  */
 async function checkPluginAvailable() {
-    if (pluginAvailable !== null) return pluginAvailable;
+  if (pluginAvailable !== null) return pluginAvailable;
 
-    try {
-        const response = await fetch('/api/plugins/similharity/health', {
-            method: 'GET',
-            headers: getRequestHeaders()
-        });
-        pluginAvailable = response.ok;
-    } catch {
-        pluginAvailable = false;
-    }
-    return pluginAvailable;
+  try {
+    const response = await fetch("/api/plugins/similharity/health", {
+      method: "GET",
+      headers: getRequestHeaders(),
+    });
+    pluginAvailable = response.ok;
+  } catch {
+    pluginAvailable = false;
+  }
+  return pluginAvailable;
 }
 
 // Browser state
 let browserState = {
-    isOpen: false,
-    pluginAvailable: null,
-    collections: [],
-    selectedCollection: null,
-    filters: {
-        scope: 'all',        // 'all', 'global', 'character', 'chat'
-        collectionType: 'all', // 'all', 'chat', 'file', 'lorebook'
-        searchQuery: ''
-    },
-    settings: null,
-    // Bulk operations state
-    bulkSelected: new Set(),
-    bulkFilter: 'all', // 'all', 'enabled', 'disabled'
-    // Search state
-    searchResults: null,
-    isSearching: false,
-    // PNG export state
-    pendingPngExport: null,
+  isOpen: false,
+  pluginAvailable: null,
+  collections: [],
+  selectedCollection: null,
+  filters: {
+    scope: "all", // 'all', 'global', 'character', 'chat'
+    collectionType: "all", // 'all', 'chat', 'file', 'lorebook'
+    searchQuery: "",
+  },
+  settings: null,
+  // Bulk operations state
+  bulkSelected: new Set(),
+  bulkFilter: "all", // 'all', 'enabled', 'disabled'
+  // Search state
+  searchResults: null,
+  isSearching: false,
+  // PNG export state
+  pendingPngExport: null,
 };
 
 // Event binding flags (module-level for proper reset on modal close)
@@ -133,77 +135,77 @@ let bulkEventsBound = false;
  * @param {object} settings VectHare settings
  */
 export function initializeDatabaseBrowser(settings) {
-    browserState.settings = settings;
-    console.log('VectHare Database Browser: Initialized');
+  browserState.settings = settings;
+  console.log("VectHare Database Browser: Initialized");
 }
 
 /**
  * Opens the database browser modal
  */
 export async function openDatabaseBrowser() {
-    if (browserState.isOpen) {
-        console.log('VectHare Database Browser: Already open');
-        return;
-    }
+  if (browserState.isOpen) {
+    console.log("VectHare Database Browser: Already open");
+    return;
+  }
 
-    browserState.isOpen = true;
+  browserState.isOpen = true;
 
-    // Check plugin availability
-    browserState.pluginAvailable = await checkPluginAvailable();
+  // Check plugin availability
+  browserState.pluginAvailable = await checkPluginAvailable();
 
-    // Create modal if it doesn't exist
-    if ($('#vecthare_database_browser_modal').length === 0) {
-        createBrowserModal();
-    }
+  // Create modal if it doesn't exist
+  if ($("#vecthare_database_browser_modal").length === 0) {
+    createBrowserModal();
+  }
 
-    // Show/hide plugin warning banner
-    updatePluginWarningBanner();
+  // Show/hide plugin warning banner
+  updatePluginWarningBanner();
 
-    // Load collections
-    await refreshCollections();
+  // Load collections
+  await refreshCollections();
 
-    // Show modal
-    $('#vecthare_database_browser_modal').fadeIn(200);
-    console.log('VectHare Database Browser: Opened');
+  // Show modal
+  $("#vecthare_database_browser_modal").fadeIn(200);
+  console.log("VectHare Database Browser: Opened");
 }
 
 /**
  * Updates the plugin warning banner visibility
  */
 function updatePluginWarningBanner() {
-    const banner = $('#vecthare_plugin_warning_banner');
-    if (browserState.pluginAvailable) {
-        banner.hide();
-    } else {
-        banner.show();
-    }
+  const banner = $("#vecthare_plugin_warning_banner");
+  if (browserState.pluginAvailable) {
+    banner.hide();
+  } else {
+    banner.show();
+  }
 }
 
 /**
  * Closes the database browser modal
  */
 export function closeDatabaseBrowser() {
-    $('#vecthare_database_browser_modal').fadeOut(200);
-    browserState.isOpen = false;
-    // Reset event bound flags for clean rebind on next open
-    resetEventFlags();
-    console.log('VectHare Database Browser: Closed');
+  $("#vecthare_database_browser_modal").fadeOut(200);
+  browserState.isOpen = false;
+  // Reset event bound flags for clean rebind on next open
+  resetEventFlags();
+  console.log("VectHare Database Browser: Closed");
 }
 
 /**
  * Resets event bound flags (called on modal close)
  */
 function resetEventFlags() {
-    // Reset flags so events rebind properly on next modal open
-    bulkEventsBound = false;
-    searchEventsBound = false;
+  // Reset flags so events rebind properly on next modal open
+  bulkEventsBound = false;
+  searchEventsBound = false;
 }
 
 /**
  * Creates the browser modal HTML structure
  */
 function createBrowserModal() {
-    const modalHtml = `
+  const modalHtml = `
         <div id="vecthare_database_browser_modal" class="vecthare-modal">
             <div class="vecthare-modal-content vecthare-database-browser-content">
                 <!-- Header -->
@@ -397,192 +399,203 @@ function createBrowserModal() {
         </div>
     `;
 
-    $('body').append(modalHtml);
+  $("body").append(modalHtml);
 
-    // Bind events
-    bindBrowserEvents();
+  // Bind events
+  bindBrowserEvents();
 }
 
 /**
  * Binds event handlers for browser UI
  */
 function bindBrowserEvents() {
-    // Close button
-    $('#vecthare_browser_close').on('click', function(e) {
-        e.stopPropagation();
-        e.preventDefault();
-        closeDatabaseBrowser();
-    });
+  // Close button
+  $("#vecthare_browser_close").on("click", function (e) {
+    e.stopPropagation();
+    e.preventDefault();
+    closeDatabaseBrowser();
+  });
 
-    // Stop propagation on ALL clicks within modal (prevents extension panel from closing)
-    // Only close when clicking directly on the modal background (overlay)
-    $('#vecthare_database_browser_modal').on('click', function(e) {
-        e.stopPropagation();
-        if (e.target === this) {
-            e.preventDefault();
-            closeDatabaseBrowser();
+  // Stop propagation on ALL clicks within modal (prevents extension panel from closing)
+  // Only close when clicking directly on the modal background (overlay)
+  $("#vecthare_database_browser_modal").on("click", function (e) {
+    e.stopPropagation();
+    if (e.target === this) {
+      e.preventDefault();
+      closeDatabaseBrowser();
+    }
+  });
+
+  // Tab switching
+  $(".vecthare-tab-btn").on("click", function (e) {
+    e.stopPropagation();
+    e.preventDefault();
+    const tab = $(this).data("tab");
+    switchTab(tab);
+  });
+
+  // Scope filters
+  $(".vecthare-scope-filter").on("click", function (e) {
+    e.stopPropagation();
+    e.preventDefault();
+    $(".vecthare-scope-filter").removeClass("active");
+    $(this).addClass("active");
+    browserState.filters.scope = $(this).data("scope");
+    renderCollections();
+  });
+
+  // Type filters
+  $('input[name="vecthare_type_filter"]').on("change", function (e) {
+    e.stopPropagation();
+    browserState.filters.collectionType = $(this).val();
+    renderCollections();
+  });
+
+  // Search input
+  $("#vecthare_collection_search").on("input", function (e) {
+    e.stopPropagation();
+    browserState.filters.searchQuery = $(this).val().toLowerCase();
+    renderCollections();
+  });
+
+  // Resync button - clears registry and rescans from disk
+  $("#vecthare_reset_registry").on("click", async function (e) {
+    e.stopPropagation();
+    e.preventDefault();
+
+    const confirmed = confirm(
+      "This will clear the collection registry and rescan from disk.\n\n" +
+        "Any ghost entries (collections that no longer exist on disk) will be removed.\n\n" +
+        "Continue?",
+    );
+
+    if (!confirmed) return;
+
+    try {
+      // Clear the registry
+      clearCollectionRegistry();
+
+      // Refresh collections (will rediscover from disk)
+      await refreshCollections();
+
+      toastr.success("Registry cleared and resynced from disk", "VectHare");
+    } catch (error) {
+      console.error("VectHare: Failed to resync", error);
+      toastr.error("Failed to resync. Check console.", "VectHare");
+    }
+  });
+
+  // Keyboard shortcuts
+  $(document).on("keydown.vecthare_browser", function (e) {
+    if (!browserState.isOpen) return;
+
+    if (e.key === "Escape") {
+      closeDatabaseBrowser();
+    }
+  });
+
+  // Import button
+  $("#vecthare_import_collection").on("click", function (e) {
+    e.stopPropagation();
+    $("#vecthare_import_file").click();
+  });
+
+  // Import file handler (supports JSON and PNG)
+  $("#vecthare_import_file").on("change", async function (e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Reset input so same file can be selected again
+    $(this).val("");
+
+    try {
+      toastr.info("Reading import file...", "VectHare");
+
+      let data;
+
+      // Check if it's a PNG file
+      if (
+        file.type === "image/png" ||
+        file.name.toLowerCase().endsWith(".png")
+      ) {
+        const pngData = await readPNGFile(file);
+        data = await extractDataFromPNG(pngData);
+
+        if (!data) {
+          toastr.error(
+            "This PNG does not contain VectHare data.",
+            "VectHare Import",
+          );
+          return;
         }
-    });
 
-    // Tab switching
-    $('.vecthare-tab-btn').on('click', function(e) {
-        e.stopPropagation();
-        e.preventDefault();
-        const tab = $(this).data('tab');
-        switchTab(tab);
-    });
+        toastr.info("Found VectHare data in PNG!", "VectHare");
+      } else {
+        // JSON file
+        data = await readImportFile(file);
+      }
 
-    // Scope filters
-    $('.vecthare-scope-filter').on('click', function(e) {
-        e.stopPropagation();
-        e.preventDefault();
-        $('.vecthare-scope-filter').removeClass('active');
-        $(this).addClass('active');
-        browserState.filters.scope = $(this).data('scope');
-        renderCollections();
-    });
+      const info = getExportInfo(data);
+      const validation = validateImportData(data, browserState.settings);
 
-    // Type filters
-    $('input[name="vecthare_type_filter"]').on('change', function(e) {
-        e.stopPropagation();
-        browserState.filters.collectionType = $(this).val();
-        renderCollections();
-    });
+      // Show import confirmation dialog
+      let message = `Import "${info.collections[0]?.name || "collection"}"?\n\n`;
+      message += `• ${info.totalChunks} chunks\n`;
+      message += `• ${info.totalChunksWithVectors} with vectors\n`;
 
-    // Search input
-    $('#vecthare_collection_search').on('input', function(e) {
-        e.stopPropagation();
-        browserState.filters.searchQuery = $(this).val().toLowerCase();
-        renderCollections();
-    });
+      if (info.embedding) {
+        message += `\nEmbedding: ${info.embedding.source}/${info.embedding.model || "default"}\n`;
+        message += `Dimension: ${info.embedding.dimension || "unknown"}\n`;
+      }
 
-    // Resync button - clears registry and rescans from disk
-    $('#vecthare_reset_registry').on('click', async function(e) {
-        e.stopPropagation();
-        e.preventDefault();
+      if (validation.warnings.length > 0) {
+        message += `\n⚠️ Warnings:\n`;
+        validation.warnings.forEach((w) => {
+          message += `• ${w}\n`;
+        });
+      }
 
-        const confirmed = confirm(
-            'This will clear the collection registry and rescan from disk.\n\n' +
-            'Any ghost entries (collections that no longer exist on disk) will be removed.\n\n' +
-            'Continue?'
+      if (!validation.compatible && info.totalChunksWithVectors > 0) {
+        message += `\n⚠️ Your embedding settings don't match.\n`;
+        message += `To use existing vectors, change your settings to:\n`;
+        message += `  Source: ${info.embedding?.source || "unknown"}\n`;
+        message += `  Model: ${info.embedding?.model || "default"}\n`;
+        message += `\nOr continue to re-embed with current settings.`;
+      }
+
+      if (!validation.valid) {
+        toastr.error(
+          `Invalid export file:\n${validation.errors.join("\n")}`,
+          "VectHare Import",
+        );
+        return;
+      }
+
+      const confirmed = confirm(message);
+      if (!confirmed) return;
+
+      // Perform import
+      const result = await importCollection(data, browserState.settings, {
+        overwrite: true, // Overwrite if exists
+      });
+
+      if (result.success) {
+        const vectorMsg = result.usedVectors
+          ? "(used existing vectors)"
+          : "(re-embedded)";
+        toastr.success(
+          `Imported ${result.chunkCount} chunks ${vectorMsg}`,
+          "VectHare Import",
         );
 
-        if (!confirmed) return;
-
-        try {
-            // Clear the registry
-            clearCollectionRegistry();
-
-            // Refresh collections (will rediscover from disk)
-            await refreshCollections();
-
-            toastr.success('Registry cleared and resynced from disk', 'VectHare');
-        } catch (error) {
-            console.error('VectHare: Failed to resync', error);
-            toastr.error('Failed to resync. Check console.', 'VectHare');
-        }
-    });
-
-    // Keyboard shortcuts
-    $(document).on('keydown.vecthare_browser', function(e) {
-        if (!browserState.isOpen) return;
-
-        if (e.key === 'Escape') {
-            closeDatabaseBrowser();
-        }
-    });
-
-    // Import button
-    $('#vecthare_import_collection').on('click', function(e) {
-        e.stopPropagation();
-        $('#vecthare_import_file').click();
-    });
-
-    // Import file handler (supports JSON and PNG)
-    $('#vecthare_import_file').on('change', async function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        // Reset input so same file can be selected again
-        $(this).val('');
-
-        try {
-            toastr.info('Reading import file...', 'VectHare');
-
-            let data;
-
-            // Check if it's a PNG file
-            if (file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')) {
-                const pngData = await readPNGFile(file);
-                data = await extractDataFromPNG(pngData);
-
-                if (!data) {
-                    toastr.error('This PNG does not contain VectHare data.', 'VectHare Import');
-                    return;
-                }
-
-                toastr.info('Found VectHare data in PNG!', 'VectHare');
-            } else {
-                // JSON file
-                data = await readImportFile(file);
-            }
-
-            const info = getExportInfo(data);
-            const validation = validateImportData(data, browserState.settings);
-
-            // Show import confirmation dialog
-            let message = `Import "${info.collections[0]?.name || 'collection'}"?\n\n`;
-            message += `• ${info.totalChunks} chunks\n`;
-            message += `• ${info.totalChunksWithVectors} with vectors\n`;
-
-            if (info.embedding) {
-                message += `\nEmbedding: ${info.embedding.source}/${info.embedding.model || 'default'}\n`;
-                message += `Dimension: ${info.embedding.dimension || 'unknown'}\n`;
-            }
-
-            if (validation.warnings.length > 0) {
-                message += `\n⚠️ Warnings:\n`;
-                validation.warnings.forEach(w => {
-                    message += `• ${w}\n`;
-                });
-            }
-
-            if (!validation.compatible && info.totalChunksWithVectors > 0) {
-                message += `\n⚠️ Your embedding settings don't match.\n`;
-                message += `To use existing vectors, change your settings to:\n`;
-                message += `  Source: ${info.embedding?.source || 'unknown'}\n`;
-                message += `  Model: ${info.embedding?.model || 'default'}\n`;
-                message += `\nOr continue to re-embed with current settings.`;
-            }
-
-            if (!validation.valid) {
-                toastr.error(`Invalid export file:\n${validation.errors.join('\n')}`, 'VectHare Import');
-                return;
-            }
-
-            const confirmed = confirm(message);
-            if (!confirmed) return;
-
-            // Perform import
-            const result = await importCollection(data, browserState.settings, {
-                overwrite: true, // Overwrite if exists
-            });
-
-            if (result.success) {
-                const vectorMsg = result.usedVectors ? '(used existing vectors)' : '(re-embedded)';
-                toastr.success(
-                    `Imported ${result.chunkCount} chunks ${vectorMsg}`,
-                    'VectHare Import'
-                );
-
-                // Refresh collections list
-                await refreshCollections();
-            }
-        } catch (error) {
-            console.error('VectHare: Import failed', error);
-            toastr.error(`Import failed: ${error.message}`, 'VectHare');
-        }
-    });
+        // Refresh collections list
+        await refreshCollections();
+      }
+    } catch (error) {
+      console.error("VectHare: Import failed", error);
+      toastr.error(`Import failed: ${error.message}`, "VectHare");
+    }
+  });
 }
 
 /**
@@ -590,105 +603,112 @@ function bindBrowserEvents() {
  * @param {string} tabName Tab identifier
  */
 function switchTab(tabName) {
-    $('.vecthare-tab-btn').removeClass('active');
-    $(`.vecthare-tab-btn[data-tab="${tabName}"]`).addClass('active');
+  $(".vecthare-tab-btn").removeClass("active");
+  $(`.vecthare-tab-btn[data-tab="${tabName}"]`).addClass("active");
 
-    $('.vecthare-tab-content').removeClass('active');
-    $(`#vecthare_tab_${tabName}`).addClass('active');
+  $(".vecthare-tab-content").removeClass("active");
+  $(`#vecthare_tab_${tabName}`).addClass("active");
 
-    // Initialize tab-specific content
-    if (tabName === 'bulk') {
-        renderBulkList();
-        bindBulkEvents();
-    } else if (tabName === 'search') {
-        bindSearchEvents();
-    }
+  // Initialize tab-specific content
+  if (tabName === "bulk") {
+    renderBulkList();
+    bindBulkEvents();
+  } else if (tabName === "search") {
+    bindSearchEvents();
+  }
 }
 
 /**
  * Refreshes collections from storage
  */
 async function refreshCollections() {
-    try {
-        browserState.collections = await loadAllCollections(browserState.settings);
+  try {
+    browserState.collections = await loadAllCollections(browserState.settings);
 
-        // Clean up orphaned metadata entries (collections that no longer exist)
-        const actualIds = browserState.collections.map(c => c.id);
-        const cleanupResult = cleanupOrphanedMeta(actualIds);
-        if (cleanupResult.removed > 0) {
-            console.log(`VectHare: Cleaned up ${cleanupResult.removed} orphaned metadata entries`);
-        }
+    // Clean up orphaned metadata entries (collections that no longer exist)
+    const actualIds = browserState.collections.map((c) => c.id);
+    const cleanupResult = cleanupOrphanedMeta(actualIds);
+    if (cleanupResult.removed > 0) {
+      console.log(
+        `VectHare: Cleaned up ${cleanupResult.removed} orphaned metadata entries`,
+      );
+    }
 
-        renderCollections();
-    } catch (error) {
-        console.error('VectHare: Failed to load collections', error);
-        $('#vecthare_collections_list').html(`
+    renderCollections();
+  } catch (error) {
+    console.error("VectHare: Failed to load collections", error);
+    $("#vecthare_collections_list").html(`
             <div class="vecthare-error">
                 Failed to load collections. Check console for details.
             </div>
         `);
-    }
+  }
 }
 
 /**
  * Renders collections list based on current filters
  */
 function renderCollections() {
-    const container = $('#vecthare_collections_list');
+  const container = $("#vecthare_collections_list");
 
-    // Apply filters
-    let filtered = browserState.collections.filter(c => {
-        // Scope filter
-        if (browserState.filters.scope !== 'all' && c.scope !== browserState.filters.scope) {
-            return false;
-        }
+  // Apply filters
+  let filtered = browserState.collections.filter((c) => {
+    // Scope filter
+    if (
+      browserState.filters.scope !== "all" &&
+      c.scope !== browserState.filters.scope
+    ) {
+      return false;
+    }
 
-        // Type filter - map filter categories to actual collection types
-        if (browserState.filters.collectionType !== 'all') {
-            const typeMap = {
-                chat: ['chat'],
-                lorebook: ['lorebook'],
-                character: ['character', 'persona'],
-                document: ['file', 'doc', 'paste', 'select', 'current'],
-                web: ['url', 'wiki', 'youtube'],
-            };
-            const allowedTypes = typeMap[browserState.filters.collectionType];
-            if (allowedTypes && !allowedTypes.includes(c.type)) {
-                return false;
-            }
-        }
+    // Type filter - map filter categories to actual collection types
+    if (browserState.filters.collectionType !== "all") {
+      const typeMap = {
+        chat: ["chat"],
+        lorebook: ["lorebook"],
+        character: ["character", "persona"],
+        document: ["file", "doc", "paste", "select", "current"],
+        web: ["url", "wiki", "youtube"],
+      };
+      const allowedTypes = typeMap[browserState.filters.collectionType];
+      if (allowedTypes && !allowedTypes.includes(c.type)) {
+        return false;
+      }
+    }
 
-        // Search filter
-        if (browserState.filters.searchQuery) {
-            const searchLower = browserState.filters.searchQuery;
-            return c.name.toLowerCase().includes(searchLower) ||
-                   c.id.toLowerCase().includes(searchLower);
-        }
+    // Search filter
+    if (browserState.filters.searchQuery) {
+      const searchLower = browserState.filters.searchQuery;
+      return (
+        c.name.toLowerCase().includes(searchLower) ||
+        c.id.toLowerCase().includes(searchLower)
+      );
+    }
 
-        return true;
-    });
+    return true;
+  });
 
-    if (filtered.length === 0) {
-        container.html(`
+  if (filtered.length === 0) {
+    container.html(`
             <div class="vecthare-empty-state">
                 <p>No collections found.</p>
                 <small>Vectorize some chat messages to create collections!</small>
             </div>
         `);
-        updateStats(0, 0);
-        return;
-    }
+    updateStats(0, 0);
+    return;
+  }
 
-    // Render collection cards
-    const cardsHtml = filtered.map(c => renderCollectionCard(c)).join('');
-    container.html(cardsHtml);
+  // Render collection cards
+  const cardsHtml = filtered.map((c) => renderCollectionCard(c)).join("");
+  container.html(cardsHtml);
 
-    // Bind card events
-    bindCollectionCardEvents();
+  // Bind card events
+  bindCollectionCardEvents();
 
-    // Update stats
-    const totalChunks = filtered.reduce((sum, c) => sum + c.chunkCount, 0);
-    updateStats(filtered.length, totalChunks);
+  // Update stats
+  const totalChunks = filtered.reduce((sum, c) => sum + c.chunkCount, 0);
+  updateStats(filtered.length, totalChunks);
 }
 
 /**
@@ -697,92 +717,98 @@ function renderCollections() {
  * @returns {string} Card HTML
  */
 function renderCollectionCard(collection) {
-    // Map collection types to icon functions
-    const typeIconMap = {
-        chat: icons.messageSquare,
-        file: icons.fileText,
-        doc: icons.fileText,
-        paste: icons.fileText,
-        select: icons.fileText,
-        current: icons.fileText,
-        lorebook: icons.bookOpen,
-        character: icons.user,
-        persona: icons.user,
-        url: icons.globe,
-        wiki: icons.globe,
-        youtube: icons.globe,
-    };
-    const iconFn = typeIconMap[collection.type] || icons.box;
-    const typeIcon = iconFn(14, 'vecthare-type-icon');
+  // Map collection types to icon functions
+  const typeIconMap = {
+    chat: icons.messageSquare,
+    file: icons.fileText,
+    doc: icons.fileText,
+    paste: icons.fileText,
+    select: icons.fileText,
+    current: icons.fileText,
+    lorebook: icons.bookOpen,
+    character: icons.user,
+    persona: icons.user,
+    url: icons.globe,
+    wiki: icons.globe,
+    youtube: icons.globe,
+  };
+  const iconFn = typeIconMap[collection.type] || icons.box;
+  const typeIcon = iconFn(14, "vecthare-type-icon");
 
-    const scopeBadge = {
-        global: '<span class="vecthare-badge vecthare-badge-global">Global</span>',
-        character: '<span class="vecthare-badge vecthare-badge-character">Character</span>',
-        chat: '<span class="vecthare-badge vecthare-badge-chat">Chat</span>'
-    }[collection.scope] || '';
+  const scopeBadge =
+    {
+      global:
+        '<span class="vecthare-badge vecthare-badge-global">Global</span>',
+      character:
+        '<span class="vecthare-badge vecthare-badge-character">Character</span>',
+      chat: '<span class="vecthare-badge vecthare-badge-chat">Chat</span>',
+    }[collection.scope] || "";
 
-    const statusBadge = collection.enabled
-        ? '<span class="vecthare-badge vecthare-badge-success">Active</span>'
-        : '<span class="vecthare-badge vecthare-badge-muted">Paused</span>';
+  const statusBadge = collection.enabled
+    ? '<span class="vecthare-badge vecthare-badge-success">Active</span>'
+    : '<span class="vecthare-badge vecthare-badge-muted">Paused</span>';
 
-    // Activation badge (shows triggers or conditions)
-    const activationSummary = getCollectionActivationSummary(collection.id);
-    let activationBadge = '';
-    if (activationSummary.alwaysActive) {
-        activationBadge = '<span class="vecthare-badge vecthare-badge-always" title="Always active">∞ Always</span>';
-    } else if (activationSummary.triggerCount > 0) {
-        activationBadge = `<span class="vecthare-badge vecthare-badge-triggers" title="${activationSummary.triggerCount} trigger(s)">🎯 ${activationSummary.triggerCount}</span>`;
-    } else if (activationSummary.conditionsEnabled) {
-        activationBadge = `<span class="vecthare-badge vecthare-badge-conditions" title="${activationSummary.conditionCount} condition(s)">⚡ ${activationSummary.conditionCount}</span>`;
-    }
+  // Activation badge (shows triggers or conditions)
+  const activationSummary = getCollectionActivationSummary(collection.id);
+  let activationBadge = "";
+  if (activationSummary.alwaysActive) {
+    activationBadge =
+      '<span class="vecthare-badge vecthare-badge-always" title="Always active">∞ Always</span>';
+  } else if (activationSummary.triggerCount > 0) {
+    activationBadge = `<span class="vecthare-badge vecthare-badge-triggers" title="${activationSummary.triggerCount} trigger(s)">🎯 ${activationSummary.triggerCount}</span>`;
+  } else if (activationSummary.conditionsEnabled) {
+    activationBadge = `<span class="vecthare-badge vecthare-badge-conditions" title="${activationSummary.conditionCount} condition(s)">⚡ ${activationSummary.conditionCount}</span>`;
+  }
 
-    // Backend badge - shows vector database (Standard, LanceDB, Qdrant)
-    const backendDisplayName = {
-        standard: 'Standard',
-        lancedb: 'LanceDB',
-        qdrant: 'Qdrant'
+  // Backend badge - shows vector database (Standard, LanceDB, Qdrant)
+  const backendDisplayName =
+    {
+      standard: "Standard",
+      lancedb: "LanceDB",
+      qdrant: "Qdrant",
     }[collection.backend] || collection.backend;
 
-    const backendBadge = collection.backend
-        ? `<span class="vecthare-badge vecthare-badge-backend" title="Vector backend">${backendDisplayName}</span>`
-        : '';
+  const backendBadge = collection.backend
+    ? `<span class="vecthare-badge vecthare-badge-backend" title="Vector backend">${backendDisplayName}</span>`
+    : "";
 
-    // Source badge - shows embedding source (transformers, palm, openai, etc.)
-    const sourceBadge = collection.source && collection.source !== 'unknown'
-        ? `<span class="vecthare-badge vecthare-badge-source" title="Embedding source">${collection.source}</span>`
-        : '';
+  // Source badge - shows embedding source (transformers, palm, openai, etc.)
+  const sourceBadge =
+    collection.source && collection.source !== "unknown"
+      ? `<span class="vecthare-badge vecthare-badge-source" title="Embedding source">${collection.source}</span>`
+      : "";
 
-    // Model info - show current model and count if multiple
-    const hasMultipleModels = collection.models && collection.models.length > 1;
-    const currentModelName = collection.model || '(default)';
-    const modelBadge = hasMultipleModels
-        ? `<span class="vecthare-badge vecthare-badge-model" title="Current model: ${currentModelName} (${collection.models.length} available)">📐 ${currentModelName}</span>`
-        : '';
+  // Model info - show current model and count if multiple
+  const hasMultipleModels = collection.models && collection.models.length > 1;
+  const currentModelName = collection.model || "(default)";
+  const modelBadge = hasMultipleModels
+    ? `<span class="vecthare-badge vecthare-badge-model" title="Current model: ${currentModelName} (${collection.models.length} available)">📐 ${currentModelName}</span>`
+    : "";
 
-    // Temporal decay badge
-    const decaySummary = getCollectionDecaySummary(collection.id);
-    let decayBadge = '';
-    if (decaySummary.enabled) {
-        const decayIcon = decaySummary.isCustom ? '⏳' : '⏱️';
-        const decayTitle = decaySummary.isCustom
-            ? `Custom decay: ${decaySummary.description}`
-            : `Default decay: ${decaySummary.description}`;
-        decayBadge = `<span class="vecthare-badge vecthare-badge-decay ${decaySummary.isCustom ? 'vecthare-badge-decay-custom' : ''}" title="${decayTitle}">${decayIcon}</span>`;
-    }
+  // Temporal decay badge
+  const decaySummary = getCollectionDecaySummary(collection.id);
+  let decayBadge = "";
+  if (decaySummary.enabled) {
+    const decayIcon = decaySummary.isCustom ? "⏳" : "⏱️";
+    const decayTitle = decaySummary.isCustom
+      ? `Custom decay: ${decaySummary.description}`
+      : `Default decay: ${decaySummary.description}`;
+    decayBadge = `<span class="vecthare-badge vecthare-badge-decay ${decaySummary.isCustom ? "vecthare-badge-decay-custom" : ""}" title="${decayTitle}">${decayIcon}</span>`;
+  }
 
-    // Lock badge - shows if collection is locked and to how many chats
-    const lockCount = getCollectionLockCount(collection.id);
-    let lockBadge = '';
-    if (lockCount > 0) {
-        const lockTitle = `Locked to ${lockCount} chat${lockCount !== 1 ? 's' : ''}`;
-        lockBadge = `<span class="vecthare-badge vecthare-badge-lock" title="${lockTitle}" style="background: var(--SmartThemeQuoteColor); color: var(--SmartThemeBodyColor);">🔒 ${lockCount}</span>`;
-    }
+  // Lock badge - shows if collection is locked and to how many chats
+  const lockCount = getCollectionLockCount(collection.id);
+  let lockBadge = "";
+  if (lockCount > 0) {
+    const lockTitle = `Locked to ${lockCount} chat${lockCount !== 1 ? "s" : ""}`;
+    lockBadge = `<span class="vecthare-badge vecthare-badge-lock" title="${lockTitle}" style="background: var(--SmartThemeQuoteColor); color: var(--SmartThemeBodyColor);">🔒 ${lockCount}</span>`;
+  }
 
-    // Use registryKey for unique identification (source:id format)
-    const uniqueKey = collection.registryKey || collection.id;
+  // Use registryKey for unique identification (source:id format)
+  const uniqueKey = collection.registryKey || collection.id;
 
-    return `
-        <div class="vecthare-collection-card" data-collection-key="${uniqueKey}" data-status="${collection.enabled ? 'active' : 'paused'}">
+  return `
+        <div class="vecthare-collection-card" data-collection-key="${uniqueKey}" data-status="${collection.enabled ? "active" : "paused"}">
             <div class="vecthare-collection-header">
                 <span class="vecthare-collection-title">
                     ${typeIcon} ${collection.name}
@@ -807,37 +833,41 @@ function renderCollectionCard(collection) {
                 <button class="vecthare-btn-sm vecthare-action-toggle"
                         data-collection-key="${uniqueKey}"
                         data-enabled="${collection.enabled}">
-                    ${collection.enabled ? icons.pause(16) + ' Pause' : icons.play(16) + ' Enable'}
+                    ${collection.enabled ? icons.pause(16) + " Pause" : icons.play(16) + " Enable"}
                 </button>
                 <button class="vecthare-btn-sm vecthare-action-rename"
                         data-collection-key="${uniqueKey}"
-                        data-current-name="${collection.name.replace(/"/g, '&quot;')}"
+                        data-current-name="${collection.name.replace(/"/g, "&quot;")}"
                         title="Rename this collection">
                     ${icons.pencil(16)} Rename
                 </button>
-                <button class="vecthare-btn-sm vecthare-action-activation ${activationSummary.mode !== 'auto' || decaySummary.isCustom ? 'vecthare-has-settings' : ''}"
+                <button class="vecthare-btn-sm vecthare-action-activation ${activationSummary.mode !== "auto" || decaySummary.isCustom ? "vecthare-has-settings" : ""}"
                         data-collection-key="${uniqueKey}"
                         title="Configure activation, triggers, conditions, and temporal decay">
                     ${icons.settings(16)} Settings
                 </button>
-                ${hasMultipleModels ? `
+                ${
+                  hasMultipleModels
+                    ? `
                 <button class="vecthare-btn-sm vecthare-action-switch-model"
                         data-collection-key="${uniqueKey}"
                         title="Switch embedding model (${collection.models.length} available)">
                     <i class="fa-solid fa-code-branch"></i> Model
                 </button>
-                ` : ''}
+                `
+                    : ""
+                }
                 <button class="vecthare-btn-sm vecthare-action-open-folder"
                         data-collection-key="${uniqueKey}"
                         data-backend="${collection.backend}"
-                        data-source="${collection.source || 'transformers'}"
+                        data-source="${collection.source || "transformers"}"
                         title="Open in file explorer">
                     ${icons.folderOpen(16)} Open Folder
                 </button>
                 <button class="vecthare-btn-sm vecthare-action-visualize"
                         data-collection-key="${uniqueKey}"
                         data-backend="${collection.backend}"
-                        data-source="${collection.source || 'transformers'}"
+                        data-source="${collection.source || "transformers"}"
                         title="View and edit chunks in this collection">
                     ${icons.eye(16)} View Chunks
                 </button>
@@ -851,8 +881,8 @@ function renderCollectionCard(collection) {
                                 data-collection-key="${uniqueKey}"
                                 data-collection-id="${collection.id}"
                                 data-backend="${collection.backend}"
-                                data-source="${collection.source || 'transformers'}"
-                                data-model="${collection.model || ''}"
+                                data-source="${collection.source || "transformers"}"
+                                data-model="${collection.model || ""}"
                                 title="Export as JSON (includes vectors)">
                             ${icons.fileExport(16)} JSON
                         </button>
@@ -860,8 +890,8 @@ function renderCollectionCard(collection) {
                                 data-collection-key="${uniqueKey}"
                                 data-collection-id="${collection.id}"
                                 data-backend="${collection.backend}"
-                                data-source="${collection.source || 'transformers'}"
-                                data-model="${collection.model || ''}"
+                                data-source="${collection.source || "transformers"}"
+                                data-model="${collection.model || ""}"
                                 title="Export as PNG (shareable image)">
                             ${icons.image(16)} PNG
                         </button>
@@ -880,7 +910,7 @@ function renderCollectionCard(collection) {
  * Helper to find collection by its unique key (registryKey or id)
  */
 function findCollectionByKey(key) {
-    return browserState.collections.find(c => (c.registryKey || c.id) === key);
+  return browserState.collections.find((c) => (c.registryKey || c.id) === key);
 }
 
 /**
@@ -888,54 +918,58 @@ function findCollectionByKey(key) {
  * @param {File|null} imageFile - Custom image file or null for default
  */
 async function performPngExport(imageFile) {
-    const pending = browserState.pendingPngExport;
-    if (!pending) {
-        toastr.error('No export pending', 'VectHare');
-        return;
+  const pending = browserState.pendingPngExport;
+  if (!pending) {
+    toastr.error("No export pending", "VectHare");
+    return;
+  }
+
+  browserState.pendingPngExport = null;
+
+  try {
+    toastr.info("Preparing PNG export...", "VectHare");
+
+    // Get export data
+    const exportData = await exportCollection(
+      pending.collectionId,
+      browserState.settings,
+      {
+        backend: pending.backend,
+        source: pending.source,
+        model: pending.model,
+      },
+    );
+
+    // Convert custom image to PNG if provided
+    let pngData = null;
+    if (imageFile) {
+      toastr.info("Converting image...", "VectHare");
+      pngData = await convertToPNG(imageFile);
     }
 
-    browserState.pendingPngExport = null;
+    // Embed data in PNG
+    toastr.info("Embedding data in PNG...", "VectHare");
+    const pngWithData = await embedDataInPNG(exportData, pngData);
 
-    try {
-        toastr.info('Preparing PNG export...', 'VectHare');
+    // Download
+    const filename = `${pending.collection.name || pending.collectionId}.vecthare`;
+    downloadPNG(pngWithData, filename);
 
-        // Get export data
-        const exportData = await exportCollection(pending.collectionId, browserState.settings, {
-            backend: pending.backend,
-            source: pending.source,
-            model: pending.model,
-        });
+    // Show compression stats
+    const jsonSize = JSON.stringify(exportData).length;
+    const pngSize = pngWithData.length;
+    const ratio = Math.round((pngSize / jsonSize) * 100);
 
-        // Convert custom image to PNG if provided
-        let pngData = null;
-        if (imageFile) {
-            toastr.info('Converting image...', 'VectHare');
-            pngData = await convertToPNG(imageFile);
-        }
-
-        // Embed data in PNG
-        toastr.info('Embedding data in PNG...', 'VectHare');
-        const pngWithData = await embedDataInPNG(exportData, pngData);
-
-        // Download
-        const filename = `${pending.collection.name || pending.collectionId}.vecthare`;
-        downloadPNG(pngWithData, filename);
-
-        // Show compression stats
-        const jsonSize = JSON.stringify(exportData).length;
-        const pngSize = pngWithData.length;
-        const ratio = Math.round((pngSize / jsonSize) * 100);
-
-        toastr.success(
-            `PNG export complete!\n${exportData.stats.chunkCount} chunks\n` +
-            `Original: ${formatBytes(jsonSize)}\n` +
-            `PNG: ${formatBytes(pngSize)} (${ratio}%)`,
-            'VectHare Export'
-        );
-    } catch (error) {
-        console.error('VectHare: PNG export failed', error);
-        toastr.error(`PNG export failed: ${error.message}`, 'VectHare');
-    }
+    toastr.success(
+      `PNG export complete!\n${exportData.stats.chunkCount} chunks\n` +
+        `Original: ${formatBytes(jsonSize)}\n` +
+        `PNG: ${formatBytes(pngSize)} (${ratio}%)`,
+      "VectHare Export",
+    );
+  } catch (error) {
+    console.error("VectHare: PNG export failed", error);
+    toastr.error(`PNG export failed: ${error.message}`, "VectHare");
+  }
 }
 
 /**
@@ -944,11 +978,11 @@ async function performPngExport(imageFile) {
  * @returns {string}
  */
 function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
 /**
@@ -957,318 +991,365 @@ function formatBytes(bytes) {
  * @returns {string} Escaped text
  */
 function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+  if (!text) return "";
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 /**
  * Binds events for collection card actions
  */
 function bindCollectionCardEvents() {
-    // Toggle enabled/disabled
-    $('.vecthare-action-toggle').off('click').on('click', async function(e) {
-        e.stopPropagation();
-        const collectionKey = $(this).data('collection-key');
-        const currentEnabled = $(this).data('enabled');
-        const newEnabled = !currentEnabled;
+  // Toggle enabled/disabled
+  $(".vecthare-action-toggle")
+    .off("click")
+    .on("click", async function (e) {
+      e.stopPropagation();
+      const collectionKey = $(this).data("collection-key");
+      const currentEnabled = $(this).data("enabled");
+      const newEnabled = !currentEnabled;
 
-        setCollectionEnabled(collectionKey, newEnabled);
+      setCollectionEnabled(collectionKey, newEnabled);
 
-        // Update UI
-        const collection = findCollectionByKey(collectionKey);
-        if (collection) {
-            collection.enabled = newEnabled;
-        }
+      // Update UI
+      const collection = findCollectionByKey(collectionKey);
+      if (collection) {
+        collection.enabled = newEnabled;
+      }
 
+      renderCollections();
+
+      toastr.success(
+        `Collection ${newEnabled ? "enabled" : "paused"}`,
+        "VectHare",
+      );
+    });
+
+  // Delete collection - uses unified deleteCollection() to handle all 3 stores
+  $(".vecthare-action-delete")
+    .off("click")
+    .on("click", async function (e) {
+      e.stopPropagation();
+      const collectionKey = $(this).data("collection-key");
+      const collection = findCollectionByKey(collectionKey);
+
+      if (!collection) return;
+
+      const confirmed = confirm(
+        `Delete collection "${collection.name}"?\n\n` +
+          `This will remove ${collection.chunkCount} chunks from the vector index.\n` +
+          `This action cannot be undone.`,
+      );
+
+      if (!confirmed) return;
+
+      try {
+        // Use unified delete function - handles vectors, registry, AND metadata
+        const collectionSettings = {
+          ...browserState.settings,
+          vector_backend: collection.backend,
+          source: collection.source,
+        };
+
+        const result = await deleteCollection(
+          collection.id,
+          collectionSettings,
+          collection.registryKey,
+        );
+
+        // Remove from state
+        browserState.collections = browserState.collections.filter(
+          (c) => (c.registryKey || c.id) !== collectionKey,
+        );
+
+        // Re-render
         renderCollections();
 
-        toastr.success(
-            `Collection ${newEnabled ? 'enabled' : 'paused'}`,
-            'VectHare'
+        if (result.success) {
+          toastr.success(`Deleted collection "${collection.name}"`, "VectHare");
+        } else {
+          toastr.warning(
+            `Partial deletion: ${result.errors.join(", ")}`,
+            "VectHare",
+          );
+        }
+      } catch (error) {
+        console.error("VectHare: Failed to delete collection", error);
+        toastr.error("Failed to delete collection. Check console.", "VectHare");
+      }
+    });
+
+  // Open folder
+  $(".vecthare-action-open-folder")
+    .off("click")
+    .on("click", async function (e) {
+      e.stopPropagation();
+      const collectionKey = $(this).data("collection-key");
+      const collection = findCollectionByKey(collectionKey);
+
+      if (!collection) return;
+
+      try {
+        const response = await fetch("/api/plugins/similharity/open-folder", {
+          method: "POST",
+          headers: getRequestHeaders(),
+          body: JSON.stringify({
+            collectionId: collection.id,
+            backend: collection.backend,
+            source: collection.source,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to open folder: ${response.statusText}`);
+        }
+
+        toastr.success("Opened collection folder", "VectHare");
+      } catch (error) {
+        console.error("VectHare: Failed to open folder", error);
+        toastr.error("Failed to open folder. Check console.", "VectHare");
+      }
+    });
+
+  // Visualize chunks
+  $(".vecthare-action-visualize")
+    .off("click")
+    .on("click", async function (e) {
+      console.log("test");
+      e.stopPropagation();
+      const collectionKey = $(this).data("collection-key");
+      const collection = findCollectionByKey(collectionKey);
+
+      if (!collection) return;
+
+      try {
+        toastr.info("Loading chunks...", "VectHare");
+
+        // Use the collection's actual backend, not the global setting
+        // This ensures we query Standard collections with Standard backend, etc.
+        if (!collection.backend) {
+          toastr.error(
+            "Collection has no backend defined - this is a bug",
+            "VectHare",
+          );
+          console.error("VectHare: Collection missing backend:", collection);
+          return;
+        }
+
+        const collectionSettings = {
+          ...browserState.settings,
+          vector_backend: collection.backend,
+        };
+
+        // Use unified plugin endpoint
+        const response = await fetch("/api/plugins/similharity/chunks/list", {
+          method: "POST",
+          headers: getRequestHeaders(),
+          body: JSON.stringify({
+            backend: collection.backend || "vectra",
+            collectionId: collection.id,
+            source: collection.source || "transformers",
+            model: collection.model || "",
+            limit: 1000, // Get first 1000 chunks
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to list chunks: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const results = data.items || [];
+
+        if (!results || results.length === 0) {
+          toastr.warning("No chunks found in this collection", "VectHare");
+          return;
+        }
+
+        // Format chunks for visualizer
+        const chunks = results.map((item, idx) => ({
+          hash: item.hash,
+          index: item.index ?? idx,
+          text: item.text || item.metadata?.text || "No text available",
+          score: 1.0,
+          similarity: 1.0,
+          messageAge: item.metadata?.messageAge,
+          decayApplied: false,
+          decayMultiplier: 1.0,
+          metadata: item.metadata, // Pass through all metadata including keywords
+        }));
+
+        // Pass collection-specific settings so visualizer uses correct backend for edits/deletes
+        // Include collection type so visualizer knows if this is a chat (for Scenes tab)
+        openVisualizer(
+          { chunks, collectionType: collection.type },
+          collection.id,
+          collectionSettings,
         );
+      } catch (error) {
+        console.error("VectHare: Failed to load chunks", error);
+        toastr.error("Failed to load chunks. Check console.", "VectHare");
+      }
     });
 
-    // Delete collection - uses unified deleteCollection() to handle all 3 stores
-    $('.vecthare-action-delete').off('click').on('click', async function(e) {
-        e.stopPropagation();
-        const collectionKey = $(this).data('collection-key');
-        const collection = findCollectionByKey(collectionKey);
+  // Export toggle - show/hide export options
+  $(".vecthare-action-export-toggle")
+    .off("click")
+    .on("click", function (e) {
+      e.stopPropagation();
+      const $dropdown = $(this).closest(".vecthare-export-dropdown");
+      const isExpanded = $dropdown.hasClass("expanded");
 
-        if (!collection) return;
+      // Close any other open dropdowns
+      $(".vecthare-export-dropdown.expanded")
+        .not($dropdown)
+        .removeClass("expanded");
 
-        const confirmed = confirm(
-            `Delete collection "${collection.name}"?\n\n` +
-            `This will remove ${collection.chunkCount} chunks from the vector index.\n` +
-            `This action cannot be undone.`
-        );
-
-        if (!confirmed) return;
-
-        try {
-            // Use unified delete function - handles vectors, registry, AND metadata
-            const collectionSettings = {
-                ...browserState.settings,
-                vector_backend: collection.backend,
-                source: collection.source,
-            };
-
-            const result = await deleteCollection(collection.id, collectionSettings, collection.registryKey);
-
-            // Remove from state
-            browserState.collections = browserState.collections.filter(c => (c.registryKey || c.id) !== collectionKey);
-
-            // Re-render
-            renderCollections();
-
-            if (result.success) {
-                toastr.success(`Deleted collection "${collection.name}"`, 'VectHare');
-            } else {
-                toastr.warning(`Partial deletion: ${result.errors.join(', ')}`, 'VectHare');
-            }
-        } catch (error) {
-            console.error('VectHare: Failed to delete collection', error);
-            toastr.error('Failed to delete collection. Check console.', 'VectHare');
-        }
+      // Toggle this one
+      $dropdown.toggleClass("expanded", !isExpanded);
     });
 
-    // Open folder
-    $('.vecthare-action-open-folder').off('click').on('click', async function(e) {
-        e.stopPropagation();
-        const collectionKey = $(this).data('collection-key');
-        const collection = findCollectionByKey(collectionKey);
-
-        if (!collection) return;
-
-        try {
-            const response = await fetch('/api/plugins/similharity/open-folder', {
-                method: 'POST',
-                headers: getRequestHeaders(),
-                body: JSON.stringify({
-                    collectionId: collection.id,
-                    backend: collection.backend,
-                    source: collection.source
-                }),
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to open folder: ${response.statusText}`);
-            }
-
-            toastr.success('Opened collection folder', 'VectHare');
-        } catch (error) {
-            console.error('VectHare: Failed to open folder', error);
-            toastr.error('Failed to open folder. Check console.', 'VectHare');
-        }
+  // Close export dropdown when clicking elsewhere
+  $(document)
+    .off("click.vecthare-export")
+    .on("click.vecthare-export", function (e) {
+      if (!$(e.target).closest(".vecthare-export-dropdown").length) {
+        $(".vecthare-export-dropdown.expanded").removeClass("expanded");
+      }
     });
 
-    // Visualize chunks
-    $('.vecthare-action-visualize').off('click').on('click', async function(e) {
-        e.stopPropagation();
-        const collectionKey = $(this).data('collection-key');
-        const collection = findCollectionByKey(collectionKey);
+  // Export collection (JSON)
+  $(".vecthare-action-export")
+    .off("click")
+    .on("click", async function (e) {
+      e.stopPropagation();
+      const collectionKey = $(this).data("collection-key");
+      const collectionId = $(this).data("collection-id");
+      const backend = $(this).data("backend");
+      const source = $(this).data("source");
+      const model = $(this).data("model");
 
-        if (!collection) return;
+      const collection = findCollectionByKey(collectionKey);
+      if (!collection) return;
 
-        try {
-            toastr.info('Loading chunks...', 'VectHare');
+      try {
+        toastr.info("Exporting collection...", "VectHare");
 
-            // Use the collection's actual backend, not the global setting
-            // This ensures we query Standard collections with Standard backend, etc.
-            if (!collection.backend) {
-                toastr.error('Collection has no backend defined - this is a bug', 'VectHare');
-                console.error('VectHare: Collection missing backend:', collection);
-                return;
-            }
-
-            const collectionSettings = {
-                ...browserState.settings,
-                vector_backend: collection.backend
-            };
-
-            // Use unified plugin endpoint
-            const response = await fetch('/api/plugins/similharity/chunks/list', {
-                method: 'POST',
-                headers: getRequestHeaders(),
-                body: JSON.stringify({
-                    backend: collection.backend || 'vectra',
-                    collectionId: collection.id,
-                    source: collection.source || 'transformers',
-                    model: collection.model || '',
-                    limit: 1000, // Get first 1000 chunks
-                }),
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to list chunks: ${response.statusText}`);
-            }
-
-            const data = await response.json();
-            const results = data.items || [];
-
-            if (!results || results.length === 0) {
-                toastr.warning('No chunks found in this collection', 'VectHare');
-                return;
-            }
-
-            // Format chunks for visualizer
-            const chunks = results.map((item, idx) => ({
-                hash: item.hash,
-                index: item.index ?? idx,
-                text: item.text || item.metadata?.text || 'No text available',
-                score: 1.0,
-                similarity: 1.0,
-                messageAge: item.metadata?.messageAge,
-                decayApplied: false,
-                decayMultiplier: 1.0,
-                metadata: item.metadata, // Pass through all metadata including keywords
-            }));
-
-            // Pass collection-specific settings so visualizer uses correct backend for edits/deletes
-            // Include collection type so visualizer knows if this is a chat (for Scenes tab)
-            openVisualizer({ chunks, collectionType: collection.type }, collection.id, collectionSettings);
-        } catch (error) {
-            console.error('VectHare: Failed to load chunks', error);
-            toastr.error('Failed to load chunks. Check console.', 'VectHare');
-        }
-    });
-
-    // Export toggle - show/hide export options
-    $('.vecthare-action-export-toggle').off('click').on('click', function(e) {
-        e.stopPropagation();
-        const $dropdown = $(this).closest('.vecthare-export-dropdown');
-        const isExpanded = $dropdown.hasClass('expanded');
-
-        // Close any other open dropdowns
-        $('.vecthare-export-dropdown.expanded').not($dropdown).removeClass('expanded');
-
-        // Toggle this one
-        $dropdown.toggleClass('expanded', !isExpanded);
-    });
-
-    // Close export dropdown when clicking elsewhere
-    $(document).off('click.vecthare-export').on('click.vecthare-export', function(e) {
-        if (!$(e.target).closest('.vecthare-export-dropdown').length) {
-            $('.vecthare-export-dropdown.expanded').removeClass('expanded');
-        }
-    });
-
-    // Export collection (JSON)
-    $('.vecthare-action-export').off('click').on('click', async function(e) {
-        e.stopPropagation();
-        const collectionKey = $(this).data('collection-key');
-        const collectionId = $(this).data('collection-id');
-        const backend = $(this).data('backend');
-        const source = $(this).data('source');
-        const model = $(this).data('model');
-
-        const collection = findCollectionByKey(collectionKey);
-        if (!collection) return;
-
-        try {
-            toastr.info('Exporting collection...', 'VectHare');
-
-            const exportData = await exportCollection(collectionId, browserState.settings, {
-                backend,
-                source,
-                model,
-            });
-
-            downloadExport(exportData, collection.name || collectionId);
-
-            toastr.success(
-                `Exported ${exportData.stats.chunkCount} chunks (${exportData.stats.chunksWithVectors} with vectors)`,
-                'VectHare Export'
-            );
-        } catch (error) {
-            console.error('VectHare: Export failed', error);
-            toastr.error(`Export failed: ${error.message}`, 'VectHare');
-        }
-    });
-
-    // Export collection (PNG)
-    $('.vecthare-action-export-png').off('click').on('click', async function(e) {
-        e.stopPropagation();
-        const collectionKey = $(this).data('collection-key');
-        const collectionId = $(this).data('collection-id');
-        const backend = $(this).data('backend');
-        const source = $(this).data('source');
-        const model = $(this).data('model');
-
-        const collection = findCollectionByKey(collectionKey);
-        if (!collection) return;
-
-        // Store export context for image picker callback
-        browserState.pendingPngExport = {
-            collectionKey,
-            collectionId,
+        const exportData = await exportCollection(
+          collectionId,
+          browserState.settings,
+          {
             backend,
             source,
             model,
-            collection,
-        };
-
-        // Ask if they want to use a custom image
-        const useCustomImage = confirm(
-            'Export as PNG\n\n' +
-            'Would you like to use a custom image?\n\n' +
-            '• Click OK to choose an image file\n' +
-            '• Click Cancel to use default VectHare image'
+          },
         );
 
-        if (useCustomImage) {
-            $('#vecthare_png_image_picker').click();
-        } else {
-            // Export with default image
-            await performPngExport(null);
-        }
+        downloadExport(exportData, collection.name || collectionId);
+
+        toastr.success(
+          `Exported ${exportData.stats.chunkCount} chunks (${exportData.stats.chunksWithVectors} with vectors)`,
+          "VectHare Export",
+        );
+      } catch (error) {
+        console.error("VectHare: Export failed", error);
+        toastr.error(`Export failed: ${error.message}`, "VectHare");
+      }
     });
 
-    // PNG image picker handler
-    $('#vecthare_png_image_picker').off('change').on('change', async function(e) {
-        const file = e.target.files[0];
-        $(this).val(''); // Reset for next use
+  // Export collection (PNG)
+  $(".vecthare-action-export-png")
+    .off("click")
+    .on("click", async function (e) {
+      e.stopPropagation();
+      const collectionKey = $(this).data("collection-key");
+      const collectionId = $(this).data("collection-id");
+      const backend = $(this).data("backend");
+      const source = $(this).data("source");
+      const model = $(this).data("model");
 
-        if (!file) {
-            browserState.pendingPngExport = null;
-            return;
-        }
+      const collection = findCollectionByKey(collectionKey);
+      if (!collection) return;
 
-        await performPngExport(file);
+      // Store export context for image picker callback
+      browserState.pendingPngExport = {
+        collectionKey,
+        collectionId,
+        backend,
+        source,
+        model,
+        collection,
+      };
+
+      // Ask if they want to use a custom image
+      const useCustomImage = confirm(
+        "Export as PNG\n\n" +
+          "Would you like to use a custom image?\n\n" +
+          "• Click OK to choose an image file\n" +
+          "• Click Cancel to use default VectHare image",
+      );
+
+      if (useCustomImage) {
+        $("#vecthare_png_image_picker").click();
+      } else {
+        // Export with default image
+        await performPngExport(null);
+      }
     });
 
-    // Activation editor (triggers + conditions)
-    $('.vecthare-action-activation').off('click').on('click', function(e) {
-        e.stopPropagation();
-        const collectionKey = $(this).data('collection-key');
-        const collection = findCollectionByKey(collectionKey);
-        if (collection) {
-            openActivationEditor(collection.id, collection.name);
-        }
+  // PNG image picker handler
+  $("#vecthare_png_image_picker")
+    .off("change")
+    .on("change", async function (e) {
+      const file = e.target.files[0];
+      $(this).val(""); // Reset for next use
+
+      if (!file) {
+        browserState.pendingPngExport = null;
+        return;
+      }
+
+      await performPngExport(file);
     });
 
-    // Rename collection
-    $('.vecthare-action-rename').off('click').on('click', function(e) {
-        e.stopPropagation();
-        const collectionKey = $(this).data('collection-key');
-        const collection = findCollectionByKey(collectionKey);
-        if (collection) {
-            openRenameDialog(collection.id, collection.name);
-        }
+  // Activation editor (triggers + conditions)
+  $(".vecthare-action-activation")
+    .off("click")
+    .on("click", function (e) {
+      e.stopPropagation();
+      const collectionKey = $(this).data("collection-key");
+      const collection = findCollectionByKey(collectionKey);
+      if (collection) {
+        openActivationEditor(collection.id, collection.name);
+      }
     });
 
-    // Switch model (for collections with multiple embedding models)
-    $('.vecthare-action-switch-model').off('click').on('click', async function(e) {
-        e.stopPropagation();
-        const collectionKey = $(this).data('collection-key');
-        const collection = findCollectionByKey(collectionKey);
+  // Rename collection
+  $(".vecthare-action-rename")
+    .off("click")
+    .on("click", function (e) {
+      e.stopPropagation();
+      const collectionKey = $(this).data("collection-key");
+      const collection = findCollectionByKey(collectionKey);
+      if (collection) {
+        openRenameDialog(collection.id, collection.name);
+      }
+    });
 
-        if (!collection || !collection.models || collection.models.length < 2) {
-            return;
-        }
+  // Switch model (for collections with multiple embedding models)
+  $(".vecthare-action-switch-model")
+    .off("click")
+    .on("click", async function (e) {
+      e.stopPropagation();
+      const collectionKey = $(this).data("collection-key");
+      const collection = findCollectionByKey(collectionKey);
 
-        openModelSwitcher(collection);
+      if (!collection || !collection.models || collection.models.length < 2) {
+        return;
+      }
+
+      openModelSwitcher(collection);
     });
 }
 
@@ -1278,11 +1359,12 @@ function bindCollectionCardEvents() {
  * @param {number} chunkCount Total chunks
  */
 function updateStats(collectionCount, chunkCount) {
-    const statsText = collectionCount === 0
-        ? 'No collections'
-        : `${collectionCount} collection${collectionCount === 1 ? '' : 's'}, ${chunkCount} total chunks`;
+  const statsText =
+    collectionCount === 0
+      ? "No collections"
+      : `${collectionCount} collection${collectionCount === 1 ? "" : "s"}, ${chunkCount} total chunks`;
 
-    $('#vecthare_browser_stats_text').text(statsText);
+  $("#vecthare_browser_stats_text").text(statsText);
 }
 
 // ============================================================================
@@ -1295,9 +1377,9 @@ function updateStats(collectionCount, chunkCount) {
  * @param {string} currentName Current display name
  */
 function openRenameDialog(collectionId, currentName) {
-    // Create modal if needed
-    if ($('#vecthare_rename_modal').length === 0) {
-        const modalHtml = `
+  // Create modal if needed
+  if ($("#vecthare_rename_modal").length === 0) {
+    const modalHtml = `
             <div id="vecthare_rename_modal" class="vecthare-modal">
                 <div class="vecthare-modal-content vecthare-rename-dialog popup">
                     <div class="vecthare-modal-header">
@@ -1316,66 +1398,71 @@ function openRenameDialog(collectionId, currentName) {
                 </div>
             </div>
         `;
-        $('body').append(modalHtml);
+    $("body").append(modalHtml);
 
-        // Bind events
-        $('#vecthare_rename_close, #vecthare_rename_cancel').on('click', closeRenameDialog);
-        // Stop propagation on ALL clicks (prevents extension panel from closing)
-        $('#vecthare_rename_modal').on('click', function(e) {
-            e.stopPropagation();
-            if (e.target === this) closeRenameDialog();
-        });
-        $('#vecthare_rename_input').on('keydown', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                $('#vecthare_rename_save').click();
-            } else if (e.key === 'Escape') {
-                closeRenameDialog();
-            }
-        });
-    }
-
-    // Store collection ID for save handler
-    $('#vecthare_rename_modal').data('collection-id', collectionId);
-
-    // Set current name
-    $('#vecthare_rename_input').val(currentName);
-
-    // Bind save handler (rebind each time to get fresh collectionId)
-    $('#vecthare_rename_save').off('click').on('click', function() {
-        const newName = $('#vecthare_rename_input').val().trim();
-        const id = $('#vecthare_rename_modal').data('collection-id');
-
-        // Save the new name (or null to reset)
-        setCollectionMeta(id, { displayName: newName || null });
-
-        // Update local state
-        const collection = browserState.collections.find(c => c.id === id);
-        if (collection) {
-            collection.name = newName || collection.name; // Will refresh properly on next load
-        }
-
+    // Bind events
+    $("#vecthare_rename_close, #vecthare_rename_cancel").on(
+      "click",
+      closeRenameDialog,
+    );
+    // Stop propagation on ALL clicks (prevents extension panel from closing)
+    $("#vecthare_rename_modal").on("click", function (e) {
+      e.stopPropagation();
+      if (e.target === this) closeRenameDialog();
+    });
+    $("#vecthare_rename_input").on("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        $("#vecthare_rename_save").click();
+      } else if (e.key === "Escape") {
         closeRenameDialog();
-        refreshCollections(); // Reload to get updated names
+      }
+    });
+  }
 
-        if (newName) {
-            toastr.success(`Renamed to "${newName}"`, 'VectHare');
-        } else {
-            toastr.success('Reset to auto-generated name', 'VectHare');
-        }
+  // Store collection ID for save handler
+  $("#vecthare_rename_modal").data("collection-id", collectionId);
+
+  // Set current name
+  $("#vecthare_rename_input").val(currentName);
+
+  // Bind save handler (rebind each time to get fresh collectionId)
+  $("#vecthare_rename_save")
+    .off("click")
+    .on("click", function () {
+      const newName = $("#vecthare_rename_input").val().trim();
+      const id = $("#vecthare_rename_modal").data("collection-id");
+
+      // Save the new name (or null to reset)
+      setCollectionMeta(id, { displayName: newName || null });
+
+      // Update local state
+      const collection = browserState.collections.find((c) => c.id === id);
+      if (collection) {
+        collection.name = newName || collection.name; // Will refresh properly on next load
+      }
+
+      closeRenameDialog();
+      refreshCollections(); // Reload to get updated names
+
+      if (newName) {
+        toastr.success(`Renamed to "${newName}"`, "VectHare");
+      } else {
+        toastr.success("Reset to auto-generated name", "VectHare");
+      }
     });
 
-    // Show modal and focus input
-    $('#vecthare_rename_modal').fadeIn(200, function() {
-        $('#vecthare_rename_input').focus().select();
-    });
+  // Show modal and focus input
+  $("#vecthare_rename_modal").fadeIn(200, function () {
+    $("#vecthare_rename_input").focus().select();
+  });
 }
 
 /**
  * Closes the rename dialog
  */
 function closeRenameDialog() {
-    $('#vecthare_rename_modal').fadeOut(200);
+  $("#vecthare_rename_modal").fadeOut(200);
 }
 
 // ============================================================================
@@ -1387,9 +1474,9 @@ function closeRenameDialog() {
  * @param {object} collection Collection object with models array
  */
 function openModelSwitcher(collection) {
-    // Create modal if it doesn't exist
-    if ($('#vecthare_model_switcher_modal').length === 0) {
-        const modalHtml = `
+  // Create modal if it doesn't exist
+  if ($("#vecthare_model_switcher_modal").length === 0) {
+    const modalHtml = `
             <div id="vecthare_model_switcher_modal" class="vecthare-modal">
                 <div class="vecthare-modal-content vecthare-model-switcher-content popup">
                     <div class="vecthare-modal-header">
@@ -1406,28 +1493,29 @@ function openModelSwitcher(collection) {
                 </div>
             </div>
         `;
-        $('body').append(modalHtml);
+    $("body").append(modalHtml);
 
-        // Bind close
-        $('#vecthare_model_switcher_close').on('click', closeModelSwitcher);
-        // Stop propagation on ALL clicks (prevents extension panel from closing)
-        $('#vecthare_model_switcher_modal').on('click', function(e) {
-            e.stopPropagation();
-            if (e.target === this) closeModelSwitcher();
-        });
-    }
+    // Bind close
+    $("#vecthare_model_switcher_close").on("click", closeModelSwitcher);
+    // Stop propagation on ALL clicks (prevents extension panel from closing)
+    $("#vecthare_model_switcher_modal").on("click", function (e) {
+      e.stopPropagation();
+      if (e.target === this) closeModelSwitcher();
+    });
+  }
 
-    // Store collection reference
-    $('#vecthare_model_switcher_modal').data('collection', collection);
+  // Store collection reference
+  $("#vecthare_model_switcher_modal").data("collection", collection);
 
-    // Build model list
-    const modelListHtml = collection.models.map(model => {
-        const isActive = model.path === collection.model;
-        const modelName = model.name || '(default)';
-        const chunkLabel = model.chunkCount === 1 ? 'chunk' : 'chunks';
+  // Build model list
+  const modelListHtml = collection.models
+    .map((model) => {
+      const isActive = model.path === collection.model;
+      const modelName = model.name || "(default)";
+      const chunkLabel = model.chunkCount === 1 ? "chunk" : "chunks";
 
-        return `
-            <div class="vecthare-model-item ${isActive ? 'vecthare-model-active' : ''}"
+      return `
+            <div class="vecthare-model-item ${isActive ? "vecthare-model-active" : ""}"
                  data-model-path="${model.path}">
                 <div class="vecthare-model-item-info">
                     <span class="vecthare-model-name">
@@ -1436,48 +1524,57 @@ function openModelSwitcher(collection) {
                     </span>
                     <span class="vecthare-model-chunks">${model.chunkCount} ${chunkLabel}</span>
                 </div>
-                ${isActive
+                ${
+                  isActive
                     ? '<span class="vecthare-model-badge-current">Current</span>'
                     : '<button class="vecthare-btn-sm vecthare-model-select-btn">Set as Primary</button>'
                 }
             </div>
         `;
-    }).join('');
+    })
+    .join("");
 
-    $('#vecthare_model_list').html(modelListHtml);
+  $("#vecthare_model_list").html(modelListHtml);
 
-    // Bind selection
-    $('.vecthare-model-select-btn').off('click').on('click', function(e) {
-        e.stopPropagation();
-        const modelPath = $(this).closest('.vecthare-model-item').data('model-path');
-        const coll = $('#vecthare_model_switcher_modal').data('collection');
+  // Bind selection
+  $(".vecthare-model-select-btn")
+    .off("click")
+    .on("click", function (e) {
+      e.stopPropagation();
+      const modelPath = $(this)
+        .closest(".vecthare-model-item")
+        .data("model-path");
+      const coll = $("#vecthare_model_switcher_modal").data("collection");
 
-        // Update collection
-        coll.model = modelPath;
-        const modelInfo = coll.models.find(m => m.path === modelPath);
-        if (modelInfo) {
-            coll.chunkCount = modelInfo.chunkCount;
-        }
+      // Update collection
+      coll.model = modelPath;
+      const modelInfo = coll.models.find((m) => m.path === modelPath);
+      if (modelInfo) {
+        coll.chunkCount = modelInfo.chunkCount;
+      }
 
-        // Persist
-        setCollectionMeta(coll.registryKey || coll.id, {
-            preferredModel: modelPath
-        });
+      // Persist
+      setCollectionMeta(coll.registryKey || coll.id, {
+        preferredModel: modelPath,
+      });
 
-        toastr.success(`Set primary model: ${modelPath || '(default)'}`, 'VectHare');
-        closeModelSwitcher();
-        renderCollections();
+      toastr.success(
+        `Set primary model: ${modelPath || "(default)"}`,
+        "VectHare",
+      );
+      closeModelSwitcher();
+      renderCollections();
     });
 
-    // Show
-    $('#vecthare_model_switcher_modal').fadeIn(200);
+  // Show
+  $("#vecthare_model_switcher_modal").fadeIn(200);
 }
 
 /**
  * Closes the model switcher modal
  */
 function closeModelSwitcher() {
-    $('#vecthare_model_switcher_modal').fadeOut(200);
+  $("#vecthare_model_switcher_modal").fadeOut(200);
 }
 
 // ============================================================================
@@ -1488,17 +1585,49 @@ function closeModelSwitcher() {
 // Note: "keyword" renamed to "pattern" - triggers handle simple keywords,
 // this is for advanced regex/pattern matching with custom scan depth
 const CONDITION_TYPES = [
-    { value: 'pattern', label: '🔍 Pattern Match', desc: 'Advanced regex/pattern in messages' },
-    { value: 'speaker', label: '🗣️ Speaker', desc: 'Match by who spoke last' },
-    { value: 'characterPresent', label: '👥 Character Present', desc: 'Check if character spoke recently' },
-    { value: 'messageCount', label: '#️⃣ Message Count', desc: 'Conversation length check' },
-    { value: 'emotion', label: '😊 Emotion', desc: 'Detect emotional tone' },
-    { value: 'isGroupChat', label: '👪 Group Chat', desc: 'Group vs 1-on-1' },
-    { value: 'generationType', label: '⚙️ Gen Type', desc: 'Normal, swipe, continue, etc.' },
-    { value: 'lorebookActive', label: '📖 Lorebook', desc: 'Check if lorebook entry active' },
-    { value: 'swipeCount', label: '👆 Swipe Count', desc: 'Swipes on last message' },
-    { value: 'timeOfDay', label: '🕐 Time of Day', desc: 'Real-world time window' },
-    { value: 'randomChance', label: '🎲 Random', desc: 'Probabilistic activation' },
+  {
+    value: "pattern",
+    label: "🔍 Pattern Match",
+    desc: "Advanced regex/pattern in messages",
+  },
+  { value: "speaker", label: "🗣️ Speaker", desc: "Match by who spoke last" },
+  {
+    value: "characterPresent",
+    label: "👥 Character Present",
+    desc: "Check if character spoke recently",
+  },
+  {
+    value: "messageCount",
+    label: "#️⃣ Message Count",
+    desc: "Conversation length check",
+  },
+  { value: "emotion", label: "😊 Emotion", desc: "Detect emotional tone" },
+  { value: "isGroupChat", label: "👪 Group Chat", desc: "Group vs 1-on-1" },
+  {
+    value: "generationType",
+    label: "⚙️ Gen Type",
+    desc: "Normal, swipe, continue, etc.",
+  },
+  {
+    value: "lorebookActive",
+    label: "📖 Lorebook",
+    desc: "Check if lorebook entry active",
+  },
+  {
+    value: "swipeCount",
+    label: "👆 Swipe Count",
+    desc: "Swipes on last message",
+  },
+  {
+    value: "timeOfDay",
+    label: "🕐 Time of Day",
+    desc: "Real-world time window",
+  },
+  {
+    value: "randomChance",
+    label: "🎲 Random",
+    desc: "Probabilistic activation",
+  },
 ];
 
 // ============================================================================
@@ -1506,29 +1635,29 @@ const CONDITION_TYPES = [
 // ============================================================================
 
 let activationEditorState = {
-    collectionId: null,
-    collectionName: null,
-    collectionType: 'unknown',
-    alwaysActive: false,
-    triggers: [],
-    triggerMatchMode: 'any',
-    triggerCaseSensitive: false,
-    triggerScanDepth: 5,
-    conditions: null,
-    // Temporal Weighting (decay or nostalgia)
-    temporalDecay: {
-        enabled: false,
-        type: 'decay',        // 'decay' or 'nostalgia'
-        mode: 'exponential',
-        halfLife: 50,
-        linearRate: 0.01,
-        minRelevance: 0.3,
-        maxBoost: 1.2,
-        sceneAware: false
-    },
-    // Injection settings (position/depth)
-    position: null,  // null = use global default
-    depth: null      // null = use global default
+  collectionId: null,
+  collectionName: null,
+  collectionType: "unknown",
+  alwaysActive: false,
+  triggers: [],
+  triggerMatchMode: "any",
+  triggerCaseSensitive: false,
+  triggerScanDepth: 5,
+  conditions: null,
+  // Temporal Weighting (decay or nostalgia)
+  temporalDecay: {
+    enabled: false,
+    type: "decay", // 'decay' or 'nostalgia'
+    mode: "exponential",
+    halfLife: 50,
+    linearRate: 0.01,
+    minRelevance: 0.3,
+    maxBoost: 1.2,
+    sceneAware: false,
+  },
+  // Injection settings (position/depth)
+  position: null, // null = use global default
+  depth: null, // null = use global default
 };
 
 /**
@@ -1537,59 +1666,60 @@ let activationEditorState = {
  * @param {string} collectionName Display name
  */
 function openActivationEditor(collectionId, collectionName) {
-    const meta = getCollectionMeta(collectionId);
-    const triggerSettings = getCollectionTriggers(collectionId);
-    const conditions = getCollectionConditions(collectionId);
+  const meta = getCollectionMeta(collectionId);
+  const triggerSettings = getCollectionTriggers(collectionId);
+  const conditions = getCollectionConditions(collectionId);
 
-    // Get decay settings - use type-aware defaults if not explicitly set
-    const collectionType = meta.scope === 'chat' ? 'chat' : (meta.type || 'unknown');
-    const decaySettings = getCollectionDecaySettings(collectionId);
+  // Get decay settings - use type-aware defaults if not explicitly set
+  const collectionType =
+    meta.scope === "chat" ? "chat" : meta.type || "unknown";
+  const decaySettings = getCollectionDecaySettings(collectionId);
 
-    activationEditorState = {
-        collectionId,
-        collectionName,
-        collectionType,
-        alwaysActive: meta.alwaysActive || false,
-        triggers: triggerSettings.triggers || [],
-        triggerMatchMode: triggerSettings.matchMode || 'any',
-        triggerCaseSensitive: triggerSettings.caseSensitive || false,
-        triggerScanDepth: triggerSettings.scanDepth || 5,
-        conditions,
-        temporalDecay: {
-            enabled: decaySettings.enabled,
-            type: decaySettings.type || 'decay',
-            mode: decaySettings.mode,
-            halfLife: decaySettings.halfLife,
-            linearRate: decaySettings.linearRate,
-            minRelevance: decaySettings.minRelevance,
-            maxBoost: decaySettings.maxBoost || 1.2,
-            sceneAware: decaySettings.sceneAware
-        },
-        // Prompt context
-        context: meta.context || '',
-        xmlTag: meta.xmlTag || '',
-        // Injection position/depth (null = use global default)
-        position: meta.position ?? null,
-        depth: meta.depth ?? null
-    };
+  activationEditorState = {
+    collectionId,
+    collectionName,
+    collectionType,
+    alwaysActive: meta.alwaysActive || false,
+    triggers: triggerSettings.triggers || [],
+    triggerMatchMode: triggerSettings.matchMode || "any",
+    triggerCaseSensitive: triggerSettings.caseSensitive || false,
+    triggerScanDepth: triggerSettings.scanDepth || 5,
+    conditions,
+    temporalDecay: {
+      enabled: decaySettings.enabled,
+      type: decaySettings.type || "decay",
+      mode: decaySettings.mode,
+      halfLife: decaySettings.halfLife,
+      linearRate: decaySettings.linearRate,
+      minRelevance: decaySettings.minRelevance,
+      maxBoost: decaySettings.maxBoost || 1.2,
+      sceneAware: decaySettings.sceneAware,
+    },
+    // Prompt context
+    context: meta.context || "",
+    xmlTag: meta.xmlTag || "",
+    // Injection position/depth (null = use global default)
+    position: meta.position ?? null,
+    depth: meta.depth ?? null,
+  };
 
-    // Create modal if needed
-    if ($('#vecthare_activation_editor_modal').length === 0) {
-        createActivationEditorModal();
-    }
+  // Create modal if needed
+  if ($("#vecthare_activation_editor_modal").length === 0) {
+    createActivationEditorModal();
+  }
 
-    // Populate with current settings
-    renderActivationEditor();
+  // Populate with current settings
+  renderActivationEditor();
 
-    $('#vecthare_activation_editor_modal').fadeIn(200);
+  $("#vecthare_activation_editor_modal").fadeIn(200);
 }
 
 /**
  * Closes the activation editor
  */
 function closeActivationEditor() {
-    $('#vecthare_activation_editor_modal').fadeOut(200);
-    activationEditorState.collectionId = null;
+  $("#vecthare_activation_editor_modal").fadeOut(200);
+  activationEditorState.collectionId = null;
 }
 
 /**
@@ -1598,7 +1728,7 @@ function closeActivationEditor() {
  * Secondary: Advanced conditions
  */
 function createActivationEditorModal() {
-    const modalHtml = `
+  const modalHtml = `
         <div id="vecthare_activation_editor_modal" class="vecthare-modal">
             <div class="vecthare-activation-editor">
                 <div class="vecthare-modal-header">
@@ -1860,8 +1990,8 @@ function createActivationEditorModal() {
         </div>
     `;
 
-    $('body').append(modalHtml);
-    bindActivationEditorEvents();
+  $("body").append(modalHtml);
+  bindActivationEditorEvents();
 }
 
 /**
@@ -1869,335 +1999,364 @@ function createActivationEditorModal() {
  * @param {boolean} isNostalgia True if nostalgia mode
  */
 function updateTemporalWeightingHints(isNostalgia) {
-    if (isNostalgia) {
-        $('#vecthare_decay_type_hint').text('Older messages score higher');
-        $('#vecthare_halflife_hint').text('messages until 50% of max boost');
-    } else {
-        $('#vecthare_decay_type_hint').text('Newer messages score higher');
-        $('#vecthare_halflife_hint').text('messages until 50% relevance');
-    }
+  if (isNostalgia) {
+    $("#vecthare_decay_type_hint").text("Older messages score higher");
+    $("#vecthare_halflife_hint").text("messages until 50% of max boost");
+  } else {
+    $("#vecthare_decay_type_hint").text("Newer messages score higher");
+    $("#vecthare_halflife_hint").text("messages until 50% relevance");
+  }
 }
 
 /**
  * Binds event handlers for activation editor
  */
 function bindActivationEditorEvents() {
-    $('#vecthare_activation_close, #vecthare_activation_cancel').on('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        closeActivationEditor();
-    });
+  $("#vecthare_activation_close, #vecthare_activation_cancel").on(
+    "click",
+    function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeActivationEditor();
+    },
+  );
 
-    $('#vecthare_activation_save').on('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        saveActivation();
-    });
+  $("#vecthare_activation_save").on("click", function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    saveActivation();
+  });
 
-    $('#vecthare_add_condition').on('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        addConditionRule();
-    });
+  $("#vecthare_add_condition").on("click", function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    addConditionRule();
+  });
 
-    // Stop propagation on ALL clicks (prevents extension panel from closing)
-    $('#vecthare_activation_editor_modal').on('click', function(e) {
-        e.stopPropagation();
-        if (e.target === this) closeActivationEditor();
-    });
+  // Stop propagation on ALL clicks (prevents extension panel from closing)
+  $("#vecthare_activation_editor_modal").on("click", function (e) {
+    e.stopPropagation();
+    if (e.target === this) closeActivationEditor();
+  });
 
-    // Stop propagation on modal content
-    $('#vecthare_activation_editor_modal .vecthare-modal-content').on('click', function(e) {
-        e.stopPropagation();
-    });
+  // Stop propagation on modal content
+  $("#vecthare_activation_editor_modal .vecthare-modal-content").on(
+    "click",
+    function (e) {
+      e.stopPropagation();
+    },
+  );
 
-    // Always active disables other sections
-    $('#vecthare_always_active').on('change', function(e) {
-        e.stopPropagation();
-        const isAlwaysActive = $(this).prop('checked');
-        $('.vecthare-triggers-section, .vecthare-conditions-section').toggleClass('vecthare-disabled', isAlwaysActive);
-    });
+  // Always active disables other sections
+  $("#vecthare_always_active").on("change", function (e) {
+    e.stopPropagation();
+    const isAlwaysActive = $(this).prop("checked");
+    $(".vecthare-triggers-section, .vecthare-conditions-section").toggleClass(
+      "vecthare-disabled",
+      isAlwaysActive,
+    );
+  });
 
-    // Decay enabled toggle shows/hides advanced settings
-    $('#vecthare_decay_enabled').on('change', function(e) {
-        e.stopPropagation();
-        const enabled = $(this).prop('checked');
-        $('#vecthare_decay_advanced').toggle(enabled);
-    });
+  // Decay enabled toggle shows/hides advanced settings
+  $("#vecthare_decay_enabled").on("change", function (e) {
+    e.stopPropagation();
+    const enabled = $(this).prop("checked");
+    $("#vecthare_decay_advanced").toggle(enabled);
+  });
 
-    // Decay mode toggle shows/hides exponential vs linear settings
-    $('input[name="vecthare_decay_mode"]').on('change', function(e) {
-        e.stopPropagation();
-        const mode = $(this).val();
-        $('.vecthare-decay-exponential').toggle(mode === 'exponential');
-        $('.vecthare-decay-linear').toggle(mode === 'linear');
-        // Update visual selection state
-        $('.vecthare-curve-toggle .vecthare-type-option').removeClass('selected');
-        $(this).closest('.vecthare-type-option').addClass('selected');
-    });
+  // Decay mode toggle shows/hides exponential vs linear settings
+  $('input[name="vecthare_decay_mode"]').on("change", function (e) {
+    e.stopPropagation();
+    const mode = $(this).val();
+    $(".vecthare-decay-exponential").toggle(mode === "exponential");
+    $(".vecthare-decay-linear").toggle(mode === "linear");
+    // Update visual selection state
+    $(".vecthare-curve-toggle .vecthare-type-option").removeClass("selected");
+    $(this).closest(".vecthare-type-option").addClass("selected");
+  });
 
-    // Decay type toggle shows/hides decay-specific vs nostalgia-specific fields
-    $('input[name="vecthare_decay_type"]').on('change', function(e) {
-        e.stopPropagation();
-        const isNostalgia = $(this).val() === 'nostalgia';
-        $('.vecthare-decay-floor').toggle(!isNostalgia);
-        $('.vecthare-nostalgia-ceiling').toggle(isNostalgia);
-        updateTemporalWeightingHints(isNostalgia);
-        // Update visual selection state
-        $('.vecthare-type-option').removeClass('selected');
-        $(this).closest('.vecthare-type-option').addClass('selected');
-    });
+  // Decay type toggle shows/hides decay-specific vs nostalgia-specific fields
+  $('input[name="vecthare_decay_type"]').on("change", function (e) {
+    e.stopPropagation();
+    const isNostalgia = $(this).val() === "nostalgia";
+    $(".vecthare-decay-floor").toggle(!isNostalgia);
+    $(".vecthare-nostalgia-ceiling").toggle(isNostalgia);
+    updateTemporalWeightingHints(isNostalgia);
+    // Update visual selection state
+    $(".vecthare-type-option").removeClass("selected");
+    $(this).closest(".vecthare-type-option").addClass("selected");
+  });
 
-    // Activation editor: Lock-to-chat button - opens dialog to manage multiple locks
-    $('#vecthare_activation_lock_collection').off('click').on('click', async function(e) {
-        e.stopPropagation();
-        const collId = activationEditorState.collectionId;
+  // Activation editor: Lock-to-chat button - opens dialog to manage multiple locks
+  $("#vecthare_activation_lock_collection").off("click").on("click", async function (e) {
+    e.stopPropagation();
+    const collId = activationEditorState.collectionId;
 
-        if (!collId) {
-            toastr.warning('No collection selected');
-            return;
-        }
+    if (!collId) {
+      toastr.warning("No collection selected");
+      return;
+    }
 
-        try {
-            openCollectionLockDialog(collId);
-        } catch (err) {
-            console.error('VectHare: Failed to open lock dialog', err);
-            toastr.error('Failed to open lock dialog');
-        }
-    });
+    try {
+      openCollectionLockDialog(collId);
+    } catch (err) {
+      console.error("VectHare: Failed to open lock dialog", err);
+      toastr.error("Failed to open lock dialog");
+    }
+  });
 
-    // Refresh lock button when chat changes
-    eventSource.on(event_types.CHAT_CHANGED, () => {
-        refreshActivationLockButton();
-    });
+  // Refresh lock button when chat changes
+  eventSource.on(event_types.CHAT_CHANGED, () => {
+    refreshActivationLockButton();
+  });
 
-    // Injection position toggle shows/hides depth row
-    $('#vecthare_collection_position').on('change', function(e) {
-        e.stopPropagation();
-        const position = $(this).val();
-        // Show depth row only if "In-Chat @ Depth" (value 1) is selected
-        $('#vecthare_collection_depth_row').toggle(position === '1');
-    });
+  // Injection position toggle shows/hides depth row
+  $("#vecthare_collection_position").on("change", function (e) {
+    e.stopPropagation();
+    const position = $(this).val();
+    // Show depth row only if "In-Chat @ Depth" (value 1) is selected
+    $("#vecthare_collection_depth_row").toggle(position === "1");
+  });
 
-    // Injection depth slider updates label
-    $('#vecthare_collection_depth').on('input', function(e) {
-        e.stopPropagation();
-        $('#vecthare_collection_depth_value').text($(this).val());
-    });
+  // Injection depth slider updates label
+  $("#vecthare_collection_depth").on("input", function (e) {
+    e.stopPropagation();
+    $("#vecthare_collection_depth_value").text($(this).val());
+  });
 }
 
 /**
  * Renders the activation editor content
  */
 function renderActivationEditor() {
-    const state = activationEditorState;
+  const state = activationEditorState;
 
-    $('#vecthare_activation_collection_name').text(state.collectionName);
-    $('#vecthare_always_active').prop('checked', state.alwaysActive);
+  $("#vecthare_activation_collection_name").text(state.collectionName);
+  $("#vecthare_always_active").prop("checked", state.alwaysActive);
 
-    // Triggers
-    const triggersText = state.triggers.join('\n');
-    $('#vecthare_triggers_input').val(triggersText);
-    $('#vecthare_trigger_match_mode').val(state.triggerMatchMode);
-    $('#vecthare_trigger_scan_depth').val(state.triggerScanDepth);
-    $('#vecthare_trigger_case_sensitive').prop('checked', state.triggerCaseSensitive);
+  // Triggers
+  const triggersText = state.triggers.join("\n");
+  $("#vecthare_triggers_input").val(triggersText);
+  $("#vecthare_trigger_match_mode").val(state.triggerMatchMode);
+  $("#vecthare_trigger_scan_depth").val(state.triggerScanDepth);
+  $("#vecthare_trigger_case_sensitive").prop(
+    "checked",
+    state.triggerCaseSensitive,
+  );
 
-    // Conditions
-    $('#vecthare_conditions_enabled').prop('checked', state.conditions.enabled);
-    $('#vecthare_conditions_logic').val(state.conditions.logic || 'AND');
+  // Conditions
+  $("#vecthare_conditions_enabled").prop("checked", state.conditions.enabled);
+  $("#vecthare_conditions_logic").val(state.conditions.logic || "AND");
 
-    // Temporal Weighting (decay or nostalgia)
-    const decay = state.temporalDecay;
-    $('#vecthare_decay_enabled').prop('checked', decay.enabled);
-    const decayType = decay.type || 'decay';
-    $(`input[name="vecthare_decay_type"][value="${decayType}"]`).prop('checked', true);
-    $('.vecthare-type-option').removeClass('selected');
-    $(`.vecthare-type-option[data-type="${decayType}"]`).addClass('selected');
-    const decayMode = decay.mode || 'exponential';
-    $(`input[name="vecthare_decay_mode"][value="${decayMode}"]`).prop('checked', true);
-    $(`.vecthare-type-option[data-mode="${decayMode}"]`).addClass('selected');
-    $('#vecthare_decay_halflife').val(decay.halfLife);
-    $('#vecthare_decay_rate').val(decay.linearRate);
-    $('#vecthare_decay_min').val(decay.minRelevance);
-    $('#vecthare_decay_max_boost').val(decay.maxBoost || 1.2);
-    $('#vecthare_decay_scene_aware').prop('checked', decay.sceneAware);
+  // Temporal Weighting (decay or nostalgia)
+  const decay = state.temporalDecay;
+  $("#vecthare_decay_enabled").prop("checked", decay.enabled);
+  const decayType = decay.type || "decay";
+  $(`input[name="vecthare_decay_type"][value="${decayType}"]`).prop(
+    "checked",
+    true,
+  );
+  $(".vecthare-type-option").removeClass("selected");
+  $(`.vecthare-type-option[data-type="${decayType}"]`).addClass("selected");
+  const decayMode = decay.mode || "exponential";
+  $(`input[name="vecthare_decay_mode"][value="${decayMode}"]`).prop(
+    "checked",
+    true,
+  );
+  $(`.vecthare-type-option[data-mode="${decayMode}"]`).addClass("selected");
+  $("#vecthare_decay_halflife").val(decay.halfLife);
+  $("#vecthare_decay_rate").val(decay.linearRate);
+  $("#vecthare_decay_min").val(decay.minRelevance);
+  $("#vecthare_decay_max_boost").val(decay.maxBoost || 1.2);
+  $("#vecthare_decay_scene_aware").prop("checked", decay.sceneAware);
 
-    // Show/hide advanced decay settings based on enabled
-    $('#vecthare_decay_advanced').toggle(decay.enabled);
+  // Show/hide advanced decay settings based on enabled
+  $("#vecthare_decay_advanced").toggle(decay.enabled);
 
-    // Show correct decay mode fields
-    $('.vecthare-decay-exponential').toggle(decay.mode === 'exponential');
-    $('.vecthare-decay-linear').toggle(decay.mode === 'linear');
+  // Show correct decay mode fields
+  $(".vecthare-decay-exponential").toggle(decay.mode === "exponential");
+  $(".vecthare-decay-linear").toggle(decay.mode === "linear");
 
-    // Show/hide type-specific fields and update hints
-    const isNostalgia = decayType === 'nostalgia';
-    $('.vecthare-decay-floor').toggle(!isNostalgia);
-    $('.vecthare-nostalgia-ceiling').toggle(isNostalgia);
-    updateTemporalWeightingHints(isNostalgia);
+  // Show/hide type-specific fields and update hints
+  const isNostalgia = decayType === "nostalgia";
+  $(".vecthare-decay-floor").toggle(!isNostalgia);
+  $(".vecthare-nostalgia-ceiling").toggle(isNostalgia);
+  updateTemporalWeightingHints(isNostalgia);
 
-    // Prompt Context
-    $('#vecthare_collection_context').val(state.context || '');
-    $('#vecthare_collection_xml_tag').val(state.xmlTag || '');
+  // Prompt Context
+  $("#vecthare_collection_context").val(state.context || "");
+  $("#vecthare_collection_xml_tag").val(state.xmlTag || "");
 
-    // Injection position/depth
-    const posValue = state.position !== null ? String(state.position) : '';
-    $('#vecthare_collection_position').val(posValue);
-    $('#vecthare_collection_depth').val(state.depth ?? 2);
-    $('#vecthare_collection_depth_value').text(state.depth ?? 2);
-    // Show depth row only if position is "In-Chat @ Depth" (value 1)
-    $('#vecthare_collection_depth_row').toggle(state.position === 1);
+  // Injection position/depth
+  const posValue = state.position !== null ? String(state.position) : "";
+  $("#vecthare_collection_position").val(posValue);
+  $("#vecthare_collection_depth").val(state.depth ?? 2);
+  $("#vecthare_collection_depth_value").text(state.depth ?? 2);
+  // Show depth row only if position is "In-Chat @ Depth" (value 1)
+  $("#vecthare_collection_depth_row").toggle(state.position === 1);
 
-    // Disable sections if always active
-    const isAlwaysActive = state.alwaysActive;
-    $('.vecthare-triggers-section, .vecthare-conditions-section').toggleClass('vecthare-disabled', isAlwaysActive);
+  // Disable sections if always active
+  const isAlwaysActive = state.alwaysActive;
+  $(".vecthare-triggers-section, .vecthare-conditions-section").toggleClass(
+    "vecthare-disabled",
+    isAlwaysActive,
+  );
 
-    // Refresh lock button state for this collection
-    refreshActivationLockButton();
+  // Refresh lock button state for this collection
+  refreshActivationLockButton();
 
+  renderConditionRules();
+}
 
 /**
  * Refresh the lock button in the activation editor based on current collection and chat
  */
 function refreshActivationLockButton() {
-    try {
-        const collId = activationEditorState.collectionId;
-        const $btn = $('#vecthare_activation_lock_collection');
-        const chatId = getCurrentChatId();
-        const context = getContext();
-        const charId = context?.characterId || null;
+  try {
+    const collId = activationEditorState.collectionId;
+    const $btn = $("#vecthare_activation_lock_collection");
+    const chatId = getCurrentChatId();
+    const context = getContext();
+    const charId = context?.characterId || null;
 
-        if (!$btn || $btn.length === 0) return;
+    if (!$btn || $btn.length === 0) return;
 
-        if (!collId) {
-            $btn.prop('disabled', true).text('🔒 Lock to Chat');
-            $btn.attr('title', 'No collection selected');
-            return;
-        }
-
-        const chatLockCount = getCollectionLockCount(collId);
-        const charLockCount = getCollectionCharacterLockCount(collId);
-        const isLockedToCurrentChat = chatId && isCollectionLockedToChat(collId, chatId);
-        const isLockedToCurrentChar = charId && isCollectionLockedToCharacter(collId, charId);
-        const totalLocks = chatLockCount + charLockCount;
-
-        if (totalLocks === 0) {
-            $btn.prop('disabled', false).text('🔒 Manage Locks');
-            $btn.attr('title', 'No locks set. Click to add locks');
-        } else {
-            const lockedStatus = (isLockedToCurrentChat || isLockedToCurrentChar) ? '🔓' : '🔒';
-            $btn.prop('disabled', false).text(`${lockedStatus} ${totalLocks} lock${totalLocks !== 1 ? 's' : ''}`);
-
-            let tooltip = `Collection has ${totalLocks} lock${totalLocks !== 1 ? 's' : ''}`;
-            if (chatLockCount > 0) tooltip += ` (${chatLockCount} chat${chatLockCount !== 1 ? 's' : ''})`;
-            if (charLockCount > 0) tooltip += ` (${charLockCount} character${charLockCount !== 1 ? 's' : ''})`;
-            if (isLockedToCurrentChat || isLockedToCurrentChar) tooltip += ' - ACTIVE for current context';
-
-            $btn.attr('title', tooltip);
-        }
-    } catch (err) {
-        console.error('VectHare: Failed to refresh activation lock button', err);
+    if (!collId) {
+      $btn.prop("disabled", true).text("🔒 Lock to Chat");
+      $btn.attr("title", "No collection selected");
+      return;
     }
-}
-    renderConditionRules();
+
+    const chatLockCount = getCollectionLockCount(collId);
+    const charLockCount = getCollectionCharacterLockCount(collId);
+    const isLockedToCurrentChat = chatId && isCollectionLockedToChat(collId, chatId);
+    const isLockedToCurrentChar = charId && isCollectionLockedToCharacter(collId, charId);
+    const totalLocks = chatLockCount + charLockCount;
+
+    if (totalLocks === 0) {
+      $btn.prop("disabled", false).text("🔒 Manage Locks");
+      $btn.attr("title", "No locks set. Click to add locks");
+    } else {
+      const lockedStatus = (isLockedToCurrentChat || isLockedToCurrentChar) ? "🔓" : "🔒";
+      $btn.prop("disabled", false).text(`${lockedStatus} ${totalLocks} lock${totalLocks !== 1 ? "s" : ""}`);
+
+      let tooltip = `Collection has ${totalLocks} lock${totalLocks !== 1 ? "s" : ""}`;
+      if (chatLockCount > 0) tooltip += ` (${chatLockCount} chat${chatLockCount !== 1 ? "s" : ""})`;
+      if (charLockCount > 0) tooltip += ` (${charLockCount} character${charLockCount !== 1 ? "s" : ""})`;
+      if (isLockedToCurrentChat || isLockedToCurrentChar) tooltip += " - ACTIVE for current context";
+
+      $btn.attr("title", tooltip);
+    }
+  } catch (err) {
+    console.error("VectHare: Failed to refresh activation lock button", err);
+  }
 }
 
 /**
  * Saves collection settings (activation + triggers + conditions + decay)
  */
 function saveActivation() {
-    const state = activationEditorState;
+  const state = activationEditorState;
 
-    // Parse triggers from textarea
-    const triggersRaw = $('#vecthare_triggers_input').val();
-    const triggers = triggersRaw
-        .split(/[\n,]/)
-        .map(t => t.trim())
-        .filter(t => t.length > 0);
+  // Parse triggers from textarea
+  const triggersRaw = $("#vecthare_triggers_input").val();
+  const triggers = triggersRaw
+    .split(/[\n,]/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
 
-    // Build temporal weighting settings (decay or nostalgia)
-    const temporalDecay = {
-        enabled: $('#vecthare_decay_enabled').prop('checked'),
-        type: $('input[name="vecthare_decay_type"]:checked').val() || 'decay',
-        mode: $('input[name="vecthare_decay_mode"]:checked').val() || 'exponential',
-        halfLife: parseInt($('#vecthare_decay_halflife').val()) || 50,
-        linearRate: parseFloat($('#vecthare_decay_rate').val()) || 0.01,
-        minRelevance: parseFloat($('#vecthare_decay_min').val()) || 0.3,
-        maxBoost: parseFloat($('#vecthare_decay_max_boost').val()) || 1.2,
-        sceneAware: $('#vecthare_decay_scene_aware').prop('checked'),
-    };
+  // Build temporal weighting settings (decay or nostalgia)
+  const temporalDecay = {
+    enabled: $("#vecthare_decay_enabled").prop("checked"),
+    type: $('input[name="vecthare_decay_type"]:checked').val() || "decay",
+    mode: $('input[name="vecthare_decay_mode"]:checked').val() || "exponential",
+    halfLife: parseInt($("#vecthare_decay_halflife").val()) || 50,
+    linearRate: parseFloat($("#vecthare_decay_rate").val()) || 0.01,
+    minRelevance: parseFloat($("#vecthare_decay_min").val()) || 0.3,
+    maxBoost: parseFloat($("#vecthare_decay_max_boost").val()) || 1.2,
+    sceneAware: $("#vecthare_decay_scene_aware").prop("checked"),
+  };
 
-    // Get prompt context values (sanitize xml tag)
-    const contextPrompt = $('#vecthare_collection_context').val() || '';
-    const xmlTagRaw = $('#vecthare_collection_xml_tag').val() || '';
-    const xmlTag = xmlTagRaw.replace(/[^a-zA-Z0-9_-]/g, '');
+  // Get prompt context values (sanitize xml tag)
+  const contextPrompt = $("#vecthare_collection_context").val() || "";
+  const xmlTagRaw = $("#vecthare_collection_xml_tag").val() || "";
+  const xmlTag = xmlTagRaw.replace(/[^a-zA-Z0-9_-]/g, "");
 
-    // Get injection position/depth (empty string = use global default = null)
-    const positionRaw = $('#vecthare_collection_position').val();
-    const position = positionRaw === '' ? null : parseInt(positionRaw);
-    const depth = position === 1 ? (parseInt($('#vecthare_collection_depth').val()) || 2) : null;
+  // Get injection position/depth (empty string = use global default = null)
+  const positionRaw = $("#vecthare_collection_position").val();
+  const position = positionRaw === "" ? null : parseInt(positionRaw);
+  const depth =
+    position === 1
+      ? parseInt($("#vecthare_collection_depth").val()) || 2
+      : null;
 
-    // Update metadata (all in one call)
-    setCollectionMeta(state.collectionId, {
-        alwaysActive: $('#vecthare_always_active').prop('checked'),
-        triggers: triggers,
-        triggerMatchMode: $('#vecthare_trigger_match_mode').val(),
-        triggerScanDepth: parseInt($('#vecthare_trigger_scan_depth').val()) || 5,
-        triggerCaseSensitive: $('#vecthare_trigger_case_sensitive').prop('checked'),
-        temporalDecay: temporalDecay,
-        context: contextPrompt,
-        xmlTag: xmlTag,
-        position: position,
-        depth: depth,
-    });
+  // Update metadata (all in one call)
+  setCollectionMeta(state.collectionId, {
+    alwaysActive: $("#vecthare_always_active").prop("checked"),
+    triggers: triggers,
+    triggerMatchMode: $("#vecthare_trigger_match_mode").val(),
+    triggerScanDepth: parseInt($("#vecthare_trigger_scan_depth").val()) || 5,
+    triggerCaseSensitive: $("#vecthare_trigger_case_sensitive").prop("checked"),
+    temporalDecay: temporalDecay,
+    context: contextPrompt,
+    xmlTag: xmlTag,
+    position: position,
+    depth: depth,
+  });
 
-    // Save conditions
-    const conditions = {
-        enabled: $('#vecthare_conditions_enabled').prop('checked'),
-        logic: $('#vecthare_conditions_logic').val(),
-        rules: state.conditions.rules || []
-    };
-    setCollectionConditions(state.collectionId, conditions);
+  // Save conditions
+  const conditions = {
+    enabled: $("#vecthare_conditions_enabled").prop("checked"),
+    logic: $("#vecthare_conditions_logic").val(),
+    rules: state.conditions.rules || [],
+  };
+  setCollectionConditions(state.collectionId, conditions);
 
-    closeActivationEditor();
-    refreshCollections();
-    toastr.success('Collection settings saved', 'VectHare');
+  closeActivationEditor();
+  refreshCollections();
+  toastr.success("Collection settings saved", "VectHare");
 }
 
 /**
  * Renders the list of condition rules
  */
 function renderConditionRules() {
-    const rules = activationEditorState.conditions.rules || [];
-    const container = $('#vecthare_conditions_list');
+  const rules = activationEditorState.conditions.rules || [];
+  const container = $("#vecthare_conditions_list");
 
-    if (rules.length === 0) {
-        container.html('<div class="vecthare-empty-rules">No conditions yet. Click "+ Add Condition" to add one.</div>');
-        return;
-    }
+  if (rules.length === 0) {
+    container.html(
+      '<div class="vecthare-empty-rules">No conditions yet. Click "+ Add Condition" to add one.</div>',
+    );
+    return;
+  }
 
-    const rulesHtml = rules.map((rule, idx) => renderConditionRule(rule, idx)).join('');
-    container.html(rulesHtml);
+  const rulesHtml = rules
+    .map((rule, idx) => renderConditionRule(rule, idx))
+    .join("");
+  container.html(rulesHtml);
 
-    // Bind rule events
-    bindConditionRuleEvents();
+  // Bind rule events
+  bindConditionRuleEvents();
 }
 
 /**
  * Renders a single condition rule
  */
 function renderConditionRule(rule, index) {
-    const typeOptions = CONDITION_TYPES.map(t =>
-        `<option value="${t.value}" ${rule.type === t.value ? 'selected' : ''}>${t.label}</option>`
-    ).join('');
+  const typeOptions = CONDITION_TYPES.map(
+    (t) =>
+      `<option value="${t.value}" ${rule.type === t.value ? "selected" : ""}>${t.label}</option>`,
+  ).join("");
 
-    return `
+  return `
         <div class="vecthare-condition-rule" data-rule-index="${index}">
             <div class="vecthare-condition-row">
                 <select class="vecthare-condition-type" data-rule-index="${index}">
                     ${typeOptions}
                 </select>
                 <label class="vecthare-condition-negate">
-                    <input type="checkbox" ${rule.negate ? 'checked' : ''} data-rule-index="${index}">
+                    <input type="checkbox" ${rule.negate ? "checked" : ""} data-rule-index="${index}">
                     NOT
                 </label>
                 <button class="vecthare-btn-icon vecthare-condition-remove" data-rule-index="${index}">🗑️</button>
@@ -2213,24 +2372,24 @@ function renderConditionRule(rule, index) {
  * Renders settings for a specific condition type
  */
 function renderConditionSettings(rule, index) {
-    const settings = rule.settings || {};
+  const settings = rule.settings || {};
 
-    switch (rule.type) {
-        case 'keyword': // Legacy support
-        case 'pattern':
-            return `
+  switch (rule.type) {
+    case "keyword": // Legacy support
+    case "pattern":
+      return `
                 <div class="vecthare-pattern-condition-wrapper">
                     <div class="vecthare-pattern-row">
                         <textarea class="vecthare-pattern-input" placeholder="Patterns (one per line)&#10;Plain text or regex: /pattern/i"
                                   data-field="patterns" data-rule-index="${index}"
-                                  rows="3">${(settings.patterns || settings.values || []).join('\n')}</textarea>
+                                  rows="3">${(settings.patterns || settings.values || []).join("\n")}</textarea>
                     </div>
                     <div class="vecthare-pattern-options">
                         <div class="vecthare-option-row">
                             <label>Match mode:</label>
                             <select data-field="matchMode" data-rule-index="${index}">
-                                <option value="any" ${settings.matchMode === 'any' ? 'selected' : ''}>ANY pattern matches</option>
-                                <option value="all" ${settings.matchMode === 'all' ? 'selected' : ''}>ALL patterns must match</option>
+                                <option value="any" ${settings.matchMode === "any" ? "selected" : ""}>ANY pattern matches</option>
+                                <option value="all" ${settings.matchMode === "all" ? "selected" : ""}>ALL patterns must match</option>
                             </select>
                         </div>
                         <div class="vecthare-option-row">
@@ -2242,15 +2401,15 @@ function renderConditionSettings(rule, index) {
                         <div class="vecthare-option-row">
                             <label>Search in:</label>
                             <select data-field="searchIn" data-rule-index="${index}">
-                                <option value="all" ${settings.searchIn === 'all' ? 'selected' : ''}>All messages</option>
-                                <option value="user" ${settings.searchIn === 'user' ? 'selected' : ''}>User only</option>
-                                <option value="assistant" ${settings.searchIn === 'assistant' ? 'selected' : ''}>Assistant only</option>
+                                <option value="all" ${settings.searchIn === "all" ? "selected" : ""}>All messages</option>
+                                <option value="user" ${settings.searchIn === "user" ? "selected" : ""}>User only</option>
+                                <option value="assistant" ${settings.searchIn === "assistant" ? "selected" : ""}>Assistant only</option>
                             </select>
                         </div>
                         <div class="vecthare-option-row">
                             <label class="vecthare-checkbox-label">
                                 <input type="checkbox" data-field="caseSensitive" data-rule-index="${index}"
-                                       ${settings.caseSensitive ? 'checked' : ''}>
+                                       ${settings.caseSensitive ? "checked" : ""}>
                                 Case sensitive
                             </label>
                         </div>
@@ -2258,37 +2417,38 @@ function renderConditionSettings(rule, index) {
                 </div>
             `;
 
-        case 'speaker':
-        case 'characterPresent':
-            return `
+    case "speaker":
+    case "characterPresent":
+      return `
                 <input type="text" placeholder="Character names (comma-separated)"
-                       value="${(settings.values || []).join(', ')}"
+                       value="${(settings.values || []).join(", ")}"
                        data-field="values" data-rule-index="${index}">
                 <select data-field="matchType" data-rule-index="${index}">
-                    <option value="any" ${settings.matchType === 'any' ? 'selected' : ''}>Any matches</option>
-                    <option value="all" ${settings.matchType === 'all' ? 'selected' : ''}>All must match</option>
+                    <option value="any" ${settings.matchType === "any" ? "selected" : ""}>Any matches</option>
+                    <option value="all" ${settings.matchType === "all" ? "selected" : ""}>All must match</option>
                 </select>
             `;
 
-        case 'messageCount':
-        case 'swipeCount':
-            return `
+    case "messageCount":
+    case "swipeCount":
+      return `
                 <input type="number" placeholder="Count" min="0"
                        value="${settings.count || 0}"
                        data-field="count" data-rule-index="${index}">
                 <select data-field="operator" data-rule-index="${index}">
-                    <option value="eq" ${settings.operator === 'eq' ? 'selected' : ''}>Exactly</option>
-                    <option value="gte" ${settings.operator === 'gte' ? 'selected' : ''}>At least</option>
-                    <option value="lte" ${settings.operator === 'lte' ? 'selected' : ''}>At most</option>
+                    <option value="eq" ${settings.operator === "eq" ? "selected" : ""}>Exactly</option>
+                    <option value="gte" ${settings.operator === "gte" ? "selected" : ""}>At least</option>
+                    <option value="lte" ${settings.operator === "lte" ? "selected" : ""}>At most</option>
                 </select>
             `;
 
-        case 'emotion':
-            const emotionOptions = VALID_EMOTIONS.map(e =>
-                `<option value="${e}" ${(settings.values || []).includes(e) ? 'selected' : ''}>${e}</option>`
-            ).join('');
-            const expressionsStatus = getExpressionsExtensionStatus();
-            return `
+    case "emotion":
+      const emotionOptions = VALID_EMOTIONS.map(
+        (e) =>
+          `<option value="${e}" ${(settings.values || []).includes(e) ? "selected" : ""}>${e}</option>`,
+      ).join("");
+      const expressionsStatus = getExpressionsExtensionStatus();
+      return `
                 <div class="vecthare-emotion-condition-wrapper">
                     <div class="vecthare-conditions-notice vecthare-notice-${expressionsStatus.level} vecthare-emotion-notice">
                         ${expressionsStatus.message}
@@ -2298,41 +2458,42 @@ function renderConditionSettings(rule, index) {
                             ${emotionOptions}
                         </select>
                         <select data-field="detectionMethod" data-rule-index="${index}">
-                            <option value="auto" ${settings.detectionMethod === 'auto' ? 'selected' : ''}>Auto (recommended)</option>
-                            <option value="expressions" ${settings.detectionMethod === 'expressions' ? 'selected' : ''}>Expressions only</option>
-                            <option value="patterns" ${settings.detectionMethod === 'patterns' ? 'selected' : ''}>Patterns only</option>
-                            <option value="both" ${settings.detectionMethod === 'both' ? 'selected' : ''}>Both must match</option>
+                            <option value="auto" ${settings.detectionMethod === "auto" ? "selected" : ""}>Auto (recommended)</option>
+                            <option value="expressions" ${settings.detectionMethod === "expressions" ? "selected" : ""}>Expressions only</option>
+                            <option value="patterns" ${settings.detectionMethod === "patterns" ? "selected" : ""}>Patterns only</option>
+                            <option value="both" ${settings.detectionMethod === "both" ? "selected" : ""}>Both must match</option>
                         </select>
                     </div>
                 </div>
             `;
 
-        case 'isGroupChat':
-            return `
+    case "isGroupChat":
+      return `
                 <select data-field="isGroup" data-rule-index="${index}">
-                    <option value="true" ${settings.isGroup === true ? 'selected' : ''}>Is group chat</option>
-                    <option value="false" ${settings.isGroup === false ? 'selected' : ''}>Is 1-on-1 chat</option>
+                    <option value="true" ${settings.isGroup === true ? "selected" : ""}>Is group chat</option>
+                    <option value="false" ${settings.isGroup === false ? "selected" : ""}>Is 1-on-1 chat</option>
                 </select>
             `;
 
-        case 'generationType':
-            const genOptions = VALID_GENERATION_TYPES.map(g =>
-                `<option value="${g}" ${(settings.values || []).includes(g) ? 'selected' : ''}>${g}</option>`
-            ).join('');
-            return `
+    case "generationType":
+      const genOptions = VALID_GENERATION_TYPES.map(
+        (g) =>
+          `<option value="${g}" ${(settings.values || []).includes(g) ? "selected" : ""}>${g}</option>`,
+      ).join("");
+      return `
                 <select multiple data-field="values" data-rule-index="${index}" class="vecthare-multi-select">
                     ${genOptions}
                 </select>
             `;
 
-        case 'lorebookActive':
-            // Get available world names for the picker
-            const availableWorlds = world_names || [];
-            const worldOptions = availableWorlds.map(w =>
-                `<option value="${w}">${w}</option>`
-            ).join('');
-            const selectedValues = settings.values || [];
-            return `
+    case "lorebookActive":
+      // Get available world names for the picker
+      const availableWorlds = world_names || [];
+      const worldOptions = availableWorlds
+        .map((w) => `<option value="${w}">${w}</option>`)
+        .join("");
+      const selectedValues = settings.values || [];
+      return `
                 <div class="vecthare-lorebook-picker-wrapper">
                     <div class="vecthare-lorebook-picker-row">
                         <select class="vecthare-lorebook-select" data-rule-index="${index}">
@@ -2345,226 +2506,292 @@ function renderConditionSettings(rule, index) {
                         <button class="vecthare-btn-sm vecthare-lorebook-add" data-rule-index="${index}" type="button">+ Add</button>
                     </div>
                     <div class="vecthare-lorebook-selected" data-rule-index="${index}">
-                        ${selectedValues.map(v => `
+                        ${selectedValues
+                          .map(
+                            (v) => `
                             <span class="vecthare-lorebook-tag" data-value="${v}">
                                 ${v} <button class="vecthare-lorebook-remove" data-value="${v}" data-rule-index="${index}">×</button>
                             </span>
-                        `).join('')}
+                        `,
+                          )
+                          .join("")}
                     </div>
-                    <input type="hidden" data-field="values" data-rule-index="${index}" value="${selectedValues.join(',')}">
+                    <input type="hidden" data-field="values" data-rule-index="${index}" value="${selectedValues.join(",")}">
                 </div>
             `;
 
-        case 'timeOfDay':
-            return `
-                <input type="time" value="${settings.startTime || '00:00'}"
+    case "timeOfDay":
+      return `
+                <input type="time" value="${settings.startTime || "00:00"}"
                        data-field="startTime" data-rule-index="${index}">
                 <span>to</span>
-                <input type="time" value="${settings.endTime || '23:59'}"
+                <input type="time" value="${settings.endTime || "23:59"}"
                        data-field="endTime" data-rule-index="${index}">
             `;
 
-        case 'randomChance':
-            return `
+    case "randomChance":
+      return `
                 <input type="number" placeholder="Probability %" min="0" max="100"
                        value="${settings.probability || 50}"
                        data-field="probability" data-rule-index="${index}">
                 <span>%</span>
             `;
 
-        default:
-            return '<span class="vecthare-unknown-type">Unknown condition type</span>';
-    }
+    default:
+      return '<span class="vecthare-unknown-type">Unknown condition type</span>';
+  }
 }
 
 /**
  * Binds events for individual condition rules
  */
 function bindConditionRuleEvents() {
-    // Type change
-    $('.vecthare-condition-type').off('change').on('change', function(e) {
-        e.stopPropagation();
-        const idx = $(this).data('rule-index');
-        activationEditorState.conditions.rules[idx].type = $(this).val();
+  // Type change
+  $(".vecthare-condition-type")
+    .off("change")
+    .on("change", function (e) {
+      e.stopPropagation();
+      const idx = $(this).data("rule-index");
+      activationEditorState.conditions.rules[idx].type = $(this).val();
+      activationEditorState.conditions.rules[idx].settings = {};
+      renderConditionRules();
+    });
+
+  // Negate toggle
+  $(".vecthare-condition-negate input")
+    .off("change")
+    .on("change", function (e) {
+      e.stopPropagation();
+      const idx = $(this).data("rule-index");
+      activationEditorState.conditions.rules[idx].negate =
+        $(this).prop("checked");
+    });
+
+  // Remove rule
+  $(".vecthare-condition-remove")
+    .off("click")
+    .on("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const idx = $(this).data("rule-index");
+      activationEditorState.conditions.rules.splice(idx, 1);
+      renderConditionRules();
+    });
+
+  // Settings fields (inputs, selects, and textareas)
+  $(
+    ".vecthare-condition-settings input, .vecthare-condition-settings select, .vecthare-condition-settings textarea",
+  )
+    .off("change")
+    .on("change", function (e) {
+      e.stopPropagation();
+      const idx = $(this).data("rule-index");
+      const field = $(this).data("field");
+      let value = $(this).val();
+
+      // Handle patterns (textarea, newline-separated)
+      if (field === "patterns" && typeof value === "string") {
+        value = value
+          .split("\n")
+          .map((v) => v.trim())
+          .filter((v) => v);
+      }
+
+      // Handle comma-separated values
+      if (field === "values" && typeof value === "string") {
+        value = value
+          .split(",")
+          .map((v) => v.trim())
+          .filter((v) => v);
+      }
+
+      // Handle multi-select
+      if ($(this).prop("multiple")) {
+        value = $(this).val() || [];
+      }
+
+      // Handle checkboxes
+      if ($(this).attr("type") === "checkbox") {
+        value = $(this).prop("checked");
+      }
+
+      // Handle booleans from select
+      if (field === "isGroup") {
+        value = value === "true";
+      }
+
+      // Handle numbers
+      if (["count", "probability", "scanDepth"].includes(field)) {
+        value = parseInt(value) || 0;
+      }
+
+      if (!activationEditorState.conditions.rules[idx].settings) {
         activationEditorState.conditions.rules[idx].settings = {};
-        renderConditionRules();
+      }
+      activationEditorState.conditions.rules[idx].settings[field] = value;
     });
 
-    // Negate toggle
-    $('.vecthare-condition-negate input').off('change').on('change', function(e) {
-        e.stopPropagation();
-        const idx = $(this).data('rule-index');
-        activationEditorState.conditions.rules[idx].negate = $(this).prop('checked');
+  // Lorebook picker: world select change - load entries
+  $(".vecthare-lorebook-select")
+    .off("change")
+    .on("change", async function (e) {
+      e.stopPropagation();
+      const idx = $(this).data("rule-index");
+      const worldName = $(this).val();
+      const entrySelect = $(
+        `.vecthare-lorebook-entry-select[data-rule-index="${idx}"]`,
+      );
+
+      if (!worldName) {
+        entrySelect
+          .prop("disabled", true)
+          .html('<option value="">-- Select Entry (optional) --</option>');
+        return;
+      }
+
+      // Load world info entries
+      entrySelect
+        .prop("disabled", true)
+        .html('<option value="">Loading...</option>');
+      try {
+        const worldData = await loadWorldInfo(worldName);
+        if (worldData && worldData.entries) {
+          const entries = Object.values(worldData.entries);
+          const entryOptions = entries
+            .map((entry) => {
+              const displayName =
+                entry.comment || entry.key?.join(", ") || `Entry ${entry.uid}`;
+              return `<option value="${entry.uid}" data-key="${entry.key?.join(",") || ""}">${displayName}</option>`;
+            })
+            .join("");
+          entrySelect.html(
+            `<option value="">-- Entire Lorebook --</option>${entryOptions}`,
+          );
+          entrySelect.prop("disabled", false);
+        }
+      } catch (error) {
+        console.error("VectHare: Failed to load world info", error);
+        entrySelect.html(
+          '<option value="">-- Error loading entries --</option>',
+        );
+      }
     });
 
-    // Remove rule
-    $('.vecthare-condition-remove').off('click').on('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const idx = $(this).data('rule-index');
-        activationEditorState.conditions.rules.splice(idx, 1);
-        renderConditionRules();
-    });
+  // Lorebook picker: add button
+  $(".vecthare-lorebook-add")
+    .off("click")
+    .on("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const idx = $(this).data("rule-index");
+      const worldSelect = $(
+        `.vecthare-lorebook-select[data-rule-index="${idx}"]`,
+      );
+      const entrySelect = $(
+        `.vecthare-lorebook-entry-select[data-rule-index="${idx}"]`,
+      );
+      const selectedContainer = $(
+        `.vecthare-lorebook-selected[data-rule-index="${idx}"]`,
+      );
+      const hiddenInput = $(
+        `input[data-field="values"][data-rule-index="${idx}"]`,
+      );
 
-    // Settings fields (inputs, selects, and textareas)
-    $('.vecthare-condition-settings input, .vecthare-condition-settings select, .vecthare-condition-settings textarea').off('change').on('change', function(e) {
-        e.stopPropagation();
-        const idx = $(this).data('rule-index');
-        const field = $(this).data('field');
-        let value = $(this).val();
+      const worldName = worldSelect.val();
+      if (!worldName) {
+        toastr.warning("Please select a lorebook first", "VectHare");
+        return;
+      }
 
-        // Handle patterns (textarea, newline-separated)
-        if (field === 'patterns' && typeof value === 'string') {
-            value = value.split('\n').map(v => v.trim()).filter(v => v);
-        }
+      const entryUid = entrySelect.val();
+      let valueToAdd;
 
-        // Handle comma-separated values
-        if (field === 'values' && typeof value === 'string') {
-            value = value.split(',').map(v => v.trim()).filter(v => v);
-        }
+      if (entryUid) {
+        // Specific entry: use "worldName:uid" format
+        valueToAdd = `${worldName}:${entryUid}`;
+      } else {
+        // Entire lorebook
+        valueToAdd = worldName;
+      }
 
-        // Handle multi-select
-        if ($(this).prop('multiple')) {
-            value = $(this).val() || [];
-        }
+      // Get current values
+      const currentValues = hiddenInput.val()
+        ? hiddenInput
+            .val()
+            .split(",")
+            .filter((v) => v)
+        : [];
+      if (currentValues.includes(valueToAdd)) {
+        toastr.info("Already added", "VectHare");
+        return;
+      }
 
-        // Handle checkboxes
-        if ($(this).attr('type') === 'checkbox') {
-            value = $(this).prop('checked');
-        }
+      currentValues.push(valueToAdd);
+      hiddenInput.val(currentValues.join(","));
 
-        // Handle booleans from select
-        if (field === 'isGroup') {
-            value = value === 'true';
-        }
-
-        // Handle numbers
-        if (['count', 'probability', 'scanDepth'].includes(field)) {
-            value = parseInt(value) || 0;
-        }
-
-        if (!activationEditorState.conditions.rules[idx].settings) {
-            activationEditorState.conditions.rules[idx].settings = {};
-        }
-        activationEditorState.conditions.rules[idx].settings[field] = value;
-    });
-
-    // Lorebook picker: world select change - load entries
-    $('.vecthare-lorebook-select').off('change').on('change', async function(e) {
-        e.stopPropagation();
-        const idx = $(this).data('rule-index');
-        const worldName = $(this).val();
-        const entrySelect = $(`.vecthare-lorebook-entry-select[data-rule-index="${idx}"]`);
-
-        if (!worldName) {
-            entrySelect.prop('disabled', true).html('<option value="">-- Select Entry (optional) --</option>');
-            return;
-        }
-
-        // Load world info entries
-        entrySelect.prop('disabled', true).html('<option value="">Loading...</option>');
-        try {
-            const worldData = await loadWorldInfo(worldName);
-            if (worldData && worldData.entries) {
-                const entries = Object.values(worldData.entries);
-                const entryOptions = entries.map(entry => {
-                    const displayName = entry.comment || entry.key?.join(', ') || `Entry ${entry.uid}`;
-                    return `<option value="${entry.uid}" data-key="${entry.key?.join(',') || ''}">${displayName}</option>`;
-                }).join('');
-                entrySelect.html(`<option value="">-- Entire Lorebook --</option>${entryOptions}`);
-                entrySelect.prop('disabled', false);
-            }
-        } catch (error) {
-            console.error('VectHare: Failed to load world info', error);
-            entrySelect.html('<option value="">-- Error loading entries --</option>');
-        }
-    });
-
-    // Lorebook picker: add button
-    $('.vecthare-lorebook-add').off('click').on('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const idx = $(this).data('rule-index');
-        const worldSelect = $(`.vecthare-lorebook-select[data-rule-index="${idx}"]`);
-        const entrySelect = $(`.vecthare-lorebook-entry-select[data-rule-index="${idx}"]`);
-        const selectedContainer = $(`.vecthare-lorebook-selected[data-rule-index="${idx}"]`);
-        const hiddenInput = $(`input[data-field="values"][data-rule-index="${idx}"]`);
-
-        const worldName = worldSelect.val();
-        if (!worldName) {
-            toastr.warning('Please select a lorebook first', 'VectHare');
-            return;
-        }
-
-        const entryUid = entrySelect.val();
-        let valueToAdd;
-
-        if (entryUid) {
-            // Specific entry: use "worldName:uid" format
-            valueToAdd = `${worldName}:${entryUid}`;
-        } else {
-            // Entire lorebook
-            valueToAdd = worldName;
-        }
-
-        // Get current values
-        const currentValues = hiddenInput.val() ? hiddenInput.val().split(',').filter(v => v) : [];
-        if (currentValues.includes(valueToAdd)) {
-            toastr.info('Already added', 'VectHare');
-            return;
-        }
-
-        currentValues.push(valueToAdd);
-        hiddenInput.val(currentValues.join(','));
-
-        // Update the visual tags
-        const displayName = entryUid ? `${worldName}:${entrySelect.find(':selected').text()}` : worldName;
-        selectedContainer.append(`
+      // Update the visual tags
+      const displayName = entryUid
+        ? `${worldName}:${entrySelect.find(":selected").text()}`
+        : worldName;
+      selectedContainer.append(`
             <span class="vecthare-lorebook-tag" data-value="${valueToAdd}">
                 ${displayName} <button class="vecthare-lorebook-remove" data-value="${valueToAdd}" data-rule-index="${idx}">×</button>
             </span>
         `);
 
-        // Update state
-        if (!activationEditorState.conditions.rules[idx].settings) {
-            activationEditorState.conditions.rules[idx].settings = {};
-        }
-        activationEditorState.conditions.rules[idx].settings.values = currentValues;
+      // Update state
+      if (!activationEditorState.conditions.rules[idx].settings) {
+        activationEditorState.conditions.rules[idx].settings = {};
+      }
+      activationEditorState.conditions.rules[idx].settings.values =
+        currentValues;
 
-        // Rebind remove buttons
-        bindLorebookRemoveButtons();
+      // Rebind remove buttons
+      bindLorebookRemoveButtons();
 
-        // Reset selects
-        worldSelect.val('');
-        entrySelect.prop('disabled', true).html('<option value="">-- Select Entry (optional) --</option>');
+      // Reset selects
+      worldSelect.val("");
+      entrySelect
+        .prop("disabled", true)
+        .html('<option value="">-- Select Entry (optional) --</option>');
     });
 
-    // Bind remove buttons
-    bindLorebookRemoveButtons();
+  // Bind remove buttons
+  bindLorebookRemoveButtons();
 }
 
 /**
  * Binds lorebook tag remove buttons
  */
 function bindLorebookRemoveButtons() {
-    $('.vecthare-lorebook-remove').off('click').on('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const idx = $(this).data('rule-index');
-        const valueToRemove = $(this).data('value');
-        const hiddenInput = $(`input[data-field="values"][data-rule-index="${idx}"]`);
+  $(".vecthare-lorebook-remove")
+    .off("click")
+    .on("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const idx = $(this).data("rule-index");
+      const valueToRemove = $(this).data("value");
+      const hiddenInput = $(
+        `input[data-field="values"][data-rule-index="${idx}"]`,
+      );
 
-        // Remove from values
-        const currentValues = hiddenInput.val() ? hiddenInput.val().split(',').filter(v => v && v !== valueToRemove) : [];
-        hiddenInput.val(currentValues.join(','));
+      // Remove from values
+      const currentValues = hiddenInput.val()
+        ? hiddenInput
+            .val()
+            .split(",")
+            .filter((v) => v && v !== valueToRemove)
+        : [];
+      hiddenInput.val(currentValues.join(","));
 
-        // Update state
-        if (activationEditorState.conditions.rules[idx]?.settings) {
-            activationEditorState.conditions.rules[idx].settings.values = currentValues;
-        }
+      // Update state
+      if (activationEditorState.conditions.rules[idx]?.settings) {
+        activationEditorState.conditions.rules[idx].settings.values =
+          currentValues;
+      }
 
-        // Remove the tag
-        $(this).closest('.vecthare-lorebook-tag').remove();
+      // Remove the tag
+      $(this).closest(".vecthare-lorebook-tag").remove();
     });
 }
 
@@ -2572,17 +2799,17 @@ function bindLorebookRemoveButtons() {
  * Adds a new condition rule
  */
 function addConditionRule() {
-    if (!activationEditorState.conditions.rules) {
-        activationEditorState.conditions.rules = [];
-    }
+  if (!activationEditorState.conditions.rules) {
+    activationEditorState.conditions.rules = [];
+  }
 
-    activationEditorState.conditions.rules.push({
-        type: 'pattern',
-        negate: false,
-        settings: {}
-    });
+  activationEditorState.conditions.rules.push({
+    type: "pattern",
+    negate: false,
+    settings: {},
+  });
 
-    renderConditionRules();
+  renderConditionRules();
 }
 
 // ============================================================================
@@ -2593,18 +2820,20 @@ function addConditionRule() {
  * Binds search tab events
  */
 function bindSearchEvents() {
-    if (searchEventsBound) return;
-    searchEventsBound = true;
+  if (searchEventsBound) return;
+  searchEventsBound = true;
 
-    // Search button click
-    $('#vecthare_search_btn').off('click').on('click', performSearch);
+  // Search button click
+  $("#vecthare_search_btn").off("click").on("click", performSearch);
 
-    // Enter key in search input
-    $('#vecthare_semantic_search').off('keydown').on('keydown', function(e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            performSearch();
-        }
+  // Enter key in search input
+  $("#vecthare_semantic_search")
+    .off("keydown")
+    .on("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        performSearch();
+      }
     });
 }
 
@@ -2612,67 +2841,71 @@ function bindSearchEvents() {
  * Performs semantic search across collections
  */
 async function performSearch() {
-    const query = $('#vecthare_semantic_search').val().trim();
-    if (!query) {
-        toastr.warning('Please enter a search query', 'VectHare');
-        return;
-    }
+  const query = $("#vecthare_semantic_search").val().trim();
+  if (!query) {
+    toastr.warning("Please enter a search query", "VectHare");
+    return;
+  }
 
-    const topK = parseInt($('#vecthare_search_topk').val()) || 5;
-    const threshold = parseFloat($('#vecthare_search_threshold').val()) || 0.3;
-    const enabledOnly = $('#vecthare_search_enabled_only').is(':checked');
+  const topK = parseInt($("#vecthare_search_topk").val()) || 5;
+  const threshold = parseFloat($("#vecthare_search_threshold").val()) || 0.3;
+  const enabledOnly = $("#vecthare_search_enabled_only").is(":checked");
 
-    // Get collection IDs to search
-    let collectionIds = browserState.collections.map(c => c.id);
+  // Get collection IDs to search
+  let collectionIds = browserState.collections.map((c) => c.id);
 
-    if (enabledOnly) {
-        collectionIds = collectionIds.filter(id => {
-            const collection = browserState.collections.find(c => c.id === id);
-            return collection && collection.enabled;
-        });
-    }
+  if (enabledOnly) {
+    collectionIds = collectionIds.filter((id) => {
+      const collection = browserState.collections.find((c) => c.id === id);
+      return collection && collection.enabled;
+    });
+  }
 
-    if (collectionIds.length === 0) {
-        $('#vecthare_search_results').html(`
+  if (collectionIds.length === 0) {
+    $("#vecthare_search_results").html(`
             <div class="vecthare-search-empty">
                 ${icons.search(48)}
                 <p>No collections available to search</p>
             </div>
         `);
-        return;
-    }
+    return;
+  }
 
-    // Show loading state
-    browserState.isSearching = true;
-    $('#vecthare_search_btn').prop('disabled', true).html(`${icons.search(16)} Searching...`);
-    $('#vecthare_search_results').html(`
+  // Show loading state
+  browserState.isSearching = true;
+  $("#vecthare_search_btn")
+    .prop("disabled", true)
+    .html(`${icons.search(16)} Searching...`);
+  $("#vecthare_search_results").html(`
         <div class="vecthare-search-loading">
             <i class="fa-solid fa-spinner fa-spin"></i> Searching ${collectionIds.length} collections...
         </div>
     `);
 
-    try {
-        const results = await queryMultipleCollections(
-            collectionIds,
-            query,
-            topK,
-            threshold,
-            browserState.settings
-        );
+  try {
+    const results = await queryMultipleCollections(
+      collectionIds,
+      query,
+      topK,
+      threshold,
+      browserState.settings,
+    );
 
-        browserState.searchResults = results;
-        renderSearchResults(results, query);
-    } catch (error) {
-        console.error('VectHare: Search failed', error);
-        $('#vecthare_search_results').html(`
+    browserState.searchResults = results;
+    renderSearchResults(results, query);
+  } catch (error) {
+    console.error("VectHare: Search failed", error);
+    $("#vecthare_search_results").html(`
             <div class="vecthare-search-error">
                 ${icons.x(24)} Search failed: ${error.message}
             </div>
         `);
-    } finally {
-        browserState.isSearching = false;
-        $('#vecthare_search_btn').prop('disabled', false).html(`${icons.search(16)} Search`);
-    }
+  } finally {
+    browserState.isSearching = false;
+    $("#vecthare_search_btn")
+      .prop("disabled", false)
+      .html(`${icons.search(16)} Search`);
+  }
 }
 
 /**
@@ -2681,30 +2914,37 @@ async function performSearch() {
  * @param {string} query Original search query
  */
 function renderSearchResults(results, query) {
-    const collectionIds = Object.keys(results);
-    const totalResults = collectionIds.reduce((sum, id) => sum + (results[id]?.hashes?.length || 0), 0);
+  const collectionIds = Object.keys(results);
+  const totalResults = collectionIds.reduce(
+    (sum, id) => sum + (results[id]?.hashes?.length || 0),
+    0,
+  );
 
-    if (totalResults === 0) {
-        $('#vecthare_search_results').html(`
+  if (totalResults === 0) {
+    $("#vecthare_search_results").html(`
             <div class="vecthare-search-empty">
                 ${icons.search(48)}
                 <p>No results found for "${escapeHtml(query)}"</p>
                 <small>Try adjusting the score threshold or search in more collections</small>
             </div>
         `);
-        return;
-    }
+    return;
+  }
 
-    let html = `<div class="vecthare-search-summary">Found ${totalResults} result(s) in ${collectionIds.length} collection(s)</div>`;
+  let html = `<div class="vecthare-search-summary">Found ${totalResults} result(s) in ${collectionIds.length} collection(s)</div>`;
 
-    for (const collectionId of collectionIds) {
-        const collectionResults = results[collectionId];
-        if (!collectionResults?.hashes?.length) continue;
+  for (const collectionId of collectionIds) {
+    const collectionResults = results[collectionId];
+    if (!collectionResults?.hashes?.length) continue;
 
-        const collection = browserState.collections.find(c => c.id === collectionId);
-        const collectionName = collection?.name || collectionId;
+    const collection = browserState.collections.find(
+      (c) => c.id === collectionId,
+    );
+    const collectionName = collection?.name || collectionId;
+    // Use registryKey for unique identification (source:id format)
+    const uniqueKey = collection.registryKey || collection.id;
 
-        html += `
+    html += `
             <div class="vecthare-search-collection">
                 <div class="vecthare-search-collection-header">
                     ${icons.folder(16)} ${escapeHtml(collectionName)}
@@ -2713,24 +2953,113 @@ function renderSearchResults(results, query) {
                 <div class="vecthare-search-collection-results">
         `;
 
-        for (let i = 0; i < collectionResults.hashes.length; i++) {
-            const metadata = collectionResults.metadata?.[i] || {};
-            const score = metadata.score !== undefined ? (metadata.score * 100).toFixed(1) : '?';
-            const text = metadata.text || `[Hash: ${collectionResults.hashes[i]}]`;
-            const preview = text.length > 200 ? text.substring(0, 200) + '...' : text;
+    for (let i = 0; i < collectionResults.hashes.length; i++) {
+      const metadata = collectionResults.metadata?.[i] || {};
+      const score =
+        metadata.score !== undefined ? (metadata.score * 100).toFixed(1) : "?";
+      const text = metadata.text || `[Hash: ${collectionResults.hashes[i]}]`;
+      const preview = text.length > 200 ? text.substring(0, 200) + "..." : text;
 
-            html += `
+      html += `
                 <div class="vecthare-search-result" data-collection="${collectionId}" data-hash="${collectionResults.hashes[i]}">
                     <div class="vecthare-search-result-score">${score}%</div>
                     <div class="vecthare-search-result-text">${escapeHtml(preview)}</div>
                 </div>
-            `;
-        }
 
-        html += `</div></div>`;
+                <button class="vecthare-btn-sm vecthare-action-visualize"
+                        data-collection-key="${uniqueKey}"
+                        data-backend="${collection.backend}"
+                        data-source="${collection.source || "transformers"}"
+                        title="View and edit chunks in this collection">
+                    ${icons.eye(16)} View Chunks
+                </button>
+            `;
     }
 
-    $('#vecthare_search_results').html(html);
+    html += `</div></div>`;
+  }
+
+  $("#vecthare_search_results").html(html);
+  // sloppy, temporary fix to replicate OG chunk link functionality (1091)
+  $(".vecthare-action-visualize")
+    .off("click")
+    .on("click", async function (e) {
+      console.log("test");
+      e.stopPropagation();
+      const collectionKey = $(this).data("collection-key");
+      const collection = findCollectionByKey(collectionKey);
+
+      if (!collection) return;
+
+      try {
+        toastr.info("Loading chunks...", "VectHare");
+
+        // Use the collection's actual backend, not the global setting
+        // This ensures we query Standard collections with Standard backend, etc.
+        if (!collection.backend) {
+          toastr.error(
+            "Collection has no backend defined - this is a bug",
+            "VectHare",
+          );
+          console.error("VectHare: Collection missing backend:", collection);
+          return;
+        }
+
+        const collectionSettings = {
+          ...browserState.settings,
+          vector_backend: collection.backend,
+        };
+
+        // Use unified plugin endpoint
+        const response = await fetch("/api/plugins/similharity/chunks/list", {
+          method: "POST",
+          headers: getRequestHeaders(),
+          body: JSON.stringify({
+            backend: collection.backend || "vectra",
+            collectionId: collection.id,
+            source: collection.source || "transformers",
+            model: collection.model || "",
+            limit: 1000, // Get first 1000 chunks
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to list chunks: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const results = data.items || [];
+
+        if (!results || results.length === 0) {
+          toastr.warning("No chunks found in this collection", "VectHare");
+          return;
+        }
+
+        // Format chunks for visualizer
+        const chunks = results.map((item, idx) => ({
+          hash: item.hash,
+          index: item.index ?? idx,
+          text: item.text || item.metadata?.text || "No text available",
+          score: 1.0,
+          similarity: 1.0,
+          messageAge: item.metadata?.messageAge,
+          decayApplied: false,
+          decayMultiplier: 1.0,
+          metadata: item.metadata, // Pass through all metadata including keywords
+        }));
+
+        // Pass collection-specific settings so visualizer uses correct backend for edits/deletes
+        // Include collection type so visualizer knows if this is a chat (for Scenes tab)
+        openVisualizer(
+          { chunks, collectionType: collection.type },
+          collection.id,
+          collectionSettings,
+        );
+      } catch (error) {
+        console.error("VectHare: Failed to load chunks", error);
+        toastr.error("Failed to load chunks. Check console.", "VectHare");
+      }
+    });
 }
 
 // ============================================================================
@@ -2741,35 +3070,35 @@ function renderSearchResults(results, query) {
  * Renders bulk operations list
  */
 function renderBulkList() {
-    const filter = browserState.bulkFilter;
-    let collections = [...browserState.collections];
+  const filter = browserState.bulkFilter;
+  let collections = [...browserState.collections];
 
-    // Apply filter
-    if (filter === 'enabled') {
-        collections = collections.filter(c => c.enabled);
-    } else if (filter === 'disabled') {
-        collections = collections.filter(c => !c.enabled);
-    }
+  // Apply filter
+  if (filter === "enabled") {
+    collections = collections.filter((c) => c.enabled);
+  } else if (filter === "disabled") {
+    collections = collections.filter((c) => !c.enabled);
+  }
 
-    if (collections.length === 0) {
-        $('#vecthare_bulk_list').html(`
+  if (collections.length === 0) {
+    $("#vecthare_bulk_list").html(`
             <div class="vecthare-bulk-empty">
                 ${icons.folder(48)}
                 <p>No collections match the current filter</p>
             </div>
         `);
-        return;
-    }
+    return;
+  }
 
-    let html = '';
-    for (const collection of collections) {
-        const uniqueKey = collection.registryKey || collection.id;
-        const isSelected = browserState.bulkSelected.has(uniqueKey);
+  let html = "";
+  for (const collection of collections) {
+    const uniqueKey = collection.registryKey || collection.id;
+    const isSelected = browserState.bulkSelected.has(uniqueKey);
 
-        html += `
-            <div class="vecthare-bulk-item ${isSelected ? 'selected' : ''}" data-key="${uniqueKey}">
+    html += `
+            <div class="vecthare-bulk-item ${isSelected ? "selected" : ""}" data-key="${uniqueKey}">
                 <label class="vecthare-bulk-checkbox">
-                    <input type="checkbox" ${isSelected ? 'checked' : ''} data-key="${uniqueKey}">
+                    <input type="checkbox" ${isSelected ? "checked" : ""} data-key="${uniqueKey}">
                 </label>
                 <div class="vecthare-bulk-item-info">
                     <span class="vecthare-bulk-item-name">${escapeHtml(collection.name || collection.id)}</span>
@@ -2780,172 +3109,223 @@ function renderBulkList() {
                 </div>
             </div>
         `;
-    }
+  }
 
-    $('#vecthare_bulk_list').html(html);
-    updateBulkCount();
+  $("#vecthare_bulk_list").html(html);
+  updateBulkCount();
 }
 
 /**
  * Binds bulk operations events
  */
 function bindBulkEvents() {
-    if (bulkEventsBound) return;
-    bulkEventsBound = true;
+  if (bulkEventsBound) return;
+  bulkEventsBound = true;
 
-    // Filter change
-    $('#vecthare_bulk_filter').off('change').on('change', function() {
-        browserState.bulkFilter = $(this).val();
-        browserState.bulkSelected.clear();
-        renderBulkList();
+  // Filter change
+  $("#vecthare_bulk_filter")
+    .off("change")
+    .on("change", function () {
+      browserState.bulkFilter = $(this).val();
+      browserState.bulkSelected.clear();
+      renderBulkList();
     });
 
-    // Select all checkbox
-    $('#vecthare_bulk_select_all').off('change').on('change', function() {
-        const isChecked = $(this).is(':checked');
-        const filter = browserState.bulkFilter;
-        let collections = [...browserState.collections];
+  // Select all checkbox
+  $("#vecthare_bulk_select_all")
+    .off("change")
+    .on("change", function () {
+      const isChecked = $(this).is(":checked");
+      const filter = browserState.bulkFilter;
+      let collections = [...browserState.collections];
 
-        if (filter === 'enabled') {
-            collections = collections.filter(c => c.enabled);
-        } else if (filter === 'disabled') {
-            collections = collections.filter(c => !c.enabled);
-        }
+      if (filter === "enabled") {
+        collections = collections.filter((c) => c.enabled);
+      } else if (filter === "disabled") {
+        collections = collections.filter((c) => !c.enabled);
+      }
 
-        browserState.bulkSelected.clear();
-        if (isChecked) {
-            collections.forEach(c => browserState.bulkSelected.add(c.registryKey || c.id));
-        }
-
-        renderBulkList();
-    });
-
-    // Individual checkbox clicks (delegated)
-    $('#vecthare_bulk_list').off('change', 'input[type="checkbox"]').on('change', 'input[type="checkbox"]', function() {
-        const key = $(this).data('key');
-        if ($(this).is(':checked')) {
-            browserState.bulkSelected.add(key);
-        } else {
-            browserState.bulkSelected.delete(key);
-        }
-        updateBulkCount();
-        $(this).closest('.vecthare-bulk-item').toggleClass('selected', $(this).is(':checked'));
-    });
-
-    // Bulk enable
-    $('#vecthare_bulk_enable').off('click').on('click', async function() {
-        if (browserState.bulkSelected.size === 0) return;
-
-        for (const key of browserState.bulkSelected) {
-            setCollectionEnabled(key, true);
-            const collection = browserState.collections.find(c => (c.registryKey || c.id) === key);
-            if (collection) collection.enabled = true;
-        }
-
-        toastr.success(`Enabled ${browserState.bulkSelected.size} collection(s)`, 'VectHare');
-        renderBulkList();
-        renderCollections();
-    });
-
-    // Bulk disable
-    $('#vecthare_bulk_disable').off('click').on('click', async function() {
-        if (browserState.bulkSelected.size === 0) return;
-
-        for (const key of browserState.bulkSelected) {
-            setCollectionEnabled(key, false);
-            const collection = browserState.collections.find(c => (c.registryKey || c.id) === key);
-            if (collection) collection.enabled = false;
-        }
-
-        toastr.success(`Disabled ${browserState.bulkSelected.size} collection(s)`, 'VectHare');
-        renderBulkList();
-        renderCollections();
-    });
-
-    // Bulk export
-    $('#vecthare_bulk_export').off('click').on('click', async function() {
-        if (browserState.bulkSelected.size === 0) return;
-
-        const confirmed = confirm(`Export ${browserState.bulkSelected.size} collection(s)?\n\nEach collection will be downloaded as a separate file.`);
-        if (!confirmed) return;
-
-        toastr.info(`Exporting ${browserState.bulkSelected.size} collection(s)...`, 'VectHare');
-
-        let successCount = 0;
-        for (const key of browserState.bulkSelected) {
-            const collection = browserState.collections.find(c => (c.registryKey || c.id) === key);
-            if (!collection) continue;
-
-            try {
-                const exportData = await exportCollection(collection.id, browserState.settings, {
-                    backend: collection.backend,
-                    source: collection.source || 'transformers',
-                    model: collection.model || '',
-                });
-
-                downloadExport(exportData, collection.name || collection.id);
-                successCount++;
-            } catch (error) {
-                console.error(`VectHare: Failed to export ${collection.id}`, error);
-            }
-        }
-
-        toastr.success(`Exported ${successCount} collection(s)`, 'VectHare');
-    });
-
-    // Bulk delete - uses unified deleteCollection()
-    $('#vecthare_bulk_delete').off('click').on('click', async function() {
-        if (browserState.bulkSelected.size === 0) return;
-
-        const confirmed = confirm(
-            `⚠️ DELETE ${browserState.bulkSelected.size} COLLECTION(S)?\n\n` +
-            `This will permanently delete all vectors in these collections.\n` +
-            `This action CANNOT be undone!\n\n` +
-            `Type "DELETE" to confirm.`
+      browserState.bulkSelected.clear();
+      if (isChecked) {
+        collections.forEach((c) =>
+          browserState.bulkSelected.add(c.registryKey || c.id),
         );
+      }
 
-        if (!confirmed) return;
+      renderBulkList();
+    });
 
-        const confirmText = prompt('Type DELETE to confirm:');
-        if (confirmText !== 'DELETE') {
-            toastr.info('Deletion cancelled', 'VectHare');
-            return;
+  // Individual checkbox clicks (delegated)
+  $("#vecthare_bulk_list")
+    .off("change", 'input[type="checkbox"]')
+    .on("change", 'input[type="checkbox"]', function () {
+      const key = $(this).data("key");
+      if ($(this).is(":checked")) {
+        browserState.bulkSelected.add(key);
+      } else {
+        browserState.bulkSelected.delete(key);
+      }
+      updateBulkCount();
+      $(this)
+        .closest(".vecthare-bulk-item")
+        .toggleClass("selected", $(this).is(":checked"));
+    });
+
+  // Bulk enable
+  $("#vecthare_bulk_enable")
+    .off("click")
+    .on("click", async function () {
+      if (browserState.bulkSelected.size === 0) return;
+
+      for (const key of browserState.bulkSelected) {
+        setCollectionEnabled(key, true);
+        const collection = browserState.collections.find(
+          (c) => (c.registryKey || c.id) === key,
+        );
+        if (collection) collection.enabled = true;
+      }
+
+      toastr.success(
+        `Enabled ${browserState.bulkSelected.size} collection(s)`,
+        "VectHare",
+      );
+      renderBulkList();
+      renderCollections();
+    });
+
+  // Bulk disable
+  $("#vecthare_bulk_disable")
+    .off("click")
+    .on("click", async function () {
+      if (browserState.bulkSelected.size === 0) return;
+
+      for (const key of browserState.bulkSelected) {
+        setCollectionEnabled(key, false);
+        const collection = browserState.collections.find(
+          (c) => (c.registryKey || c.id) === key,
+        );
+        if (collection) collection.enabled = false;
+      }
+
+      toastr.success(
+        `Disabled ${browserState.bulkSelected.size} collection(s)`,
+        "VectHare",
+      );
+      renderBulkList();
+      renderCollections();
+    });
+
+  // Bulk export
+  $("#vecthare_bulk_export")
+    .off("click")
+    .on("click", async function () {
+      if (browserState.bulkSelected.size === 0) return;
+
+      const confirmed = confirm(
+        `Export ${browserState.bulkSelected.size} collection(s)?\n\nEach collection will be downloaded as a separate file.`,
+      );
+      if (!confirmed) return;
+
+      toastr.info(
+        `Exporting ${browserState.bulkSelected.size} collection(s)...`,
+        "VectHare",
+      );
+
+      let successCount = 0;
+      for (const key of browserState.bulkSelected) {
+        const collection = browserState.collections.find(
+          (c) => (c.registryKey || c.id) === key,
+        );
+        if (!collection) continue;
+
+        try {
+          const exportData = await exportCollection(
+            collection.id,
+            browserState.settings,
+            {
+              backend: collection.backend,
+              source: collection.source || "transformers",
+              model: collection.model || "",
+            },
+          );
+
+          downloadExport(exportData, collection.name || collection.id);
+          successCount++;
+        } catch (error) {
+          console.error(`VectHare: Failed to export ${collection.id}`, error);
         }
+      }
 
-        toastr.info(`Deleting ${browserState.bulkSelected.size} collection(s)...`, 'VectHare');
+      toastr.success(`Exported ${successCount} collection(s)`, "VectHare");
+    });
 
-        let successCount = 0;
-        let partialCount = 0;
-        for (const key of browserState.bulkSelected) {
-            const collection = browserState.collections.find(c => (c.registryKey || c.id) === key);
-            if (!collection) continue;
+  // Bulk delete - uses unified deleteCollection()
+  $("#vecthare_bulk_delete")
+    .off("click")
+    .on("click", async function () {
+      if (browserState.bulkSelected.size === 0) return;
 
-            try {
-                const collectionSettings = {
-                    ...browserState.settings,
-                    vector_backend: collection.backend,
-                    source: collection.source,
-                };
-                const result = await deleteCollection(collection.id, collectionSettings, collection.registryKey);
-                if (result.success) {
-                    successCount++;
-                } else {
-                    partialCount++;
-                }
-            } catch (error) {
-                console.error(`VectHare: Failed to delete ${collection.id}`, error);
-            }
+      const confirmed = confirm(
+        `⚠️ DELETE ${browserState.bulkSelected.size} COLLECTION(S)?\n\n` +
+          `This will permanently delete all vectors in these collections.\n` +
+          `This action CANNOT be undone!\n\n` +
+          `Type "DELETE" to confirm.`,
+      );
+
+      if (!confirmed) return;
+
+      const confirmText = prompt("Type DELETE to confirm:");
+      if (confirmText !== "DELETE") {
+        toastr.info("Deletion cancelled", "VectHare");
+        return;
+      }
+
+      toastr.info(
+        `Deleting ${browserState.bulkSelected.size} collection(s)...`,
+        "VectHare",
+      );
+
+      let successCount = 0;
+      let partialCount = 0;
+      for (const key of browserState.bulkSelected) {
+        const collection = browserState.collections.find(
+          (c) => (c.registryKey || c.id) === key,
+        );
+        if (!collection) continue;
+
+        try {
+          const collectionSettings = {
+            ...browserState.settings,
+            vector_backend: collection.backend,
+            source: collection.source,
+          };
+          const result = await deleteCollection(
+            collection.id,
+            collectionSettings,
+            collection.registryKey,
+          );
+          if (result.success) {
+            successCount++;
+          } else {
+            partialCount++;
+          }
+        } catch (error) {
+          console.error(`VectHare: Failed to delete ${collection.id}`, error);
         }
+      }
 
-        browserState.bulkSelected.clear();
-        await refreshCollections();
-        renderBulkList();
+      browserState.bulkSelected.clear();
+      await refreshCollections();
+      renderBulkList();
 
-        if (partialCount > 0) {
-            toastr.warning(`Deleted ${successCount}, partial: ${partialCount}`, 'VectHare');
-        } else {
-            toastr.success(`Deleted ${successCount} collection(s)`, 'VectHare');
-        }
+      if (partialCount > 0) {
+        toastr.warning(
+          `Deleted ${successCount}, partial: ${partialCount}`,
+          "VectHare",
+        );
+      } else {
+        toastr.success(`Deleted ${successCount} collection(s)`, "VectHare");
+      }
     });
 }
 
@@ -2953,13 +3333,14 @@ function bindBulkEvents() {
  * Updates bulk selection count and button states
  */
 function updateBulkCount() {
-    const count = browserState.bulkSelected.size;
-    $('#vecthare_bulk_count').text(`${count} selected`);
+  const count = browserState.bulkSelected.size;
+  $("#vecthare_bulk_count").text(`${count} selected`);
 
-    // Enable/disable buttons based on selection
-    const hasSelection = count > 0;
-    $('#vecthare_bulk_enable, #vecthare_bulk_disable, #vecthare_bulk_export, #vecthare_bulk_delete')
-        .prop('disabled', !hasSelection);
+  // Enable/disable buttons based on selection
+  const hasSelection = count > 0;
+  $(
+    "#vecthare_bulk_enable, #vecthare_bulk_disable, #vecthare_bulk_export, #vecthare_bulk_delete",
+  ).prop("disabled", !hasSelection);
 }
 
 // ============================================================================

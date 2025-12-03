@@ -16,7 +16,6 @@
 
 /* Mobile first - all modals go full screen */
 @media (max-width: 768px) {
-
     /* BASE MODAL OVERLAY */
     .vecthare-modal {
         padding: 0 !important;
@@ -215,7 +214,8 @@
 
     .vecthare-modal-header h3,
     .vecthare-visualizer-title {
-        font-size: 1em !important;
+        font-size: 0.66em !important;
+        max-width: 60%;
     }
 
     /* Close buttons - LARGE touch targets */
@@ -256,6 +256,10 @@
         flex-shrink: 0 !important;
     }
 
+    .vecthare-tab-btn::before {
+        display: none !important;
+    }
+
     .vecthare-tab-btn {
         padding: 10px 14px !important;
         min-height: 44px !important;
@@ -273,7 +277,8 @@
 
     .vecthare-tab-content {
         flex: 1 !important;
-        overflow: hidden !important;
+        overflow-x: hidden !important;
+        overflow-y: scroll !important;
         display: none !important;
         flex-direction: column !important;
         min-height: 0 !important;
@@ -284,8 +289,8 @@
     }
 
     .vecthare-scope-filters {
-        display: grid !important;
-        grid-template-columns: 1fr 1fr !important;
+        /*display: grid !important;
+        grid-template-columns: 1fr 1fr !important;*/
         gap: 8px !important;
         padding: 12px !important;
         flex-shrink: 0 !important;
@@ -300,15 +305,32 @@
     .vecthare-type-filters {
         padding: 8px 12px !important;
         flex-shrink: 0 !important;
+        overflow-x: scroll !important;
+        flex-wrap: nowrap !important;
+    }
+
+    .vecthare-type-filters label {
+        gap: 4px !important;
+    }
+
+    .vecthare-search-results {
+        overflow-y: scroll !important;
+        min-height: max-content !important;
     }
 
     .vecthare-search-box {
-        padding: 0 12px 12px 12px !important;
+        padding: 12px !important;
         flex-shrink: 0 !important;
     }
 
     .vecthare-search-box input {
         min-height: 44px !important;
+    }
+
+    .vecthare-search-collection {
+        min-height: auto;
+        display: flex;
+        flex-direction: column;
     }
 
     .vecthare-collections-list {
@@ -322,6 +344,8 @@
     .vecthare-collection-card {
         padding: 12px !important;
         margin-bottom: 10px !important;
+        overflow-x: hidden;
+        min-height: max-content;
     }
 
     .vecthare-collection-header {
@@ -332,6 +356,16 @@
     .vecthare-collection-actions {
         flex-direction: column !important;
         gap: 8px !important;
+    }
+
+    .vecthare-collection-title,
+    .vecthare-collection-meta {
+        font-size: 0.6em !important;
+        gap: 10px !important;
+    }
+
+    .vecthare-collection-meta::before {
+        display: none !important;
     }
 
     .vecthare-btn-sm {
@@ -376,8 +410,10 @@
         flex-shrink: 0 !important;
     }
 
-    .vecthare-list-search {
-        min-height: 40px !important;
+    .vecthare-list-toolbar .vecthare-list-search {
+        min-height: 32px !important;
+        font-size: 0.88em !important;
+        padding: 4px 10px;
     }
 
     .vecthare-list-controls {
@@ -391,11 +427,19 @@
     }
 
     .vecthare-chunk-list {
-        flex: 1 !important;
+        flex-grow: 3 !important;
+        flex-basis: 100px !important;
+        flex-shrink: 0 !important;
         overflow-y: auto !important;
         -webkit-overflow-scrolling: touch !important;
         padding: 8px !important;
         min-height: 0 !important;
+        display: flex;
+        flex-direction: column;
+    }
+    .vecthare-chunk-list .vecthare-load-more {
+        padding: 6px;
+        font-size: 0.6em;
     }
 
     .vecthare-chunk-item {
@@ -413,8 +457,16 @@
     }
 
     .vecthare-detail-header {
-        padding: 10px 12px !important;
+        padding: 4px 10px !important;
         flex-shrink: 0 !important;
+        max-height: 48px;
+    }
+    .vecthare-detail-header
+        .vecthare-detail-name-section
+        .vecthare-chunk-name-input {
+        padding: 8px 10px;
+        font-size: 0.88em;
+        max-height: 32px !important;
     }
 
     .vecthare-detail-content {
@@ -444,6 +496,20 @@
     .vecthare-visualizer-tab {
         padding: 10px 16px !important;
         min-height: 44px !important;
+    }
+
+    .vecthare-visualizer-body.vecthare-scenes-tab {
+        display: none !important;
+    }
+    .vecthare-visualizer-body.vecthare-scenes-tab.active {
+        display: block !important;
+    }
+
+    .vecthare-visualizer-body.vecthare-groups-tab {
+        display: none !important;
+    }
+    .vecthare-visualizer-body.vecthare-groups-tab.active {
+        display: block !important;
     }
 
     /* ========================================================================
@@ -514,7 +580,6 @@
         width: 22px !important;
         height: 22px !important;
     }
-
 }
 
 /* ============================================================================
@@ -522,7 +587,6 @@
  * ============================================================================ */
 
 @media (max-width: 480px) {
-
     /* Even more aggressive stacking */
     .vecthare-scope-filters {
         grid-template-columns: 1fr !important;
@@ -538,7 +602,7 @@
 
     /* Smaller chunk list area */
     .vecthare-chunk-list-panel {
-        max-height: 30vh !important;
+        max-height: 40vh !important;
     }
 
     /* Compact headers */
@@ -547,14 +611,17 @@
         padding: 10px 12px !important;
     }
 
-}
+    .vecthare-visualizer-header .vecthare-visualizer-title:nth-child(1) {
+        font-size: 0.66em !important;
+        width: 80%;
+        word-wrap: break-word;
+    }
 
 /* ============================================================================
  * LANDSCAPE MOBILE
  * ============================================================================ */
 
 @media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
-
     /* Side-by-side for visualizer in landscape */
     .vecthare-visualizer-body {
         flex-direction: row !important;
@@ -572,7 +639,6 @@
     .vecthare-chunk-detail-panel {
         flex: 1 !important;
     }
-
 }
 
 /* ============================================================================
@@ -580,7 +646,6 @@
  * ============================================================================ */
 
 @media (min-width: 769px) {
-
     /* Database Browser - restore desktop sizing */
     .vecthare-database-browser-content {
         max-width: 1200px !important;
@@ -590,7 +655,12 @@
         min-height: auto !important;
         min-width: auto !important;
         border-radius: 16px !important;
-        border: 1px solid color-mix(in srgb, var(--vecthare-primary) 20%, var(--SmartThemeBorderColor)) !important;
+        border: 1px solid
+            color-mix(
+                in srgb,
+                var(--vecthare-primary) 20%,
+                var(--SmartThemeBorderColor)
+            ) !important;
     }
 
     /* Content Vectorizer - restore desktop sizing */
@@ -628,5 +698,4 @@
         border-right: 1px solid var(--SmartThemeBorderColor) !important;
         border-bottom: none !important;
     }
-
 }

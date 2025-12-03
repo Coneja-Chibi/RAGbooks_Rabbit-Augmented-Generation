@@ -328,6 +328,9 @@ function applyFilters() {
                 return bModified - aModified;
             });
             break;
+        case 'index-r':
+            chunks.sort((a, b) => b.index - a.index);
+            break;
         default: // 'index'
             chunks.sort((a, b) => a.index - b.index);
     }
@@ -392,6 +395,7 @@ function createModal() {
                                     <option value="length-asc">Sort: Shortest First</option>
                                     <option value="keywords">Sort: Most Keywords</option>
                                     <option value="modified">Sort: Recently Modified</option>
+                                    <option value="index-r">Sort: Message order Reversed</option>
                                 </select>
                                 <select class="vecthare-list-filter" id="vecthare_chunk_filter">
                                     <option value="all">Filter: All</option>

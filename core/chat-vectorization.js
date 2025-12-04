@@ -1323,6 +1323,12 @@ function resolveChunkInjectionPosition(chunk, settings) {
  * @returns {{verified: boolean, text: string}} Injection result
  */
 function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
+    // Control print: Log chunks being injected
+    console.log(`[VectHare Injection Control] Starting injection of ${chunksToInject.length} chunks`);
+    chunksToInject.forEach((chunk, idx) => {
+        console.log(`  [${idx + 1}/${chunksToInject.length}] Hash: ${chunk.hash}, Score: ${chunk.score?.toFixed(4)}, Collection: ${chunk.collectionId}, Text: "${chunk.text?.substring(0, 80)}${chunk.text?.length > 80 ? '...' : ''}"`);
+    });
+
     // Group chunks by resolved injection position+depth
     const positionGroups = new Map(); // "position:depth" → chunks[]
 
@@ -1341,11 +1347,15 @@ function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
         const [_, group] = [...positionGroups.entries()][0];
         const insertedText = buildNestedInjectionText(group.chunks, settings);
 
+        console.log(`[VectHare Injection Control] Single position injection: position="${group.position}", depth=${group.depth}, chunks=${group.chunks.length}, textLength=${insertedText.length}`);
+
         setExtensionPrompt(EXTENSION_PROMPT_TAG, insertedText, group.position, group.depth, false);
 
         // Verify injection
         const verifiedPrompt = extension_prompts[EXTENSION_PROMPT_TAG];
         const injectionVerified = verifiedPrompt && verifiedPrompt.value === insertedText;
+
+        console.log(`[VectHare Injection Control] Injection verification: ${injectionVerified ? '✓ PASSED' : '✗ FAILED'}`);
 
         if (!injectionVerified) {
             console.warn('VectHare: ⚠️ Injection verification failed!', {
@@ -1367,7 +1377,7 @@ function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
     }
 
     // Multiple injection positions - create separate extension prompts for each
-    console.log(`VectHare: Injecting to ${positionGroups.size} different positions`);
+    console.log(`[VectHare Injection Control] Multiple position injection: ${positionGroups.size} different positions`);
 
     // Clear the main tag first (will be unused when multi-position)
     setExtensionPrompt(EXTENSION_PROMPT_TAG, '', settings.position, settings.depth, false);
@@ -1381,6 +1391,11 @@ function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
         const groupSettings = { ...settings, rag_context: '', rag_xml_tag: '' };
         const groupText = buildNestedInjectionText(group.chunks, groupSettings);
 
+        console.log(`[VectHare Injection Control] Position group ${groupIndex + 1}/${positionGroups.size}: key="${key}", chunks=${group.chunks.length}, textLength=${groupText.length}`);
+        group.chunks.forEach((chunk, idx) => {
+            console.log(`    [${idx + 1}/${group.chunks.length}] Hash: ${chunk.hash}, Score: ${chunk.score?.toFixed(4)}`);
+        });
+
         // Use unique tag per position group
         const tag = `${EXTENSION_PROMPT_TAG}_pos${groupIndex}`;
 
@@ -1389,6 +1404,8 @@ function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
         // Verify
         const verifiedPrompt = extension_prompts[tag];
         const verified = verifiedPrompt && verifiedPrompt.value === groupText;
+
+        console.log(`[VectHare Injection Control] Position group ${groupIndex + 1} verification: ${verified ? '✓ PASSED' : '✗ FAILED'}`);
 
         if (!verified) {
             console.warn(`VectHare: ⚠️ Injection verification failed for position ${key}`, {
@@ -1412,6 +1429,8 @@ function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
         allTexts.push(groupText);
         groupIndex++;
     }
+
+    console.log(`[VectHare Injection Control] Injection complete: ${allVerified ? '✓ All verified' : '✗ Some failed'}, ${allTexts.length} groups`);
 
     return {
         verified: allVerified,

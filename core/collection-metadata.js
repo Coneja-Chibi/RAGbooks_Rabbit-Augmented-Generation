@@ -646,18 +646,20 @@ export async function shouldCollectionActivate(collectionId, context) {
 
     // Priority 1: Check if collection is disabled entirely
     if (meta.enabled === false) {
-        console.log(`VectHare: Collection ${collectionId} is disabled`);
+        console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✗ DISABLED`);
         return false;
     }
 
     // Priority 2: Check if always active (ignores everything else)
     if (meta.alwaysActive === true) {
-        console.log(`VectHare: Collection ${collectionId} is always active`);
+        console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✓ ALWAYS_ACTIVE`);
         return true;
     }
 
     const hasTriggers = meta.triggers && meta.triggers.length > 0;
     const hasConditions = meta.conditions?.enabled && meta.conditions?.rules?.length > 0;
+
+    console.log(`[VectHare Activation Filter] Collection ${collectionId}: hasTriggers=${hasTriggers}, hasConditions=${hasConditions}`);
 
     // Priority 3: Check activation triggers (PRIMARY method)
     if (hasTriggers) {
@@ -668,13 +670,13 @@ export async function shouldCollectionActivate(collectionId, context) {
         });
 
         if (triggersMatch) {
-            console.log(`VectHare: Collection ${collectionId} activated by triggers`);
+            console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✓ TRIGGERS_MATCHED (${meta.triggers.join(', ')})`);
             return true;
         }
 
         // Triggers set but didn't match - check if we should fall through to conditions
         if (!hasConditions) {
-            console.log(`VectHare: Collection ${collectionId} triggers didn't match, no conditions`);
+            console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✗ TRIGGERS_NOT_MATCHED (no conditions to fallthrough)`);
             return false;
         }
     }
@@ -682,12 +684,12 @@ export async function shouldCollectionActivate(collectionId, context) {
     // Priority 4: Check advanced conditions (SECONDARY method)
     if (hasConditions) {
         const conditionsPass = await evaluateAdvancedConditions(meta, context, collectionId);
-        console.log(`VectHare: Collection ${collectionId} conditions: ${conditionsPass}`);
+        console.log(`[VectHare Activation Filter] Collection ${collectionId}: ${conditionsPass ? '✓' : '✗'} CONDITIONS_${conditionsPass ? 'PASS' : 'FAIL'}`);
         return conditionsPass;
     }
 
     // Priority 5: No triggers AND no conditions = auto-activate (backwards compatible)
-    console.log(`VectHare: Collection ${collectionId} auto-activated (no triggers/conditions)`);
+    console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✓ AUTO_ACTIVATED (no triggers/conditions configured - BACKWARDS COMPAT MODE)`);
     return true;
 }
 
@@ -707,7 +709,11 @@ export async function filterActiveCollections(collectionIds, context) {
 
     const activeIds = results.filter(r => r.active).map(r => r.id);
 
-    console.log(`VectHare: Filtered ${collectionIds.length} collections to ${activeIds.length} active`);
+    console.log(`[VectHare Activation Filter] Summary: ${collectionIds.length} collections → ${activeIds.length} active`);
+    if (activeIds.length > 0) {
+        console.log(`[VectHare Activation Filter] Active collections:`, activeIds);
+    }
+
     return activeIds;
 }
 

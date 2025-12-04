@@ -475,30 +475,76 @@ export function cleanupOrphanedMeta(actualCollectionIds) {
 }
 
 // ============================================================================
-// COLLECTION LOCKING (Bind collection to a specific chat)
+// COLLECTION LOCKING (Bind collection to one or more chats)
 // ============================================================================
 
 /**
- * Locks a collection to a specific chat ID. When locked, the collection
- * is considered bound to that chat and UI can reflect this. Pass null to
- * clear the lock. The lock is stored in metadata field `lockedToChatId`.
+ * Adds a chat to the collection's lock list. Supports multiple chats per collection.
+ * Stores chat IDs in metadata field `lockedToChatIds` (array).
+ * Automatically migrates old single-value `lockedToChatId` to array format.
  * @param {string} collectionId
- * @param {string|null} chatId
+ * @param {string|null} chatId - Chat ID to lock to, or null to remove all locks
  */
 export function setCollectionLock(collectionId, chatId) {
     if (!collectionId) return;
+    const meta = getCollectionMeta(collectionId);
     const update = {};
-    if (chatId) {
-        update.lockedToChatId = String(chatId);
+
+    if (chatId === null) {
+        // Clear all locks
+        update.lockedToChatIds = [];
+        update.lockedToChatId = null; // Clear old format for backward compat
     } else {
-        update.lockedToChatId = null;
+        chatId = String(chatId);
+        let locks = Array.isArray(meta.lockedToChatIds) ? [...meta.lockedToChatIds] : [];
+
+        // Migrate old single-value format if present
+        if (meta.lockedToChatId && !locks.includes(String(meta.lockedToChatId))) {
+            locks.push(String(meta.lockedToChatId));
+        }
+
+        // Add chat if not already present
+        if (!locks.includes(chatId)) {
+            locks.push(chatId);
+        }
+
+        update.lockedToChatIds = locks;
+        update.lockedToChatId = null; // Clear old format
     }
+
     setCollectionMeta(collectionId, update);
-    console.log(`VectHare: Collection ${collectionId} lock set to chat: ${chatId}`);
+    console.log(`VectHare: Collection ${collectionId} locks updated:`, update.lockedToChatIds);
 }
 
 /**
- * Clears the lock for a collection
+ * Removes a specific chat from a collection's lock list
+ * @param {string} collectionId
+ * @param {string} chatId - Chat ID to remove from lock list
+ */
+export function removeCollectionLock(collectionId, chatId) {
+    if (!collectionId || !chatId) return;
+    const meta = getCollectionMeta(collectionId);
+    const update = {};
+
+    let locks = Array.isArray(meta.lockedToChatIds) ? [...meta.lockedToChatIds] : [];
+
+    // Migrate old format if present
+    if (meta.lockedToChatId && !locks.includes(String(meta.lockedToChatId))) {
+        locks.push(String(meta.lockedToChatId));
+    }
+
+    // Remove the chat
+    locks = locks.filter(id => String(id) !== String(chatId));
+
+    update.lockedToChatIds = locks;
+    update.lockedToChatId = null; // Clear old format
+
+    setCollectionMeta(collectionId, update);
+    console.log(`VectHare: Removed chat ${chatId} from collection ${collectionId} locks`);
+}
+
+/**
+ * Clears all locks for a collection (removes from all chats)
  * @param {string} collectionId
  */
 export function clearCollectionLock(collectionId) {
@@ -506,13 +552,31 @@ export function clearCollectionLock(collectionId) {
 }
 
 /**
- * Gets the locked chat ID for a collection, or null if not locked
+ * Gets the array of locked chat IDs for a collection, or empty array if not locked
+ * Includes backward compatibility for old single-value `lockedToChatId` format
+ * @param {string} collectionId
+ * @returns {string[]}
+ */
+export function getCollectionLocks(collectionId) {
+    const meta = getCollectionMeta(collectionId);
+    let locks = Array.isArray(meta.lockedToChatIds) ? [...meta.lockedToChatIds] : [];
+
+    // Backward compatibility: if old format exists and not already in new format, include it
+    if (meta.lockedToChatId && !locks.includes(String(meta.lockedToChatId))) {
+        locks.push(String(meta.lockedToChatId));
+    }
+
+    return locks;
+}
+
+/**
+ * Gets the first locked chat ID (for backward compat with single-lock code)
  * @param {string} collectionId
  * @returns {string|null}
  */
 export function getCollectionLock(collectionId) {
-    const meta = getCollectionMeta(collectionId);
-    return meta.lockedToChatId || null;
+    const locks = getCollectionLocks(collectionId);
+    return locks.length > 0 ? locks[0] : null;
 }
 
 /**
@@ -523,8 +587,17 @@ export function getCollectionLock(collectionId) {
  */
 export function isCollectionLockedToChat(collectionId, chatId) {
     if (!collectionId || !chatId) return false;
-    const locked = getCollectionLock(collectionId);
-    return locked !== null && String(locked) === String(chatId);
+    const locks = getCollectionLocks(collectionId);
+    return locks.some(id => String(id) === String(chatId));
+}
+
+/**
+ * Gets the count of chats this collection is locked to
+ * @param {string} collectionId
+ * @returns {number}
+ */
+export function getCollectionLockCount(collectionId) {
+    return getCollectionLocks(collectionId).length;
 }
 
 /**

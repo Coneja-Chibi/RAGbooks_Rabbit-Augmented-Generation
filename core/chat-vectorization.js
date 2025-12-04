@@ -1501,7 +1501,8 @@ export async function rearrangeChat(chat, settings, type) {
             isGroupChat: getContext().groupId != null,
             currentCharacter: getContext().name2 || null,
             activeLorebookEntries: [],
-            currentChatId: getCurrentChatId()
+            currentChatId: getCurrentChatId(),
+            currentCharacterId: getContext().characterId || null
         });
         const activeCollections = await filterActiveCollections(collectionsToQuery, searchContext);
 

@@ -1500,7 +1500,8 @@ export async function rearrangeChat(chat, settings, type) {
             generationType: type || 'normal',
             isGroupChat: getContext().groupId != null,
             currentCharacter: getContext().name2 || null,
-            activeLorebookEntries: []
+            activeLorebookEntries: [],
+            currentChatId: getCurrentChatId()
         });
         const activeCollections = await filterActiveCollections(collectionsToQuery, searchContext);
 

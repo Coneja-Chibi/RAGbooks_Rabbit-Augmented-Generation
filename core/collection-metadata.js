@@ -759,6 +759,7 @@ async function evaluateAdvancedConditions(meta, context, collectionId) {
  * ACTIVATION PRIORITY:
  * 1. Disabled (enabled=false) → Never activate
  * 2. Always Active → Always activate (ignores triggers and conditions)
+ * 2.5. Locked to current chat → Activate (overrides triggers/conditions)
  * 3. Triggers match → Activate (primary method)
  * 4. Advanced conditions pass → Activate (secondary method)
  * 5. No triggers AND no conditions → Auto-activate (backwards compatible)
@@ -779,6 +780,13 @@ export async function shouldCollectionActivate(collectionId, context) {
     // Priority 2: Check if always active (ignores everything else)
     if (meta.alwaysActive === true) {
         console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✓ ALWAYS_ACTIVE`);
+        return true;
+    }
+
+    // Priority 2.5: Check if locked to current chat (overrides other conditions)
+    const currentChatId = context?.currentChatId;
+    if (currentChatId && isCollectionLockedToChat(collectionId, currentChatId)) {
+        console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✓ LOCKED_TO_CURRENT_CHAT (${currentChatId})`);
         return true;
     }
 

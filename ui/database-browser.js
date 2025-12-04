@@ -214,7 +214,7 @@ function createBrowserModal() {
 
                 <!-- Plugin Warning Banner (hidden by default, shown when plugin unavailable) -->
                 <div id="vecthare_plugin_warning_banner" class="vecthare-warning-banner" style="display: none;">
-                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <i class="fa-solid fa-triangle-exclamation" style="color: var(--SmartThemeQuoteColor);"></i>
                     <div class="vecthare-warning-text">
                         <strong>Limited Discovery Mode</strong>
                         <span>Similharity plugin not detected. Only registered collections and current chat can be discovered.
@@ -3025,8 +3025,8 @@ function openCollectionLockDialog(collectionId) {
     const charLocksHtml = characterLocks.length === 0
         ? '<div class="vecthare-lock-list-empty">Not locked to any character yet</div>'
         : characterLocks.map((charId, idx) => {
-            const character = characters.find(c => String(c.avatar) === String(charId));
-            const charName = character?.name || charId;
+            // Prefer readable name fields with fallbacks
+            const charName =  characters[charId].data.name;
             return `
                 <div class="vecthare-lock-item" data-character-id="${charId}" style="
                     display: flex;
@@ -3041,10 +3041,10 @@ function openCollectionLockDialog(collectionId) {
                     min-width: 0;
                 ">
                     <span class="vecthare-lock-character-name" style="
-                        flex: 1;
-                        min-width: 0;
-                        word-break: break-word;
-                        color: var(--SmartThemeBodyColor);
+                            flex: 1;
+                            min-width: 0;
+                            word-break: break-word;
+                            color: var(--SmartThemeQuoteColor);
                     ">
                         <i class="fa-solid fa-user" style="margin-right: 6px; color: var(--SmartThemeQuoteColor);"></i>
                         ${charName}

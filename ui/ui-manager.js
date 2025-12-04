@@ -10,7 +10,7 @@
  * ============================================================================
  */
 
-import { saveSettingsDebounced, getCurrentChatId } from '../../../../../script.js';
+import { saveSettingsDebounced, getCurrentChatId, eventSource, event_types } from '../../../../../script.js';
 import { extension_settings, openThirdPartyExtensionMenu } from '../../../../extensions.js';
 import { writeSecret, SECRET_KEYS, secret_state, readSecretState } from '../../../../secrets.js';
 import { getWebLlmProvider as getSharedWebLlmProvider } from '../providers/webllm.js';
@@ -465,6 +465,8 @@ export function renderSettings(containerId, settings, callbacks) {
                             </label>
                             <small class="vecthare_hint">Automatically vectorize new chat messages</small>
 
+                            <!-- Collection lock moved to Database Browser (per-collection settings) -->
+
                             <label for="vecthare_chunking_strategy" style="margin-top: 12px;">
                                 <small>Chunking Strategy</small>
                             </label>
@@ -678,7 +680,35 @@ export function renderSettings(containerId, settings, callbacks) {
         </div>
     `;
 
+    // Sanity debug: confirm the generated HTML contains the lock button marker
+    try {
+        console.log(`VectHare: renderSettings built HTML contains lock marker:`, String(html).indexOf('vecthare_lock_collection') >= 0);
+        const target = document.getElementById(containerId);
+        console.log(`VectHare: renderSettings target container exists:`, !!target, 'containerId=', containerId);
+    } catch (e) {
+        console.warn('VectHare: renderSettings pre-append debug failed', e);
+    }
+
     $(`#${containerId}`).append(html);
+
+    // Debug: log presence of lock button after rendering and observe for later appearance
+    try {
+        console.log(`VectHare: renderSettings appended to ${containerId}. lock button present:`, !!document.getElementById('vecthare_lock_collection'));
+        if (!document.getElementById('vecthare_lock_collection')) {
+            const containerEl = document.getElementById(containerId);
+            if (containerEl && window.MutationObserver) {
+                const mo = new MutationObserver((mutations, obs) => {
+                    if (document.getElementById('vecthare_lock_collection')) {
+                        console.log('VectHare: lock button appeared in DOM');
+                        obs.disconnect();
+                    }
+                });
+                mo.observe(containerEl, { childList: true, subtree: true });
+            }
+        }
+    } catch (e) {
+        console.warn('VectHare: debug check failed', e);
+    }
 
     // Bind all events
     bindSettingsEvents(settings, callbacks);
@@ -1405,6 +1435,8 @@ function bindSettingsEvents(settings, callbacks) {
             }
             console.log(`VectHare: Chat auto-sync for ${collectionId}: ${enabling ? 'enabled' : 'disabled'}`);
         });
+
+        // Collection lock handled inside Database Browser per-collection settings
 
     // Chunking strategy - populate from content-types.js (single source of truth)
     const chatStrategies = getChunkingStrategies('chat');

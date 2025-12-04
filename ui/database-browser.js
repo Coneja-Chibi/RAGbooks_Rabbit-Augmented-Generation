@@ -36,12 +36,18 @@ import {
     hasCustomDecaySettings,
     getDefaultDecayForType,
     isCollectionEnabled,
+    // Locking API
+    getCollectionLock,
+    setCollectionLock,
+    clearCollectionLock,
+    isCollectionLockedToChat,
 } from '../core/collection-metadata.js';
 import {
     VALID_EMOTIONS,
     VALID_GENERATION_TYPES,
     getExpressionsExtensionStatus
 } from '../core/conditional-activation.js';
+import { getCurrentChatId, eventSource, event_types } from '../../../../../script.js';
 import { world_names, loadWorldInfo } from '../../../../world-info.js';
 import { icons } from './icons.js';
 import { openVisualizer } from './chunk-visualizer.js';
@@ -1576,9 +1582,12 @@ function createActivationEditorModal() {
         <div id="vecthare_activation_editor_modal" class="vecthare-modal">
             <div class="vecthare-activation-editor">
                 <div class="vecthare-modal-header">
-                    <h3>⚙️ Collection Settings</h3>
-                    <button class="vecthare-btn-icon" id="vecthare_activation_close">✕</button>
-                </div>
+                                    <h3>⚙️ Collection Settings</h3>
+                                    <div style="display:flex; gap:8px; align-items:center;">
+                                        <button id="vecthare_activation_lock_collection" class="vecthare-btn-sm" title="Lock this collection to the current chat">🔒 Lock to Chat</button>
+                                        <button class="vecthare-btn-icon" id="vecthare_activation_close">✕</button>
+                                    </div>
+                                </div>
 
                 <div class="vecthare-activation-body">
                     <div class="vecthare-activation-collection-name">
@@ -1919,6 +1928,50 @@ function bindActivationEditorEvents() {
         $(this).closest('.vecthare-type-option').addClass('selected');
     });
 
+    // Activation editor: Lock-to-chat button
+    $('#vecthare_activation_lock_collection').off('click').on('click', async function(e) {
+        e.stopPropagation();
+        const collId = activationEditorState.collectionId;
+        const chatId = getCurrentChatId();
+
+        if (!collId) {
+            toastr.warning('No collection selected');
+            return;
+        }
+        if (!chatId) {
+            toastr.warning('Open a chat first to lock a collection');
+            return;
+        }
+
+        try {
+            const lockedTo = getCollectionLock(collId);
+            if (lockedTo && String(lockedTo) === String(chatId)) {
+                // Unlock
+                clearCollectionLock(collId);
+                $('#vecthare_activation_lock_collection').text('🔒 Lock to Chat');
+                toastr.info('Collection unlocked from this chat');
+            } else if (lockedTo && String(lockedTo) !== String(chatId)) {
+                const confirmed = confirm('This collection is locked to another chat. Overwrite lock to current chat?');
+                if (!confirmed) return;
+                setCollectionLock(collId, chatId);
+                $('#vecthare_activation_lock_collection').text('🔓 Locked to this chat');
+                toastr.success('Collection lock overwritten to current chat');
+            } else {
+                setCollectionLock(collId, chatId);
+                $('#vecthare_activation_lock_collection').text('🔓 Locked to this chat');
+                toastr.success('Collection locked to current chat');
+            }
+        } catch (err) {
+            console.error('VectHare: Failed to toggle collection lock', err);
+            toastr.error('Failed to toggle collection lock');
+        }
+    });
+
+    // Refresh lock button when chat changes
+    eventSource.on(event_types.CHAT_CHANGED, () => {
+        refreshActivationLockButton();
+    });
+
     // Injection position toggle shows/hides depth row
     $('#vecthare_collection_position').on('change', function(e) {
         e.stopPropagation();
@@ -1999,6 +2052,48 @@ function renderActivationEditor() {
     const isAlwaysActive = state.alwaysActive;
     $('.vecthare-triggers-section, .vecthare-conditions-section').toggleClass('vecthare-disabled', isAlwaysActive);
 
+    // Refresh lock button state for this collection
+    refreshActivationLockButton();
+
+
+/**
+ * Refresh the lock button in the activation editor based on current collection and chat
+ */
+function refreshActivationLockButton() {
+    try {
+        const collId = activationEditorState.collectionId;
+        const $btn = $('#vecthare_activation_lock_collection');
+        const chatId = getCurrentChatId();
+
+        if (!$btn || $btn.length === 0) return;
+
+        if (!collId) {
+            $btn.prop('disabled', true).text('🔒 Lock to Chat');
+            $btn.attr('title', 'No collection selected');
+            return;
+        }
+
+        if (!chatId) {
+            $btn.prop('disabled', true).text('🔒 Lock to Chat');
+            $btn.attr('title', 'Open a chat to lock collection to it');
+            return;
+        }
+
+        const lockedTo = getCollectionLock(collId);
+        if (!lockedTo) {
+            $btn.prop('disabled', false).text('🔒 Lock to Chat');
+            $btn.attr('title', 'Lock this collection to the current chat');
+        } else if (String(lockedTo) === String(chatId)) {
+            $btn.prop('disabled', false).text('🔓 Locked to this chat');
+            $btn.attr('title', 'Collection locked to this chat. Click to unlock');
+        } else {
+            $btn.prop('disabled', false).text('🔒 Locked to another chat');
+            $btn.attr('title', `Collection locked to another chat (${String(lockedTo).substring(0,8)}...)`);
+        }
+    } catch (err) {
+        console.error('VectHare: Failed to refresh activation lock button', err);
+    }
+}
     renderConditionRules();
 }
 

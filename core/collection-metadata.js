@@ -474,6 +474,59 @@ export function cleanupOrphanedMeta(actualCollectionIds) {
     return { removed: orphaned.length, orphanedIds: orphaned };
 }
 
+// ============================================================================
+// COLLECTION LOCKING (Bind collection to a specific chat)
+// ============================================================================
+
+/**
+ * Locks a collection to a specific chat ID. When locked, the collection
+ * is considered bound to that chat and UI can reflect this. Pass null to
+ * clear the lock. The lock is stored in metadata field `lockedToChatId`.
+ * @param {string} collectionId
+ * @param {string|null} chatId
+ */
+export function setCollectionLock(collectionId, chatId) {
+    if (!collectionId) return;
+    const update = {};
+    if (chatId) {
+        update.lockedToChatId = String(chatId);
+    } else {
+        update.lockedToChatId = null;
+    }
+    setCollectionMeta(collectionId, update);
+    console.log(`VectHare: Collection ${collectionId} lock set to chat: ${chatId}`);
+}
+
+/**
+ * Clears the lock for a collection
+ * @param {string} collectionId
+ */
+export function clearCollectionLock(collectionId) {
+    setCollectionLock(collectionId, null);
+}
+
+/**
+ * Gets the locked chat ID for a collection, or null if not locked
+ * @param {string} collectionId
+ * @returns {string|null}
+ */
+export function getCollectionLock(collectionId) {
+    const meta = getCollectionMeta(collectionId);
+    return meta.lockedToChatId || null;
+}
+
+/**
+ * Checks whether the collection is locked to the provided chatId
+ * @param {string} collectionId
+ * @param {string} chatId
+ * @returns {boolean}
+ */
+export function isCollectionLockedToChat(collectionId, chatId) {
+    if (!collectionId || !chatId) return false;
+    const locked = getCollectionLock(collectionId);
+    return locked !== null && String(locked) === String(chatId);
+}
+
 /**
  * Ensures a collection has metadata (creates with defaults if missing)
  * Called when a collection is discovered/created

@@ -120,7 +120,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                     <small>Milvus Port:</small>
                                 </label>
                                 <input type="number" id="vecthare_milvus_port" class="vecthare-input" placeholder="19530" />
-                                
+
                                 <label for="vecthare_milvus_address">
                                     <small>Full Address (Optional):</small>
                                 </label>
@@ -385,6 +385,11 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <small>Query Depth: <span id="vecthare_query_depth_value">2</span> messages</small>
                             </label>
                             <input type="range" id="vecthare_query_depth" class="vecthare-slider" min="1" max="20" step="1" />
+                            <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+                                <label for="vecthare_topk" style="margin:0; white-space:nowrap;"><small>Top K</small></label>
+                                <input id="vecthare_topk" type="number" class="vecthare-input" min="1" style="width:90px;" />
+                                <small class="vecthare_hint" style="margin-left:8px;">Number of results to retrieve per collection</small>
+                            </div>
                             <small class="vecthare_hint">How many recent messages to include in search query</small>
 
                             <label style="margin-top: 16px;">
@@ -1564,7 +1569,7 @@ function bindSettingsEvents(settings, callbacks) {
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
         });
-        
+
     $('#vecthare_milvus_token')
         .val(settings.milvus_token || '')
         .on('input', function() {
@@ -1633,6 +1638,17 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
     $('#vecthare_query_depth_value').text(settings.query || 2);
+
+    // Top K - number of results retrieved per collection (top-K)
+    $('#vecthare_topk')
+        .val((settings.top_k ?? settings.insert) || 3)
+        .on('input', function() {
+            const value = parseInt($(this).val());
+            const safeValue = isNaN(value) ? (settings.insert || 3) : value;
+            settings.top_k = safeValue;
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
 
     // Injection position (where chunks appear in prompt)
     $('#vecthare_injection_position')
@@ -2586,6 +2602,9 @@ function handleDiagnosticFix(action, silent = false) {
         case 'fix_counts':
             if (settings.insert < 1) {
                 $('#vecthare_insert').val(3).trigger('change');
+            }
+            if ((settings.top_k ?? settings.insert) < 1) {
+                $('#vecthare_topk').val(3).trigger('change');
             }
             if (settings.query < 1) {
                 $('#vecthare_query').val(2).trigger('change');

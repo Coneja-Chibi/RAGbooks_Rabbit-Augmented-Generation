@@ -576,10 +576,11 @@ function buildSearchQuery(chat, settings) {
  */
 async function queryAndMergeCollections(activeCollections, queryText, settings, chat, debugData) {
     let chunksForVisualizer = [];
+    const effectiveTopK = settings.top_k ?? settings.insert;
 
     for (const collectionId of activeCollections) {
         try {
-            const queryResults = await queryCollection(collectionId, queryText, settings.insert, settings);
+            const queryResults = await queryCollection(collectionId, queryText, effectiveTopK, settings);
 
             // TRACE: Vector query results for this collection
             addTrace(debugData, 'vector_search', `Query completed for ${collectionId}`, {
@@ -652,7 +653,7 @@ async function queryAndMergeCollections(activeCollections, queryText, settings, 
 
     // Sort merged results by score (descending) and limit to topK
     chunksForVisualizer.sort((a, b) => b.score - a.score);
-    chunksForVisualizer = chunksForVisualizer.slice(0, settings.insert);
+    chunksForVisualizer = chunksForVisualizer.slice(0, effectiveTopK);
 
     return chunksForVisualizer;
 }
@@ -1514,9 +1515,10 @@ export async function rearrangeChat(chat, settings, type) {
         debugData.query = queryText;
         debugData.collectionId = activeCollections.join(', ');
         debugData.collectionsQueried = activeCollections;
+        const effectiveTopK = settings.top_k ?? settings.insert;
         debugData.settings = {
             threshold: settings.score_threshold,
-            topK: settings.insert,
+            topK: effectiveTopK,
             temporal_decay: settings.temporal_decay,
             protect: settings.protect,
             chatLength: chat.length
@@ -1526,7 +1528,7 @@ export async function rearrangeChat(chat, settings, type) {
             collectionsQueried: activeCollections,
             queryLength: queryText.length,
             threshold: settings.score_threshold,
-            topK: settings.insert,
+            topK: effectiveTopK,
             protect: settings.protect
         });
 
@@ -1583,7 +1585,7 @@ export async function rearrangeChat(chat, settings, type) {
             chunks: chunks,
             query: queryText,
             timestamp: Date.now(),
-            settings: { threshold: settings.score_threshold, topK: settings.insert, temporal_decay: settings.temporal_decay }
+            settings: { threshold: settings.score_threshold, topK: (settings.top_k ?? settings.insert), temporal_decay: settings.temporal_decay }
         };
         console.log(`VectHare: Stored ${chunks.length} chunks for visualizer`);
 

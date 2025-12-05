@@ -413,6 +413,45 @@ export function renderSettings(containerId, settings, callbacks) {
                         </div>
                     </div>
 
+                    <!-- Global Temporal Weighting Defaults Card -->
+                    <div class="vecthare-card">
+                        <div class="vecthare-card-header">
+                            <h3 class="vecthare-card-title">
+                                <span class="vecthare-icon">
+                                    <i class="fa-solid fa-clock"></i>
+                                </span>
+                                Temporal Weighting Defaults
+                            </h3>
+                            <p class="vecthare-card-subtitle">Default settings for new collections (can be overridden per-collection)</p>
+                        </div>
+                        <div class="vecthare-card-body">
+
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                                <input type="checkbox" id="vecthare_default_decay_enabled" />
+                                <label for="vecthare_default_decay_enabled" style="margin: 0;">
+                                    <small>Enable temporal weighting by default</small>
+                                </label>
+                            </div>
+
+                            <label style="margin-bottom: 4px;">
+                                <small>Default Type</small>
+                            </label>
+                            <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+                                <label style="display: flex; align-items: center; gap: 4px; margin: 0;">
+                                    <input type="radio" name="vecthare_default_decay_type" value="decay" checked />
+                                    <small>Decay (favor recent)</small>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 4px; margin: 0;">
+                                    <input type="radio" name="vecthare_default_decay_type" value="nostalgia" />
+                                    <small>Nostalgia (favor old)</small>
+                                </label>
+                            </div>
+
+                            <small class="vecthare_hint">These defaults apply to newly created collections. Existing collections keep their settings.</small>
+
+                        </div>
+                    </div>
+
                     <!-- RAG Context Card -->
                     <div class="vecthare-card">
                         <div class="vecthare-card-header">
@@ -1728,6 +1767,22 @@ function bindSettingsEvents(settings, callbacks) {
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
         });
+
+    // Global temporal weighting defaults
+    $('#vecthare_default_decay_enabled')
+        .prop('checked', settings.default_decay_enabled || false)
+        .on('change', function() {
+            settings.default_decay_enabled = $(this).prop('checked');
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+
+    $(`input[name="vecthare_default_decay_type"][value="${settings.default_decay_type || 'decay'}"]`).prop('checked', true);
+    $('input[name="vecthare_default_decay_type"]').on('change', function() {
+        settings.default_decay_type = $(this).val();
+        Object.assign(extension_settings.vecthare, settings);
+        saveSettingsDebounced();
+    });
 
     // Provider-specific settings
 

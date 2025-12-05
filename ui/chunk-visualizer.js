@@ -685,8 +685,16 @@ function renderSceneDetailPanel() {
  */
 function bindScenesTabEvents() {
     // Scene item click - select scene by hash
-    $(document).off('click', '.vecthare-scene-item').on('click', '.vecthare-scene-item', function() {
+    // Bind to modal container (not document) since modal stops propagation
+    $('#vecthare_visualizer_modal').off('click', '.vecthare-scene-item').on('click', '.vecthare-scene-item', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
         const hash = $(this).data('scene-hash');
+        console.log('VectHare: Clicked scene with hash:', hash);
+        if (!hash) {
+            console.error('VectHare: No scene-hash found on clicked element');
+            return;
+        }
         selectedSceneHash = hash;
         renderSceneList();
         renderSceneDetailPanel();

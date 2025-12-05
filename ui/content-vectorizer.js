@@ -62,8 +62,8 @@ export function openContentVectorizer(initialType = null) {
         $('.vecthare-cv-subsequent').hide();
     }
 
-    // Stop click from propagating to extension panel
-    $('#vecthare_content_vectorizer_modal').on('click', function(e) {
+    // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
+    $('#vecthare_content_vectorizer_modal').on('mousedown touchstart', function(e) {
         e.stopPropagation();
     });
 
@@ -1286,9 +1286,41 @@ function bindSourceEvents(type) {
     });
 
     // Upload zone click (all upload zones)
-    $('#vecthare_cv_upload_zone, #vecthare_cv_doc_upload_zone, #vecthare_cv_chat_upload_zone').on('click', function() {
-        $(this).find('input[type="file"]').click();
+    $('#vecthare_cv_upload_zone, #vecthare_cv_doc_upload_zone, #vecthare_cv_chat_upload_zone').on('click', function(e) {
+        // Don't trigger if clicking the input itself
+        if (e.target.tagName === 'INPUT') return;
+        $(this).find('input[type="file"]').trigger('click');
     });
+
+    // Upload zone drag and drop
+    $('#vecthare_cv_upload_zone, #vecthare_cv_doc_upload_zone, #vecthare_cv_chat_upload_zone')
+        .on('dragover', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $(this).addClass('dragover');
+        })
+        .on('dragleave', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $(this).removeClass('dragover');
+        })
+        .on('drop', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $(this).removeClass('dragover');
+
+            const files = e.originalEvent.dataTransfer.files;
+            if (files.length > 0) {
+                // Get the file input and set the files
+                const input = $(this).find('input[type="file"]')[0];
+                // Create a new DataTransfer to set files on the input
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(files[0]);
+                input.files = dataTransfer.files;
+                // Trigger change event to process the file
+                $(input).trigger('change');
+            }
+        });
 
     // File input change
     $('#vecthare_cv_file_input, #vecthare_cv_doc_file_input').on('change', handleFileUpload);

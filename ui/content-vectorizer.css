@@ -287,6 +287,12 @@
     background: color-mix(in srgb, var(--vecthare-primary) 10%, transparent);
 }
 
+.vecthare-cv-upload-zone.dragover {
+    border-color: var(--vecthare-primary);
+    background: color-mix(in srgb, var(--vecthare-primary) 15%, transparent);
+    border-style: solid;
+}
+
 .vecthare-cv-upload-zone i {
     font-size: 2em;
     color: var(--vecthare-primary);

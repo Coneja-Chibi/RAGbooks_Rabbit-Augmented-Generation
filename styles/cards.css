@@ -110,3 +110,16 @@
     padding: 24px;
     background: var(--SmartThemeBlurTintColor);
 }
+
+/* Disabled subsection within cards */
+.vecthare-subsection-disabled {
+    opacity: 0.4;
+    pointer-events: none;
+    user-select: none;
+    transition: opacity 0.2s ease;
+}
+
+.vecthare-subsection-disabled input[type="radio"],
+.vecthare-subsection-disabled input[type="checkbox"] {
+    cursor: not-allowed;
+}

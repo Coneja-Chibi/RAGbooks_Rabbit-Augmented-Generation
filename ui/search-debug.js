@@ -1454,10 +1454,13 @@ function bindEvents() {
     // Copy diagnostic dump
     $('#vecthare_copy_diagnostic').on('click', copyDiagnosticDump);
 
-    // Stop propagation on ALL clicks within modal (prevents extension panel from closing)
-    // Only close when clicking directly on the modal background
-    $('#vecthare_search_debug_modal').on('click', function(e) {
+    // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
+    $('#vecthare_search_debug_modal').on('mousedown touchstart', function(e) {
         e.stopPropagation();
+    });
+
+    // Close on background click
+    $('#vecthare_search_debug_modal').on('click', function(e) {
         if (e.target === this) {
             closeSearchDebugModal();
         }

@@ -277,12 +277,14 @@ export class QdrantBackend extends VectorBackend {
                         })),
                     };
                 } else {
-                    console.error(`VectHare: Query failed for ${collectionId}: ${response.status} ${response.statusText}`);
-                    results[collectionId] = { hashes: [], metadata: [] };
+                    const errorBody = await response.text().catch(() => 'No response body');
+                    const errorMsg = `${response.status} ${response.statusText} - ${errorBody}`;
+                    console.error(`VectHare: Query failed for ${collectionId}: ${errorMsg}`);
+                    results[collectionId] = { hashes: [], metadata: [], error: errorMsg };
                 }
             } catch (error) {
                 console.error(`Failed to query collection ${collectionId}:`, error);
-                results[collectionId] = { hashes: [], metadata: [] };
+                results[collectionId] = { hashes: [], metadata: [], error: error.message };
             }
         }
 

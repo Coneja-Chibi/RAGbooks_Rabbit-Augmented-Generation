@@ -171,7 +171,8 @@ export class StandardBackend extends VectorBackend {
                 // Likely collection doesn't exist
                 return [];
             }
-            throw new Error(`Failed to get saved hashes: ${response.status}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`Failed to get saved hashes: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();
@@ -287,7 +288,8 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to delete vectors: ${response.status}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`Failed to delete vectors: ${response.status} ${response.statusText} - ${errorBody}`);
         }
     }
 
@@ -321,7 +323,8 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to query collection: ${response.status}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`Failed to query collection: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();
@@ -370,12 +373,18 @@ export class StandardBackend extends VectorBackend {
             // Fallback: query each collection individually
             console.warn('VectHare: query-multi failed, falling back to individual queries');
             const results = {};
+            const errors = [];
             for (const collectionId of collectionIds) {
                 try {
                     results[collectionId] = await this.queryCollection(collectionId, searchText, topK, settings, queryVector);
                 } catch (e) {
-                    results[collectionId] = { hashes: [], metadata: [] };
+                    console.error(`VectHare: Query failed for collection ${collectionId}:`, e.message);
+                    errors.push(`${collectionId}: ${e.message}`);
+                    results[collectionId] = { hashes: [], metadata: [], error: e.message };
                 }
+            }
+            if (errors.length > 0) {
+                console.error(`VectHare: ${errors.length} collection(s) failed to query:`, errors);
             }
             return results;
         }
@@ -397,7 +406,8 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to purge collection: ${response.status}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`Failed to purge collection: ${response.status} ${response.statusText} - ${errorBody}`);
         }
     }
 
@@ -416,7 +426,8 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to purge all: ${response.status}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`Failed to purge all: ${response.status} ${response.statusText} - ${errorBody}`);
         }
     }
 
@@ -510,7 +521,8 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to update chunk text: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`Failed to update chunk text: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         return await response.json();
@@ -537,7 +549,8 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to update chunk metadata: ${response.statusText}`);
+            const errorBody = await response.text().catch(() => 'No response body');
+            throw new Error(`Failed to update chunk metadata: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         return await response.json();

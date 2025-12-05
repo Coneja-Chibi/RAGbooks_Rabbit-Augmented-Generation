@@ -92,6 +92,10 @@ const defaultSettings = {
     // Advanced features
     temporal_decay: getDefaultDecaySettings(),
 
+    // Global defaults for new collections
+    default_decay_enabled: false,    // Whether new collections have temporal weighting enabled
+    default_decay_type: 'decay',     // 'decay' or 'nostalgia' for new collections
+
     // RAG Prompt Context (Global level)
     // Wraps ALL injected content with context prompts and/or XML tags
     rag_context: '',      // Natural language context shown before all RAG content

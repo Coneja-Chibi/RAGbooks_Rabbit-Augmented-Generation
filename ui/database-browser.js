@@ -638,9 +638,25 @@ function renderCollections() {
 
     // Apply filters
     let filtered = browserState.collections.filter(c => {
-        // Scope filter
-        if (browserState.filters.scope !== 'all' && c.scope !== browserState.filters.scope) {
-            return false;
+        const scopeFilter = browserState.filters.scope;
+
+        // Scope filter:
+        // - 'all' => no filter
+        // - 'global' => show collections explicitly set to alwaysActive
+        // - 'chat' => show collections locked to at least one chat
+        // - 'character' => show collections locked to at least one character
+        // - otherwise: preserve legacy behavior (compare c.scope)
+        if (scopeFilter !== 'all') {
+            if (scopeFilter === 'global') {
+                const meta = getCollectionMeta(c.id);
+                if (!meta || meta.alwaysActive !== true) return false;
+            } else if (scopeFilter === 'chat') {
+                if (getCollectionLockCount(c.id) <= 0) return false;
+            } else if (scopeFilter === 'character') {
+                if (getCollectionCharacterLockCount(c.id) <= 0) return false;
+            } else {
+                if (c.scope !== scopeFilter) return false;
+            }
         }
 
         // Type filter - map filter categories to actual collection types

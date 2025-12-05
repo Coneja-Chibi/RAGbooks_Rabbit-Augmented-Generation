@@ -433,18 +433,20 @@ export function renderSettings(containerId, settings, callbacks) {
                                 </label>
                             </div>
 
-                            <label style="margin-bottom: 4px;">
-                                <small>Default Type</small>
-                            </label>
-                            <div style="display: flex; gap: 12px; margin-bottom: 12px;">
-                                <label style="display: flex; align-items: center; gap: 4px; margin: 0;">
-                                    <input type="radio" name="vecthare_default_decay_type" value="decay" checked />
-                                    <small>Decay (favor recent)</small>
+                            <div id="vecthare_default_decay_type_section" class="vecthare-subsection-disabled">
+                                <label style="margin-bottom: 4px;">
+                                    <small>Default Type</small>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 4px; margin: 0;">
-                                    <input type="radio" name="vecthare_default_decay_type" value="nostalgia" />
-                                    <small>Nostalgia (favor old)</small>
-                                </label>
+                                <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+                                    <label style="display: flex; align-items: center; gap: 4px; margin: 0;">
+                                        <input type="radio" name="vecthare_default_decay_type" value="decay" />
+                                        <small>Decay (favor recent)</small>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 4px; margin: 0;">
+                                        <input type="radio" name="vecthare_default_decay_type" value="nostalgia" />
+                                        <small>Nostalgia (favor old)</small>
+                                    </label>
+                                </div>
                             </div>
 
                             <small class="vecthare_hint">These defaults apply to newly created collections. Existing collections keep their settings.</small>
@@ -1769,15 +1771,35 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
     // Global temporal weighting defaults
+    const updateDecayTypeSection = (enabled) => {
+        const $section = $('#vecthare_default_decay_type_section');
+        const $radios = $section.find('input[type="radio"]');
+
+        if (enabled) {
+            $section.removeClass('vecthare-subsection-disabled');
+            $radios.prop('disabled', false);
+            // Select the saved type (or default to 'decay') when enabling
+            const savedType = settings.default_decay_type || 'decay';
+            $(`input[name="vecthare_default_decay_type"][value="${savedType}"]`).prop('checked', true);
+        } else {
+            $section.addClass('vecthare-subsection-disabled');
+            $radios.prop('disabled', true).prop('checked', false);
+        }
+    };
+
     $('#vecthare_default_decay_enabled')
         .prop('checked', settings.default_decay_enabled || false)
         .on('change', function() {
-            settings.default_decay_enabled = $(this).prop('checked');
+            const enabled = $(this).prop('checked');
+            settings.default_decay_enabled = enabled;
+            updateDecayTypeSection(enabled);
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
         });
 
-    $(`input[name="vecthare_default_decay_type"][value="${settings.default_decay_type || 'decay'}"]`).prop('checked', true);
+    // Initialize the section state
+    updateDecayTypeSection(settings.default_decay_enabled || false);
+
     $('input[name="vecthare_default_decay_type"]').on('change', function() {
         settings.default_decay_type = $(this).val();
         Object.assign(extension_settings.vecthare, settings);

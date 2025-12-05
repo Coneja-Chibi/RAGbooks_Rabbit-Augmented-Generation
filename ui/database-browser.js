@@ -403,8 +403,6 @@ function createBrowserModal() {
 
     // Bind events
     bindBrowserEvents();
-    // Initialize scope badge/hint
-    try { updateScopeBadgeAndHint(browserState.filters.scope); } catch (e) { /* ignore */ }
 }
 
 /**
@@ -444,12 +442,6 @@ function bindBrowserEvents() {
         $(this).addClass('active');
         browserState.filters.scope = $(this).data('scope');
         renderCollections();
-        // Update badge and hint describing current scope
-        try {
-            updateScopeBadgeAndHint(browserState.filters.scope);
-        } catch (err) {
-            // ignore if helper not present for some reason
-        }
     });
 
     // Type filters

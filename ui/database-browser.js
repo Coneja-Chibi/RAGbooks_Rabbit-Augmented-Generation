@@ -242,10 +242,12 @@ function createBrowserModal() {
                     <div id="vecthare_tab_collections" class="vecthare-tab-content active">
                         <!-- Scope Filters (V1-style) -->
                         <div class="vecthare-scope-filters">
-                            <button class="vecthare-scope-filter active" data-scope="all">All</button>
-                            <button class="vecthare-scope-filter" data-scope="global">Global</button>
-                            <button class="vecthare-scope-filter" data-scope="character">Character</button>
-                            <button class="vecthare-scope-filter" data-scope="chat">Chat</button>
+                            <button class="vecthare-scope-filter active" data-scope="all" title="Show all collections">All</button>
+                            <button class="vecthare-scope-filter" data-scope="global" title="Global = collections set to 'Always Active'">Global</button>
+                            <button class="vecthare-scope-filter" data-scope="character" title="Character = collections locked to at least one character">Character</button>
+                            <button class="vecthare-scope-filter" data-scope="chat" title="Chat = collections locked to at least one chat">Chat</button>
+
+                            <!-- Small badge and hint describing current scope filter -->
                         </div>
 
                         <!-- Type Filters -->
@@ -401,6 +403,8 @@ function createBrowserModal() {
 
     // Bind events
     bindBrowserEvents();
+    // Initialize scope badge/hint
+    try { updateScopeBadgeAndHint(browserState.filters.scope); } catch (e) { /* ignore */ }
 }
 
 /**
@@ -440,6 +444,12 @@ function bindBrowserEvents() {
         $(this).addClass('active');
         browserState.filters.scope = $(this).data('scope');
         renderCollections();
+        // Update badge and hint describing current scope
+        try {
+            updateScopeBadgeAndHint(browserState.filters.scope);
+        } catch (err) {
+            // ignore if helper not present for some reason
+        }
     });
 
     // Type filters
@@ -584,6 +594,7 @@ function bindBrowserEvents() {
         }
     });
 }
+
 
 /**
  * Switches active tab

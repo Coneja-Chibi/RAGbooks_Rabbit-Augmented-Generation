@@ -265,6 +265,11 @@ function rebindDeleteHandlers() {
  * Binds event handlers
  */
 function bindEvents() {
+    // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
+    $('#vecthare_text_cleaning_modal').on('mousedown touchstart', function(e) {
+        e.stopPropagation();
+    });
+
     // Close handlers
     $('#vecthare_tcm_close, #vecthare_tcm_cancel').on('click', closeModal);
     $('#vecthare_text_cleaning_modal .vecthare-modal-overlay').on('click', closeModal);

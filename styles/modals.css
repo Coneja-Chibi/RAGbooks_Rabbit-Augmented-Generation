@@ -9,6 +9,26 @@
 
 /* ============================================================================
  * MODAL SYSTEM
+ * ============================================================================
+ *
+ * IMPORTANT - ST Drawer Interaction:
+ * ----------------------------------
+ * SillyTavern listens for 'mousedown' and 'touchstart' events on the <html>
+ * element to auto-close open drawers when clicking outside them. Since our
+ * modals are appended to <body> (outside the drawer), clicks inside them
+ * would normally close the ST drawer.
+ *
+ * The fix: All VectHare modals must call e.stopPropagation() on 'mousedown'
+ * and 'touchstart' events to prevent ST's drawer-closing logic from firing.
+ *
+ * Example (in JS when binding modal events):
+ *   $('#my_modal').on('mousedown touchstart', function(e) {
+ *       e.stopPropagation();
+ *   });
+ *
+ * Note: Using 'click' alone doesn't work because ST listens on 'mousedown'.
+ * Note: The .popup class is NOT a solution - ST applies forced styling rules.
+ *
  * ============================================================================ */
 
 .vecthare-modal {

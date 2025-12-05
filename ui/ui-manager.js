@@ -777,8 +777,10 @@ function initializeDiagnosticsModal() {
         closeDiagnosticsModal();
     });
 
-    // Stop propagation on ALL clicks within modal (prevents extension panel from closing)
-    $('#vecthare_diagnostics_modal').on('click', function(e) {
+    // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
+    // Note: This modal is inside the drawer so it doesn't strictly need this,
+    // but we include it for consistency with other modals
+    $('#vecthare_diagnostics_modal').on('mousedown touchstart', function(e) {
         e.stopPropagation();
     });
 
@@ -1382,7 +1384,12 @@ async function showAutoSyncConfirmModal(allMatches, settings) {
             });
         });
 
-        // Handle clicking outside modal
+        // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
+        $modal.on('mousedown touchstart', function(e) {
+            e.stopPropagation();
+        });
+
+        // Close on background click
         $modal.on('click', function(e) {
             if (e.target === this) {
                 $modal.remove();

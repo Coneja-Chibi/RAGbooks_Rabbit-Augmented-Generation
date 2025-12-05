@@ -418,10 +418,14 @@ function bindBrowserEvents() {
     closeDatabaseBrowser();
   });
 
-  // Stop propagation on ALL clicks within modal (prevents extension panel from closing)
-  // Only close when clicking directly on the modal background (overlay)
-  $("#vecthare_database_browser_modal").on("click", function (e) {
+  // Stop propagation on mousedown (ST listens on mousedown to close drawers)
+  // This prevents the drawer from closing when clicking inside the modal
+  $("#vecthare_database_browser_modal").on("mousedown touchstart", function (e) {
     e.stopPropagation();
+  });
+
+  // Close when clicking directly on the modal background (overlay)
+  $("#vecthare_database_browser_modal").on("click", function (e) {
     if (e.target === this) {
       e.preventDefault();
       closeDatabaseBrowser();
@@ -1421,9 +1425,12 @@ function openRenameDialog(collectionId, currentName) {
       "click",
       closeRenameDialog,
     );
-    // Stop propagation on ALL clicks (prevents extension panel from closing)
-    $("#vecthare_rename_modal").on("click", function (e) {
+    // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
+    $("#vecthare_rename_modal").on("mousedown touchstart", function (e) {
       e.stopPropagation();
+    });
+    // Close on background click
+    $("#vecthare_rename_modal").on("click", function (e) {
       if (e.target === this) closeRenameDialog();
     });
     $("#vecthare_rename_input").on("keydown", function (e) {
@@ -1513,9 +1520,12 @@ function openModelSwitcher(collection) {
 
     // Bind close
     $("#vecthare_model_switcher_close").on("click", closeModelSwitcher);
-    // Stop propagation on ALL clicks (prevents extension panel from closing)
-    $("#vecthare_model_switcher_modal").on("click", function (e) {
+    // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
+    $("#vecthare_model_switcher_modal").on("mousedown touchstart", function (e) {
       e.stopPropagation();
+    });
+    // Close on background click
+    $("#vecthare_model_switcher_modal").on("click", function (e) {
       if (e.target === this) closeModelSwitcher();
     });
   }
@@ -2049,19 +2059,15 @@ function bindActivationEditorEvents() {
     addConditionRule();
   });
 
-  // Stop propagation on ALL clicks (prevents extension panel from closing)
-  $("#vecthare_activation_editor_modal").on("click", function (e) {
+  // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
+  $("#vecthare_activation_editor_modal").on("mousedown touchstart", function (e) {
     e.stopPropagation();
-    if (e.target === this) closeActivationEditor();
   });
 
-  // Stop propagation on modal content
-  $("#vecthare_activation_editor_modal .vecthare-modal-content").on(
-    "click",
-    function (e) {
-      e.stopPropagation();
-    },
-  );
+  // Close on background click
+  $("#vecthare_activation_editor_modal").on("click", function (e) {
+    if (e.target === this) closeActivationEditor();
+  });
 
   // Always active disables other sections
   $("#vecthare_always_active").on("change", function (e) {
@@ -3538,13 +3544,18 @@ function openCollectionLockDialog(collectionId) {
         openCollectionLockDialog(collectionId);
     });
 
-    // Handle close button and click outside
+    // Handle close button
     $dialog.find('[data-action="close"]').on('click', function(e) {
         e.preventDefault();
-        e.stopPropagation();
         $dialog.remove();
     });
 
+    // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
+    $dialog.on('mousedown touchstart', function(e) {
+        e.stopPropagation();
+    });
+
+    // Close on background click
     $dialog.on('click', function(e) {
         if (e.target === this) {
             $dialog.remove();

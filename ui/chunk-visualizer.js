@@ -1547,9 +1547,12 @@ function bindEvents() {
 
     // Close
     $('#vecthare_visualizer_close').on('click', closeVisualizer);
-    // Stop propagation on ALL clicks within modal (prevents extension panel from closing)
-    $('#vecthare_visualizer_modal').on('click', function(e) {
+    // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
+    $('#vecthare_visualizer_modal').on('mousedown touchstart', function(e) {
         e.stopPropagation();
+    });
+    // Close on background click
+    $('#vecthare_visualizer_modal').on('click', function(e) {
         if (e.target === this) closeVisualizer();
     });
 

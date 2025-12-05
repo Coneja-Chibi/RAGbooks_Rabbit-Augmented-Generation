@@ -62,8 +62,8 @@ export function openContentVectorizer(initialType = null) {
         $('.vecthare-cv-subsequent').hide();
     }
 
-    // Stop click from propagating to extension panel
-    $('#vecthare_content_vectorizer_modal').on('click', function(e) {
+    // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
+    $('#vecthare_content_vectorizer_modal').on('mousedown touchstart', function(e) {
         e.stopPropagation();
     });
 

@@ -83,6 +83,8 @@ const defaultSettings = {
     position: extension_prompt_types.IN_PROMPT,
     protect: 5,
     insert: 3,
+    // Number of top results to retrieve from vector DB (top-K)
+    top_k: 3,
     query: 2,
     chunk_size: 500, // For adaptive strategy only
     score_threshold: 0.25,

@@ -10,7 +10,7 @@
  * ============================================================================
  */
 
-import { saveSettingsDebounced, getCurrentChatId } from '../../../../../script.js';
+import { saveSettingsDebounced, getCurrentChatId, eventSource, event_types } from '../../../../../script.js';
 import { extension_settings, openThirdPartyExtensionMenu } from '../../../../extensions.js';
 import { writeSecret, SECRET_KEYS, secret_state, readSecretState } from '../../../../secrets.js';
 import { getWebLlmProvider as getSharedWebLlmProvider } from '../providers/webllm.js';
@@ -120,7 +120,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                     <small>Milvus Port:</small>
                                 </label>
                                 <input type="number" id="vecthare_milvus_port" class="vecthare-input" placeholder="19530" />
-                                
+
                                 <label for="vecthare_milvus_address">
                                     <small>Full Address (Optional):</small>
                                 </label>
@@ -385,6 +385,11 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <small>Query Depth: <span id="vecthare_query_depth_value">2</span> messages</small>
                             </label>
                             <input type="range" id="vecthare_query_depth" class="vecthare-slider" min="1" max="20" step="1" />
+                            <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+                                <label for="vecthare_topk" style="margin:0; white-space:nowrap;"><small>Top K</small></label>
+                                <input id="vecthare_topk" type="number" class="vecthare-input" min="1" style="width:90px;" />
+                                <small class="vecthare_hint" style="margin-left:8px;">Number of results to retrieve per collection</small>
+                            </div>
                             <small class="vecthare_hint">How many recent messages to include in search query</small>
 
                             <label style="margin-top: 16px;">
@@ -459,6 +464,8 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <span>Enable Auto-Sync</span>
                             </label>
                             <small class="vecthare_hint">Automatically vectorize new chat messages</small>
+
+                            <!-- Collection lock moved to Database Browser (per-collection settings) -->
 
                             <label for="vecthare_chunking_strategy" style="margin-top: 12px;">
                                 <small>Chunking Strategy</small>
@@ -673,7 +680,35 @@ export function renderSettings(containerId, settings, callbacks) {
         </div>
     `;
 
+    // Sanity debug: confirm the generated HTML contains the lock button marker
+    try {
+        console.log(`VectHare: renderSettings built HTML contains lock marker:`, String(html).indexOf('vecthare_lock_collection') >= 0);
+        const target = document.getElementById(containerId);
+        console.log(`VectHare: renderSettings target container exists:`, !!target, 'containerId=', containerId);
+    } catch (e) {
+        console.warn('VectHare: renderSettings pre-append debug failed', e);
+    }
+
     $(`#${containerId}`).append(html);
+
+    // Debug: log presence of lock button after rendering and observe for later appearance
+    try {
+        console.log(`VectHare: renderSettings appended to ${containerId}. lock button present:`, !!document.getElementById('vecthare_lock_collection'));
+        if (!document.getElementById('vecthare_lock_collection')) {
+            const containerEl = document.getElementById(containerId);
+            if (containerEl && window.MutationObserver) {
+                const mo = new MutationObserver((mutations, obs) => {
+                    if (document.getElementById('vecthare_lock_collection')) {
+                        console.log('VectHare: lock button appeared in DOM');
+                        obs.disconnect();
+                    }
+                });
+                mo.observe(containerEl, { childList: true, subtree: true });
+            }
+        }
+    } catch (e) {
+        console.warn('VectHare: debug check failed', e);
+    }
 
     // Bind all events
     bindSettingsEvents(settings, callbacks);
@@ -1401,6 +1436,8 @@ function bindSettingsEvents(settings, callbacks) {
             console.log(`VectHare: Chat auto-sync for ${collectionId}: ${enabling ? 'enabled' : 'disabled'}`);
         });
 
+        // Collection lock handled inside Database Browser per-collection settings
+
     // Chunking strategy - populate from content-types.js (single source of truth)
     const chatStrategies = getChunkingStrategies('chat');
     const strategySelect = $('#vecthare_chunking_strategy');
@@ -1564,7 +1601,7 @@ function bindSettingsEvents(settings, callbacks) {
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
         });
-        
+
     $('#vecthare_milvus_token')
         .val(settings.milvus_token || '')
         .on('input', function() {
@@ -1633,6 +1670,17 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
     $('#vecthare_query_depth_value').text(settings.query || 2);
+
+    // Top K - number of results retrieved per collection (top-K)
+    $('#vecthare_topk')
+        .val((settings.top_k ?? settings.insert) || 3)
+        .on('input', function() {
+            const value = parseInt($(this).val());
+            const safeValue = isNaN(value) ? (settings.insert || 3) : value;
+            settings.top_k = safeValue;
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
 
     // Injection position (where chunks appear in prompt)
     $('#vecthare_injection_position')
@@ -2586,6 +2634,9 @@ function handleDiagnosticFix(action, silent = false) {
         case 'fix_counts':
             if (settings.insert < 1) {
                 $('#vecthare_insert').val(3).trigger('change');
+            }
+            if ((settings.top_k ?? settings.insert) < 1) {
+                $('#vecthare_topk').val(3).trigger('change');
             }
             if (settings.query < 1) {
                 $('#vecthare_query').val(2).trigger('change');

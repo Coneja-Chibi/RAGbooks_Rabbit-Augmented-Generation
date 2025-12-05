@@ -474,6 +474,221 @@ export function cleanupOrphanedMeta(actualCollectionIds) {
     return { removed: orphaned.length, orphanedIds: orphaned };
 }
 
+// ============================================================================
+// COLLECTION LOCKING (Bind collection to one or more chats)
+// ============================================================================
+
+/**
+ * Adds a chat to the collection's lock list. Supports multiple chats per collection.
+ * Stores chat IDs in metadata field `lockedToChatIds` (array).
+ * Automatically migrates old single-value `lockedToChatId` to array format.
+ * @param {string} collectionId
+ * @param {string|null} chatId - Chat ID to lock to, or null to remove all locks
+ */
+export function setCollectionLock(collectionId, chatId) {
+    if (!collectionId) return;
+    const meta = getCollectionMeta(collectionId);
+    const update = {};
+
+    if (chatId === null) {
+        // Clear all locks
+        update.lockedToChatIds = [];
+        update.lockedToChatId = null; // Clear old format for backward compat
+    } else {
+        chatId = String(chatId);
+        let locks = Array.isArray(meta.lockedToChatIds) ? [...meta.lockedToChatIds] : [];
+
+        // Migrate old single-value format if present
+        if (meta.lockedToChatId && !locks.includes(String(meta.lockedToChatId))) {
+            locks.push(String(meta.lockedToChatId));
+        }
+
+        // Add chat if not already present
+        if (!locks.includes(chatId)) {
+            locks.push(chatId);
+        }
+
+        update.lockedToChatIds = locks;
+        update.lockedToChatId = null; // Clear old format
+    }
+
+    setCollectionMeta(collectionId, update);
+    console.log(`VectHare: Collection ${collectionId} locks updated:`, update.lockedToChatIds);
+}
+
+/**
+ * Removes a specific chat from a collection's lock list
+ * @param {string} collectionId
+ * @param {string} chatId - Chat ID to remove from lock list
+ */
+export function removeCollectionLock(collectionId, chatId) {
+    if (!collectionId || !chatId) return;
+    const meta = getCollectionMeta(collectionId);
+    const update = {};
+
+    let locks = Array.isArray(meta.lockedToChatIds) ? [...meta.lockedToChatIds] : [];
+
+    // Migrate old format if present
+    if (meta.lockedToChatId && !locks.includes(String(meta.lockedToChatId))) {
+        locks.push(String(meta.lockedToChatId));
+    }
+
+    // Remove the chat
+    locks = locks.filter(id => String(id) !== String(chatId));
+
+    update.lockedToChatIds = locks;
+    update.lockedToChatId = null; // Clear old format
+
+    setCollectionMeta(collectionId, update);
+    console.log(`VectHare: Removed chat ${chatId} from collection ${collectionId} locks`);
+}
+
+/**
+ * Clears all locks for a collection (removes from all chats)
+ * @param {string} collectionId
+ */
+export function clearCollectionLock(collectionId) {
+    setCollectionLock(collectionId, null);
+}
+
+/**
+ * Gets the array of locked chat IDs for a collection, or empty array if not locked
+ * Includes backward compatibility for old single-value `lockedToChatId` format
+ * @param {string} collectionId
+ * @returns {string[]}
+ */
+export function getCollectionLocks(collectionId) {
+    const meta = getCollectionMeta(collectionId);
+    let locks = Array.isArray(meta.lockedToChatIds) ? [...meta.lockedToChatIds] : [];
+
+    // Backward compatibility: if old format exists and not already in new format, include it
+    if (meta.lockedToChatId && !locks.includes(String(meta.lockedToChatId))) {
+        locks.push(String(meta.lockedToChatId));
+    }
+
+    return locks;
+}
+
+/**
+ * Gets the first locked chat ID (for backward compat with single-lock code)
+ * @param {string} collectionId
+ * @returns {string|null}
+ */
+export function getCollectionLock(collectionId) {
+    const locks = getCollectionLocks(collectionId);
+    return locks.length > 0 ? locks[0] : null;
+}
+
+/**
+ * Checks whether the collection is locked to the provided chatId
+ * @param {string} collectionId
+ * @param {string} chatId
+ * @returns {boolean}
+ */
+export function isCollectionLockedToChat(collectionId, chatId) {
+    if (!collectionId || !chatId) return false;
+    const locks = getCollectionLocks(collectionId);
+    return locks.some(id => String(id) === String(chatId));
+}
+
+/**
+ * Gets the count of chats this collection is locked to
+ * @param {string} collectionId
+ * @returns {number}
+ */
+export function getCollectionLockCount(collectionId) {
+    return getCollectionLocks(collectionId).length;
+}
+
+// ============================================================================
+// CHARACTER LOCKING (Bind collection to one or more character cards)
+// ============================================================================
+
+/**
+ * Adds a character to the collection's character lock list. Supports multiple characters per collection.
+ * Stores character IDs in metadata field `lockedToCharacterIds` (array).
+ * @param {string} collectionId
+ * @param {string} characterId - Character ID to lock to
+ */
+export function setCollectionCharacterLock(collectionId, characterId) {
+    if (!collectionId || !characterId) return;
+    const meta = getCollectionMeta(collectionId);
+    const update = {};
+
+    characterId = String(characterId);
+    let locks = Array.isArray(meta.lockedToCharacterIds) ? [...meta.lockedToCharacterIds] : [];
+
+    // Add character if not already present
+    if (!locks.includes(characterId)) {
+        locks.push(characterId);
+    }
+
+    update.lockedToCharacterIds = locks;
+    setCollectionMeta(collectionId, update);
+    console.log(`VectHare: Collection ${collectionId} character locks updated:`, update.lockedToCharacterIds);
+}
+
+/**
+ * Removes a specific character from a collection's character lock list
+ * @param {string} collectionId
+ * @param {string} characterId - Character ID to remove from lock list
+ */
+export function removeCollectionCharacterLock(collectionId, characterId) {
+    if (!collectionId || !characterId) return;
+    const meta = getCollectionMeta(collectionId);
+    const update = {};
+
+    let locks = Array.isArray(meta.lockedToCharacterIds) ? [...meta.lockedToCharacterIds] : [];
+
+    // Remove the character
+    locks = locks.filter(id => String(id) !== String(characterId));
+
+    update.lockedToCharacterIds = locks;
+    setCollectionMeta(collectionId, update);
+    console.log(`VectHare: Removed character ${characterId} from collection ${collectionId} locks`);
+}
+
+/**
+ * Clears all character locks for a collection
+ * @param {string} collectionId
+ */
+export function clearCollectionCharacterLocks(collectionId) {
+    if (!collectionId) return;
+    setCollectionMeta(collectionId, { lockedToCharacterIds: [] });
+    console.log(`VectHare: Cleared all character locks for collection ${collectionId}`);
+}
+
+/**
+ * Gets the array of locked character IDs for a collection, or empty array if not locked
+ * @param {string} collectionId
+ * @returns {string[]}
+ */
+export function getCollectionCharacterLocks(collectionId) {
+    const meta = getCollectionMeta(collectionId);
+    return Array.isArray(meta.lockedToCharacterIds) ? [...meta.lockedToCharacterIds] : [];
+}
+
+/**
+ * Checks whether the collection is locked to the provided character ID
+ * @param {string} collectionId
+ * @param {string} characterId
+ * @returns {boolean}
+ */
+export function isCollectionLockedToCharacter(collectionId, characterId) {
+    if (!collectionId || !characterId) return false;
+    const locks = getCollectionCharacterLocks(collectionId);
+    return locks.some(id => String(id) === String(characterId));
+}
+
+/**
+ * Gets the count of characters this collection is locked to
+ * @param {string} collectionId
+ * @returns {number}
+ */
+export function getCollectionCharacterLockCount(collectionId) {
+    return getCollectionCharacterLocks(collectionId).length;
+}
+
 /**
  * Ensures a collection has metadata (creates with defaults if missing)
  * Called when a collection is discovered/created
@@ -633,6 +848,8 @@ async function evaluateAdvancedConditions(meta, context, collectionId) {
  * ACTIVATION PRIORITY:
  * 1. Disabled (enabled=false) → Never activate
  * 2. Always Active → Always activate (ignores triggers and conditions)
+ * 2.5. Locked to current chat → Activate (overrides triggers/conditions)
+ * 2.6. Locked to current character → Activate (overrides triggers/conditions)
  * 3. Triggers match → Activate (primary method)
  * 4. Advanced conditions pass → Activate (secondary method)
  * 5. No triggers AND no conditions → Auto-activate (backwards compatible)
@@ -646,18 +863,34 @@ export async function shouldCollectionActivate(collectionId, context) {
 
     // Priority 1: Check if collection is disabled entirely
     if (meta.enabled === false) {
-        console.log(`VectHare: Collection ${collectionId} is disabled`);
+        console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✗ DISABLED`);
         return false;
     }
 
     // Priority 2: Check if always active (ignores everything else)
     if (meta.alwaysActive === true) {
-        console.log(`VectHare: Collection ${collectionId} is always active`);
+        console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✓ ALWAYS_ACTIVE`);
+        return true;
+    }
+
+    // Priority 2.5: Check if locked to current chat (overrides other conditions)
+    const currentChatId = context?.currentChatId;
+    if (currentChatId && isCollectionLockedToChat(collectionId, currentChatId)) {
+        console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✓ LOCKED_TO_CURRENT_CHAT (${currentChatId})`);
+        return true;
+    }
+
+    // Priority 2.6: Check if locked to current character (overrides other conditions)
+    const currentCharacterId = context?.currentCharacterId;
+    if (currentCharacterId && isCollectionLockedToCharacter(collectionId, currentCharacterId)) {
+        console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✓ LOCKED_TO_CURRENT_CHARACTER (${currentCharacterId})`);
         return true;
     }
 
     const hasTriggers = meta.triggers && meta.triggers.length > 0;
     const hasConditions = meta.conditions?.enabled && meta.conditions?.rules?.length > 0;
+
+    console.log(`[VectHare Activation Filter] Collection ${collectionId}: hasTriggers=${hasTriggers}, hasConditions=${hasConditions}`);
 
     // Priority 3: Check activation triggers (PRIMARY method)
     if (hasTriggers) {
@@ -668,13 +901,13 @@ export async function shouldCollectionActivate(collectionId, context) {
         });
 
         if (triggersMatch) {
-            console.log(`VectHare: Collection ${collectionId} activated by triggers`);
+            console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✓ TRIGGERS_MATCHED (${meta.triggers.join(', ')})`);
             return true;
         }
 
         // Triggers set but didn't match - check if we should fall through to conditions
         if (!hasConditions) {
-            console.log(`VectHare: Collection ${collectionId} triggers didn't match, no conditions`);
+            console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✗ TRIGGERS_NOT_MATCHED (no conditions to fallthrough)`);
             return false;
         }
     }
@@ -682,13 +915,17 @@ export async function shouldCollectionActivate(collectionId, context) {
     // Priority 4: Check advanced conditions (SECONDARY method)
     if (hasConditions) {
         const conditionsPass = await evaluateAdvancedConditions(meta, context, collectionId);
-        console.log(`VectHare: Collection ${collectionId} conditions: ${conditionsPass}`);
+        console.log(`[VectHare Activation Filter] Collection ${collectionId}: ${conditionsPass ? '✓' : '✗'} CONDITIONS_${conditionsPass ? 'PASS' : 'FAIL'}`);
         return conditionsPass;
     }
 
     // Priority 5: No triggers AND no conditions = auto-activate (backwards compatible)
-    console.log(`VectHare: Collection ${collectionId} auto-activated (no triggers/conditions)`);
-    return true;
+    //console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✓ AUTO_ACTIVATED (no triggers/conditions configured - BACKWARDS COMPAT MODE)`);
+    //return true;
+
+    //Priority 5: No triggers AND no conditions = do not activate
+    console.log(`[VectHare Activation Filter] Collection ${collectionId}: ✗ NO_TRIGGERS_OR_CONDITIONS (not activating)`);
+    return false;
 }
 
 /**
@@ -707,7 +944,11 @@ export async function filterActiveCollections(collectionIds, context) {
 
     const activeIds = results.filter(r => r.active).map(r => r.id);
 
-    console.log(`VectHare: Filtered ${collectionIds.length} collections to ${activeIds.length} active`);
+    console.log(`[VectHare Activation Filter] Summary: ${collectionIds.length} collections → ${activeIds.length} active`);
+    if (activeIds.length > 0) {
+        console.log(`[VectHare Activation Filter] Active collections:`, activeIds);
+    }
+
     return activeIds;
 }
 

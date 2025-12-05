@@ -36,12 +36,29 @@ import {
     hasCustomDecaySettings,
     getDefaultDecayForType,
     isCollectionEnabled,
+    // Locking API
+    getCollectionLock,
+    getCollectionLocks,
+    setCollectionLock,
+    removeCollectionLock,
+    clearCollectionLock,
+    isCollectionLockedToChat,
+    getCollectionLockCount,
+    // Character Locking API
+    getCollectionCharacterLocks,
+    setCollectionCharacterLock,
+    removeCollectionCharacterLock,
+    clearCollectionCharacterLocks,
+    isCollectionLockedToCharacter,
+    getCollectionCharacterLockCount,
 } from '../core/collection-metadata.js';
 import {
     VALID_EMOTIONS,
     VALID_GENERATION_TYPES,
     getExpressionsExtensionStatus
 } from '../core/conditional-activation.js';
+import { getContext } from '../../../../extensions.js';
+import { getCurrentChatId, eventSource, event_types } from '../../../../../script.js';
 import { world_names, loadWorldInfo } from '../../../../world-info.js';
 import { icons } from './icons.js';
 import { openVisualizer } from './chunk-visualizer.js';
@@ -197,7 +214,7 @@ function createBrowserModal() {
 
                 <!-- Plugin Warning Banner (hidden by default, shown when plugin unavailable) -->
                 <div id="vecthare_plugin_warning_banner" class="vecthare-warning-banner" style="display: none;">
-                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <i class="fa-solid fa-triangle-exclamation" style="color: var(--SmartThemeQuoteColor);"></i>
                     <div class="vecthare-warning-text">
                         <strong>Limited Discovery Mode</strong>
                         <span>Similharity plugin not detected. Only registered collections and current chat can be discovered.
@@ -753,6 +770,14 @@ function renderCollectionCard(collection) {
         decayBadge = `<span class="vecthare-badge vecthare-badge-decay ${decaySummary.isCustom ? 'vecthare-badge-decay-custom' : ''}" title="${decayTitle}">${decayIcon}</span>`;
     }
 
+    // Lock badge - shows if collection is locked and to how many chats
+    const lockCount = getCollectionLockCount(collection.id);
+    let lockBadge = '';
+    if (lockCount > 0) {
+        const lockTitle = `Locked to ${lockCount} chat${lockCount !== 1 ? 's' : ''}`;
+        lockBadge = `<span class="vecthare-badge vecthare-badge-lock" title="${lockTitle}" style="background: var(--SmartThemeQuoteColor); color: var(--SmartThemeBodyColor);">🔒 ${lockCount}</span>`;
+    }
+
     // Use registryKey for unique identification (source:id format)
     const uniqueKey = collection.registryKey || collection.id;
 
@@ -768,6 +793,7 @@ function renderCollectionCard(collection) {
                     ${sourceBadge}
                     ${modelBadge}
                     ${decayBadge}
+                    ${lockBadge}
                     ${statusBadge}
                 </div>
             </div>
@@ -1576,9 +1602,12 @@ function createActivationEditorModal() {
         <div id="vecthare_activation_editor_modal" class="vecthare-modal">
             <div class="vecthare-activation-editor">
                 <div class="vecthare-modal-header">
-                    <h3>⚙️ Collection Settings</h3>
-                    <button class="vecthare-btn-icon" id="vecthare_activation_close">✕</button>
-                </div>
+                                    <h3>⚙️ Collection Settings</h3>
+                                    <div style="display:flex; gap:8px; align-items:center;">
+                                        <button id="vecthare_activation_lock_collection" class="vecthare-btn-sm" title="Lock this collection to the current chat">🔒 Lock to Chat</button>
+                                        <button class="vecthare-btn-icon" id="vecthare_activation_close">✕</button>
+                                    </div>
+                                </div>
 
                 <div class="vecthare-activation-body">
                     <div class="vecthare-activation-collection-name">
@@ -1919,6 +1948,29 @@ function bindActivationEditorEvents() {
         $(this).closest('.vecthare-type-option').addClass('selected');
     });
 
+    // Activation editor: Lock-to-chat button - opens dialog to manage multiple locks
+    $('#vecthare_activation_lock_collection').off('click').on('click', async function(e) {
+        e.stopPropagation();
+        const collId = activationEditorState.collectionId;
+
+        if (!collId) {
+            toastr.warning('No collection selected');
+            return;
+        }
+
+        try {
+            openCollectionLockDialog(collId);
+        } catch (err) {
+            console.error('VectHare: Failed to open lock dialog', err);
+            toastr.error('Failed to open lock dialog');
+        }
+    });
+
+    // Refresh lock button when chat changes
+    eventSource.on(event_types.CHAT_CHANGED, () => {
+        refreshActivationLockButton();
+    });
+
     // Injection position toggle shows/hides depth row
     $('#vecthare_collection_position').on('change', function(e) {
         e.stopPropagation();
@@ -1999,6 +2051,53 @@ function renderActivationEditor() {
     const isAlwaysActive = state.alwaysActive;
     $('.vecthare-triggers-section, .vecthare-conditions-section').toggleClass('vecthare-disabled', isAlwaysActive);
 
+    // Refresh lock button state for this collection
+    refreshActivationLockButton();
+
+
+/**
+ * Refresh the lock button in the activation editor based on current collection and chat
+ */
+function refreshActivationLockButton() {
+    try {
+        const collId = activationEditorState.collectionId;
+        const $btn = $('#vecthare_activation_lock_collection');
+        const chatId = getCurrentChatId();
+        const context = getContext();
+        const charId = context?.characterId || null;
+
+        if (!$btn || $btn.length === 0) return;
+
+        if (!collId) {
+            $btn.prop('disabled', true).text('🔒 Lock to Chat');
+            $btn.attr('title', 'No collection selected');
+            return;
+        }
+
+        const chatLockCount = getCollectionLockCount(collId);
+        const charLockCount = getCollectionCharacterLockCount(collId);
+        const isLockedToCurrentChat = chatId && isCollectionLockedToChat(collId, chatId);
+        const isLockedToCurrentChar = charId && isCollectionLockedToCharacter(collId, charId);
+        const totalLocks = chatLockCount + charLockCount;
+
+        if (totalLocks === 0) {
+            $btn.prop('disabled', false).text('🔒 Manage Locks');
+            $btn.attr('title', 'No locks set. Click to add locks');
+        } else {
+            const lockedStatus = (isLockedToCurrentChat || isLockedToCurrentChar) ? '🔓' : '🔒';
+            $btn.prop('disabled', false).text(`${lockedStatus} ${totalLocks} lock${totalLocks !== 1 ? 's' : ''}`);
+
+            let tooltip = `Collection has ${totalLocks} lock${totalLocks !== 1 ? 's' : ''}`;
+            if (chatLockCount > 0) tooltip += ` (${chatLockCount} chat${chatLockCount !== 1 ? 's' : ''})`;
+            if (charLockCount > 0) tooltip += ` (${charLockCount} character${charLockCount !== 1 ? 's' : ''})`;
+            if (isLockedToCurrentChat || isLockedToCurrentChar) tooltip += ' - ACTIVE for current context';
+
+            $btn.attr('title', tooltip);
+        }
+    } catch (err) {
+        console.error('VectHare: Failed to refresh activation lock button', err);
+    }
+}
     renderConditionRules();
 }
 
@@ -2861,4 +2960,269 @@ function updateBulkCount() {
     const hasSelection = count > 0;
     $('#vecthare_bulk_enable, #vecthare_bulk_disable, #vecthare_bulk_export, #vecthare_bulk_delete')
         .prop('disabled', !hasSelection);
+}
+
+// ============================================================================
+// COLLECTION LOCK MANAGEMENT DIALOG
+// ============================================================================
+
+/**
+ * Opens a dialog to manage locks for a collection (add/remove multiple chats)
+ * @param {string} collectionId
+ */
+function openCollectionLockDialog(collectionId) {
+    const locks = getCollectionLocks(collectionId);
+    const characterLocks = getCollectionCharacterLocks(collectionId);
+    const currentChatId = getCurrentChatId();
+    const context = getContext();
+    const currentCharacterId = context?.characterId || null;
+    const characters = context?.characters || [];
+
+    // Build HTML for locked chats
+    const locksHtml = locks.length === 0
+        ? '<div class="vecthare-lock-list-empty">Not locked to any chat yet</div>'
+        : locks.map((chatId, idx) => `
+            <div class="vecthare-lock-item" data-chat-id="${chatId}" style="
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                background: var(--SmartThemeBodyColor);
+                border: 1px solid var(--SmartThemeBorderColor);
+                padding: 10px 12px;
+                border-radius: 6px;
+                margin-bottom: 8px;
+                min-width: 0;
+            ">
+                <span class="vecthare-lock-chat-id" title="${chatId}" style="
+                    flex: 1;
+                    min-width: 0;
+                    word-break: break-all;
+                    font-family: monospace;
+                    font-size: 0.85em;
+                    color: var(--SmartThemeQuoteColor);
+                ">
+                    ${chatId}
+                </span>
+                <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                    ${String(chatId) === String(currentChatId) ? '<span class="vecthare-lock-badge-current" style="background: var(--SmartThemeQuoteColor); color: var(--SmartThemeBodyColor); padding: 2px 8px; border-radius: 4px; font-size: 0.75em; font-weight: bold; white-space: nowrap;">Current</span>' : ''}
+                    <button class="vecthare-lock-remove-btn" data-chat-id="${chatId}" title="Remove this chat" style="
+                        background: var(--SmartThemeFontColorOverrideCaution, #e74c3c);
+                        color: white;
+                        border: none;
+                        padding: 4px 8px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        flex-shrink: 0;
+                    ">
+                        <i class="fa-solid fa-trash" style="font-size: 0.9em;"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+    // Build HTML for locked characters
+    const charLocksHtml = characterLocks.length === 0
+        ? '<div class="vecthare-lock-list-empty">Not locked to any character yet</div>'
+        : characterLocks.map((charId, idx) => {
+            // Prefer readable name fields with fallbacks
+            const charName =  characters[charId].data.name;
+            return `
+                <div class="vecthare-lock-item" data-character-id="${charId}" style="
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 12px;
+                    background: var(--SmartThemeBodyColor);
+                    border: 1px solid var(--SmartThemeBorderColor);
+                    padding: 10px 12px;
+                    border-radius: 6px;
+                    margin-bottom: 8px;
+                    min-width: 0;
+                ">
+                    <span class="vecthare-lock-character-name" style="
+                            flex: 1;
+                            min-width: 0;
+                            word-break: break-word;
+                            color: var(--SmartThemeQuoteColor);
+                    ">
+                        <i class="fa-solid fa-user" style="margin-right: 6px; color: var(--SmartThemeQuoteColor);"></i>
+                        ${charName}
+                    </span>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                        ${String(charId) === String(currentCharacterId) ? '<span class="vecthare-lock-badge-current" style="background: var(--SmartThemeQuoteColor); color: var(--SmartThemeBodyColor); padding: 2px 8px; border-radius: 4px; font-size: 0.75em; font-weight: bold; white-space: nowrap;">Active</span>' : ''}
+                        <button class="vecthare-lock-remove-char-btn" data-character-id="${charId}" title="Remove this character" style="
+                            background: var(--SmartThemeFontColorOverrideCaution, #e74c3c);
+                            color: white;
+                            border: none;
+                            padding: 4px 8px;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            flex-shrink: 0;
+                        ">
+                            <i class="fa-solid fa-trash" style="font-size: 0.9em;"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+    const dialogHtml = `
+        <div id="vecthare_lock_dialog" class="vecthare-modal" style="display: flex;">
+            <div class="vecthare-modal-content" style="max-width: 600px;">
+                <div class="vecthare-modal-header">
+                    <h3><i class="fa-solid fa-lock"></i> Manage Collection Locks</h3>
+                    <button class="vecthare-modal-close" data-action="close">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                <div class="vecthare-modal-body" style="padding: 20px;">
+                    <!-- Chat Locks Section -->
+                    <div class="vecthare-lock-section">
+                        <h4 style="margin-top: 0; margin-bottom: 12px;"><i class="fa-solid fa-comments"></i> Chat Locks (${locks.length})</h4>
+                        <div class="vecthare-lock-list" style="
+                            background: var(--SmartThemeBlurTintColor);
+                            border-radius: 8px;
+                            padding: 12px;
+                            margin-bottom: 16px;
+                            max-height: 250px;
+                            overflow-y: auto;
+                        ">
+                            ${locksHtml}
+                        </div>
+                        <p style="margin: 0 0 12px 0; font-size: 0.9em; color: var(--SmartThemeQuoteColor);">
+                            ${currentChatId
+                                ? locks.includes(currentChatId)
+                                    ? '✓ Already locked to this chat'
+                                    : `Lock this collection to the current chat`
+                                : 'Open a chat first to lock this collection'
+                            }
+                        </p>
+                        <button id="vecthare_lock_add_current" class="vecthare-btn vecthare-btn-primary" ${!currentChatId || locks.includes(currentChatId) ? 'disabled' : ''}>
+                            <i class="fa-solid fa-plus"></i> Lock to Current Chat
+                        </button>
+                    </div>
+
+                    <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--SmartThemeBorderColor);">
+
+                    <!-- Character Locks Section -->
+                    <div class="vecthare-lock-section">
+                        <h4 style="margin-top: 0; margin-bottom: 12px;"><i class="fa-solid fa-user"></i> Character Locks (${characterLocks.length})</h4>
+                        <div class="vecthare-lock-list" style="
+                            background: var(--SmartThemeBlurTintColor);
+                            border-radius: 8px;
+                            padding: 12px;
+                            margin-bottom: 16px;
+                            max-height: 250px;
+                            overflow-y: auto;
+                        ">
+                            ${charLocksHtml}
+                        </div>
+                        <p style="margin: 0 0 12px 0; font-size: 0.9em; color: var(--SmartThemeQuoteColor);">
+                            ${currentCharacterId
+                                ? characterLocks.includes(currentCharacterId)
+                                    ? '✓ Already locked to this character'
+                                    : `Lock this collection to the current character`
+                                : 'No character currently active'
+                            }
+                        </p>
+                        <button id="vecthare_lock_add_character" class="vecthare-btn vecthare-btn-primary" ${!currentCharacterId || characterLocks.includes(currentCharacterId) ? 'disabled' : ''}>
+                            <i class="fa-solid fa-plus"></i> Lock to Current Character
+                        </button>
+                    </div>
+                </div>
+                <div class="vecthare-modal-footer" style="display: flex; gap: 10px; padding: 15px 20px; border-top: 1px solid var(--SmartThemeBorderColor);">
+                    <button class="menu_button menu_button_icon" data-action="close">
+                        <i class="fa-solid fa-times"></i> Done
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const $dialog = $(dialogHtml);
+    $('body').append($dialog);
+
+    // Handle add lock button (chat)
+    $('#vecthare_lock_add_current').on('click', function() {
+        const chatId = getCurrentChatId();
+        if (!chatId) {
+            toastr.warning('Open a chat first');
+            return;
+        }
+
+        setCollectionLock(collectionId, chatId);
+        toastr.success('Collection locked to current chat', 'VectHare');
+
+        // Re-open dialog with updated state
+        $dialog.remove();
+        refreshActivationLockButton();
+        openCollectionLockDialog(collectionId);
+    });
+
+    // Handle add lock button (character)
+    $('#vecthare_lock_add_character').on('click', function() {
+        const context = getContext();
+        const charId = context?.characterId;
+        if (!charId) {
+            toastr.warning('No character currently active');
+            return;
+        }
+
+        setCollectionCharacterLock(collectionId, charId);
+        toastr.success('Collection locked to current character', 'VectHare');
+
+        // Re-open dialog with updated state
+        $dialog.remove();
+        refreshActivationLockButton();
+        openCollectionLockDialog(collectionId);
+    });
+
+    // Handle remove lock buttons (chat)
+    $dialog.find('.vecthare-lock-remove-btn').on('click', function(e) {
+        e.stopPropagation();
+        const chatId = $(this).data('chat-id');
+
+        removeCollectionLock(collectionId, chatId);
+        toastr.info('Removed lock from chat', 'VectHare');
+
+        // Re-open dialog with updated state
+        $dialog.remove();
+        refreshActivationLockButton();
+        openCollectionLockDialog(collectionId);
+    });
+
+    // Handle remove lock buttons (character)
+    $dialog.find('.vecthare-lock-remove-char-btn').on('click', function(e) {
+        e.stopPropagation();
+        const charId = $(this).data('character-id');
+
+        removeCollectionCharacterLock(collectionId, charId);
+        toastr.info('Removed lock from character', 'VectHare');
+
+        // Re-open dialog with updated state
+        $dialog.remove();
+        refreshActivationLockButton();
+        openCollectionLockDialog(collectionId);
+    });
+
+    // Handle close button and click outside
+    $dialog.find('[data-action="close"]').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        $dialog.remove();
+    });
+
+    $dialog.on('click', function(e) {
+        if (e.target === this) {
+            $dialog.remove();
+        }
+    });
+
+    // Handle escape key
+    $(document).one('keydown.lock_dialog', function(e) {
+        if (e.key === 'Escape') {
+            $dialog.remove();
+        }
+    });
 }

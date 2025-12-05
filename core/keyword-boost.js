@@ -208,6 +208,10 @@ export function extractTextKeywords(text, options = {}) {
         }
     }
 
+    if (result.length > 0) {
+        console.log(`[VectHare Keyword Extraction] Extracted text keywords (${level} level): [${result.map(k => `${k.text}(${k.weight.toFixed(2)}x, freq:${k.frequency})`).join(', ')}] from: "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`);
+    }
+
     return result;
 }
 
@@ -258,6 +262,10 @@ export function extractChatKeywords(text, options = {}) {
         keywords.push({ text: word, weight: baseWeight });
 
         if (keywords.length >= maxKeywords) break;
+    }
+
+    if (keywords.length > 0) {
+        console.log(`[VectHare Keyword Extraction] Extracted chat keywords: [${keywords.map(k => `${k.text}(${k.weight.toFixed(2)}x)`).join(', ')}] from text: "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`);
     }
 
     return keywords;
@@ -312,6 +320,8 @@ export function applyKeywordBoost(results, query) {
 
     const queryLower = query.toLowerCase();
 
+    console.log(`[VectHare Keyword Boost] Starting keyword boost for query: "${query}"`);
+
     const boosted = results.map(result => {
         const rawKeywords = result.keywords || result.metadata?.keywords || [];
         const matchedKeywords = [];
@@ -331,6 +341,10 @@ export function applyKeywordBoost(results, query) {
         // Final boost: 1.0 + sum of all matched boosts
         const boost = 1.0 + boostSum;
 
+        if (matchedKeywords.length > 0) {
+            console.log(`[VectHare Keyword Boost] Result matched ${matchedKeywords.length} keyword(s): [${matchedKeywords.map(k => `${k.text}(${k.weight.toFixed(2)}x)`).join(', ')}] → boost: ${boost.toFixed(2)}x, score: ${result.score.toFixed(4)} → ${(result.score * boost).toFixed(4)}`);
+        }
+
         return {
             ...result,
             score: result.score * boost,
@@ -344,6 +358,9 @@ export function applyKeywordBoost(results, query) {
 
     // Sort by boosted score
     boosted.sort((a, b) => b.score - a.score);
+
+    const boostedCount = boosted.filter(r => r.keywordBoosted).length;
+    console.log(`[VectHare Keyword Boost] Applied keyword boosts to ${boostedCount}/${boosted.length} results`);
 
     return boosted;
 }

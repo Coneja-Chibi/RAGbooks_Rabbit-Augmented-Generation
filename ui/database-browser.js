@@ -817,7 +817,7 @@ function renderCollectionCard(collection) {
   let lockBadge = "";
   if (lockCount > 0) {
     const lockTitle = `Locked to ${lockCount} chat${lockCount !== 1 ? "s" : ""}`;
-    lockBadge = `<span class="vecthare-badge vecthare-badge-lock" title="${lockTitle}" style="background: var(--SmartThemeQuoteColor); color: var(--SmartThemeBodyColor);">🔒 ${lockCount}</span>`;
+    lockBadge = `<span class="vecthare-badge vecthare-badge-lock" title="${lockTitle}">🔒 ${lockCount}</span>`;
   }
 
   // Use registryKey for unique identification (source:id format)
@@ -3377,42 +3377,14 @@ function openCollectionLockDialog(collectionId) {
 
     // Build HTML for locked chats
     const locksHtml = locks.length === 0
-        ? '<div class="vecthare-lock-list-empty">Not locked to any chat yet</div>'
-        : locks.map((chatId, idx) => `
-            <div class="vecthare-lock-item" data-chat-id="${chatId}" style="
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 12px;
-                background: var(--SmartThemeBodyColor);
-                border: 1px solid var(--SmartThemeBorderColor);
-                padding: 10px 12px;
-                border-radius: 6px;
-                margin-bottom: 8px;
-                min-width: 0;
-            ">
-                <span class="vecthare-lock-chat-id" title="${chatId}" style="
-                    flex: 1;
-                    min-width: 0;
-                    word-break: break-all;
-                    font-family: monospace;
-                    font-size: 0.85em;
-                    color: var(--SmartThemeQuoteColor);
-                ">
-                    ${chatId}
-                </span>
-                <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-                    ${String(chatId) === String(currentChatId) ? '<span class="vecthare-lock-badge-current" style="background: var(--SmartThemeQuoteColor); color: var(--SmartThemeBodyColor); padding: 2px 8px; border-radius: 4px; font-size: 0.75em; font-weight: bold; white-space: nowrap;">Current</span>' : ''}
-                    <button class="vecthare-lock-remove-btn" data-chat-id="${chatId}" title="Remove this chat" style="
-                        background: var(--SmartThemeFontColorOverrideCaution, #e74c3c);
-                        color: white;
-                        border: none;
-                        padding: 4px 8px;
-                        border-radius: 4px;
-                        cursor: pointer;
-                        flex-shrink: 0;
-                    ">
-                        <i class="fa-solid fa-trash" style="font-size: 0.9em;"></i>
+        ? '<div class="vecthare-lock-list-empty">No chats locked yet</div>'
+        : locks.map((chatId) => `
+            <div class="vecthare-lock-item" data-chat-id="${chatId}">
+                <span class="vecthare-lock-chat-id" title="${chatId}">${chatId}</span>
+                <div class="vecthare-lock-item-actions">
+                    ${String(chatId) === String(currentChatId) ? '<span class="vecthare-lock-badge-current">Current</span>' : ''}
+                    <button class="vecthare-lock-remove-btn" data-chat-id="${chatId}" title="Remove lock">
+                        <i class="fa-solid fa-trash"></i>
                     </button>
                 </div>
             </div>
@@ -3420,117 +3392,80 @@ function openCollectionLockDialog(collectionId) {
 
     // Build HTML for locked characters
     const charLocksHtml = characterLocks.length === 0
-        ? '<div class="vecthare-lock-list-empty">Not locked to any character yet</div>'
-        : characterLocks.map((charId, idx) => {
-            // Prefer readable name fields with fallbacks
-            const charName =  characters[charId].data.name;
+        ? '<div class="vecthare-lock-list-empty">No characters locked yet</div>'
+        : characterLocks.map((charId) => {
+            const charName = characters[charId]?.data?.name || `Character ${charId}`;
             return `
-                <div class="vecthare-lock-item" data-character-id="${charId}" style="
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    gap: 12px;
-                    background: var(--SmartThemeBodyColor);
-                    border: 1px solid var(--SmartThemeBorderColor);
-                    padding: 10px 12px;
-                    border-radius: 6px;
-                    margin-bottom: 8px;
-                    min-width: 0;
-                ">
-                    <span class="vecthare-lock-character-name" style="
-                            flex: 1;
-                            min-width: 0;
-                            word-break: break-word;
-                            color: var(--SmartThemeQuoteColor);
-                    ">
-                        <i class="fa-solid fa-user" style="margin-right: 6px; color: var(--SmartThemeQuoteColor);"></i>
+                <div class="vecthare-lock-item" data-character-id="${charId}">
+                    <span class="vecthare-lock-character-name">
+                        <i class="fa-solid fa-user"></i>
                         ${charName}
                     </span>
-                    <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-                        ${String(charId) === String(currentCharacterId) ? '<span class="vecthare-lock-badge-current" style="background: var(--SmartThemeQuoteColor); color: var(--SmartThemeBodyColor); padding: 2px 8px; border-radius: 4px; font-size: 0.75em; font-weight: bold; white-space: nowrap;">Active</span>' : ''}
-                        <button class="vecthare-lock-remove-char-btn" data-character-id="${charId}" title="Remove this character" style="
-                            background: var(--SmartThemeFontColorOverrideCaution, #e74c3c);
-                            color: white;
-                            border: none;
-                            padding: 4px 8px;
-                            border-radius: 4px;
-                            cursor: pointer;
-                            flex-shrink: 0;
-                        ">
-                            <i class="fa-solid fa-trash" style="font-size: 0.9em;"></i>
+                    <div class="vecthare-lock-item-actions">
+                        ${String(charId) === String(currentCharacterId) ? '<span class="vecthare-lock-badge-current">Active</span>' : ''}
+                        <button class="vecthare-lock-remove-char-btn" data-character-id="${charId}" title="Remove lock">
+                            <i class="fa-solid fa-trash"></i>
                         </button>
                     </div>
                 </div>
             `;
         }).join('');
 
+    // Generate hint text for chat section
+    const chatHintClass = currentChatId && locks.includes(currentChatId) ? 'vecthare-lock-hint vecthare-lock-hint-success' : 'vecthare-lock-hint';
+    const chatHintText = currentChatId
+        ? locks.includes(currentChatId)
+            ? '✓ Already locked to this chat'
+            : 'Lock this collection to the current chat'
+        : 'Open a chat first to lock this collection';
+
+    // Generate hint text for character section
+    const charHintClass = currentCharacterId && characterLocks.includes(currentCharacterId) ? 'vecthare-lock-hint vecthare-lock-hint-success' : 'vecthare-lock-hint';
+    const charHintText = currentCharacterId
+        ? characterLocks.includes(currentCharacterId)
+            ? '✓ Already locked to this character'
+            : 'Lock this collection to the current character'
+        : 'No character currently active';
+
     const dialogHtml = `
         <div id="vecthare_lock_dialog" class="vecthare-modal" style="display: flex;">
-            <div class="vecthare-modal-content" style="max-width: 600px;">
+            <div class="vecthare-modal-content vecthare-lock-dialog">
                 <div class="vecthare-modal-header">
                     <h3><i class="fa-solid fa-lock"></i> Manage Collection Locks</h3>
                     <button class="vecthare-modal-close" data-action="close">
                         <i class="fa-solid fa-times"></i>
                     </button>
                 </div>
-                <div class="vecthare-modal-body" style="padding: 20px;">
+                <div class="vecthare-modal-body">
                     <!-- Chat Locks Section -->
                     <div class="vecthare-lock-section">
-                        <h4 style="margin-top: 0; margin-bottom: 12px;"><i class="fa-solid fa-comments"></i> Chat Locks (${locks.length})</h4>
-                        <div class="vecthare-lock-list" style="
-                            background: var(--SmartThemeBlurTintColor);
-                            border-radius: 8px;
-                            padding: 12px;
-                            margin-bottom: 16px;
-                            max-height: 250px;
-                            overflow-y: auto;
-                        ">
+                        <h4><i class="fa-solid fa-comments"></i> Chat Locks <span class="vecthare-badge vecthare-badge-muted">${locks.length}</span></h4>
+                        <div class="vecthare-lock-list">
                             ${locksHtml}
                         </div>
-                        <p style="margin: 0 0 12px 0; font-size: 0.9em; color: var(--SmartThemeQuoteColor);">
-                            ${currentChatId
-                                ? locks.includes(currentChatId)
-                                    ? '✓ Already locked to this chat'
-                                    : `Lock this collection to the current chat`
-                                : 'Open a chat first to lock this collection'
-                            }
-                        </p>
-                        <button id="vecthare_lock_add_current" class="vecthare-btn vecthare-btn-primary" ${!currentChatId || locks.includes(currentChatId) ? 'disabled' : ''}>
+                        <p class="${chatHintClass}">${chatHintText}</p>
+                        <button id="vecthare_lock_add_current" class="vecthare-btn-sm vecthare-btn-primary" ${!currentChatId || locks.includes(currentChatId) ? 'disabled' : ''}>
                             <i class="fa-solid fa-plus"></i> Lock to Current Chat
                         </button>
                     </div>
 
-                    <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--SmartThemeBorderColor);">
+                    <hr class="vecthare-lock-divider">
 
                     <!-- Character Locks Section -->
                     <div class="vecthare-lock-section">
-                        <h4 style="margin-top: 0; margin-bottom: 12px;"><i class="fa-solid fa-user"></i> Character Locks (${characterLocks.length})</h4>
-                        <div class="vecthare-lock-list" style="
-                            background: var(--SmartThemeBlurTintColor);
-                            border-radius: 8px;
-                            padding: 12px;
-                            margin-bottom: 16px;
-                            max-height: 250px;
-                            overflow-y: auto;
-                        ">
+                        <h4><i class="fa-solid fa-user"></i> Character Locks <span class="vecthare-badge vecthare-badge-muted">${characterLocks.length}</span></h4>
+                        <div class="vecthare-lock-list">
                             ${charLocksHtml}
                         </div>
-                        <p style="margin: 0 0 12px 0; font-size: 0.9em; color: var(--SmartThemeQuoteColor);">
-                            ${currentCharacterId
-                                ? characterLocks.includes(currentCharacterId)
-                                    ? '✓ Already locked to this character'
-                                    : `Lock this collection to the current character`
-                                : 'No character currently active'
-                            }
-                        </p>
-                        <button id="vecthare_lock_add_character" class="vecthare-btn vecthare-btn-primary" ${!currentCharacterId || characterLocks.includes(currentCharacterId) ? 'disabled' : ''}>
+                        <p class="${charHintClass}">${charHintText}</p>
+                        <button id="vecthare_lock_add_character" class="vecthare-btn-sm vecthare-btn-primary" ${!currentCharacterId || characterLocks.includes(currentCharacterId) ? 'disabled' : ''}>
                             <i class="fa-solid fa-plus"></i> Lock to Current Character
                         </button>
                     </div>
                 </div>
-                <div class="vecthare-modal-footer" style="display: flex; gap: 10px; padding: 15px 20px; border-top: 1px solid var(--SmartThemeBorderColor);">
-                    <button class="menu_button menu_button_icon" data-action="close">
-                        <i class="fa-solid fa-times"></i> Done
+                <div class="vecthare-modal-footer">
+                    <button class="vecthare-btn" data-action="close">
+                        <i class="fa-solid fa-check"></i> Done
                     </button>
                 </div>
             </div>

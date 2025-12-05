@@ -405,7 +405,6 @@ function createBrowserModal() {
 
   // Bind events
   bindBrowserEvents();
-
 }
 
 /**

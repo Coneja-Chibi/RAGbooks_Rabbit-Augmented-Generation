@@ -1637,7 +1637,7 @@ export async function rearrangeChat(chat, settings, type) {
         console.log(`VectHare: ✅ Injected ${chunksToInject.length} chunks (${skippedDuplicates.length} skipped - already in context)`);
 
     } catch (error) {
-        toastr.error('Generation interceptor aborted. Check console for details.', 'VectHare');
+        toastr.error(`Generation interceptor aborted: ${error.message}`, 'VectHare');
         console.error('VectHare: Failed to rearrange chat', error);
     }
 }
@@ -1727,7 +1727,7 @@ export async function vectorizeAll(settings, batchSize) {
         console.error('VectHare: Failed to vectorize all', error);
         progressTracker.addError(error.message);
         progressTracker.complete(false, 'Vectorization failed');
-        toastr.error('Vectorization failed. Check console.', 'VectHare');
+        toastr.error(`Vectorization failed: ${error.message}`, 'VectHare');
     }
 }
 

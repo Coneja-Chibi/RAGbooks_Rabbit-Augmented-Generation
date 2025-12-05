@@ -483,7 +483,7 @@ function bindBrowserEvents() {
       toastr.success("Registry cleared and resynced from disk", "VectHare");
     } catch (error) {
       console.error("VectHare: Failed to resync", error);
-      toastr.error("Failed to resync. Check console.", "VectHare");
+      toastr.error(`Failed to resync: ${error.message}`, "VectHare");
     }
   });
 
@@ -1092,7 +1092,7 @@ function bindCollectionCardEvents() {
         }
       } catch (error) {
         console.error("VectHare: Failed to delete collection", error);
-        toastr.error("Failed to delete collection. Check console.", "VectHare");
+        toastr.error(`Failed to delete collection: ${error.message}`, "VectHare");
       }
     });
 
@@ -1124,7 +1124,7 @@ function bindCollectionCardEvents() {
         toastr.success("Opened collection folder", "VectHare");
       } catch (error) {
         console.error("VectHare: Failed to open folder", error);
-        toastr.error("Failed to open folder. Check console.", "VectHare");
+        toastr.error(`Failed to open folder: ${error.message}`, "VectHare");
       }
     });
 
@@ -1205,7 +1205,7 @@ function bindCollectionCardEvents() {
         );
       } catch (error) {
         console.error("VectHare: Failed to load chunks", error);
-        toastr.error("Failed to load chunks. Check console.", "VectHare");
+        toastr.error(`Failed to load chunks: ${error.message}`, "VectHare");
       }
     });
 
@@ -3073,7 +3073,7 @@ function renderSearchResults(results, query) {
         );
       } catch (error) {
         console.error("VectHare: Failed to load chunks", error);
-        toastr.error("Failed to load chunks. Check console.", "VectHare");
+        toastr.error(`Failed to load chunks: ${error.message}`, "VectHare");
       }
     });
 }

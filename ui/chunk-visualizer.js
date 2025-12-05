@@ -213,7 +213,7 @@ async function saveAllChanges() {
         toastr.success(`Saved changes to ${count} chunk(s)`, 'VectHare');
     } catch (error) {
         console.error('VectHare: Failed to save changes', error);
-        toastr.error('Failed to save some changes. Check console.', 'VectHare');
+        toastr.error(`Failed to save changes: ${error.message}`, 'VectHare');
     }
 }
 

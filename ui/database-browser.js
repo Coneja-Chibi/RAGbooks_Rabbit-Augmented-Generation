@@ -539,15 +539,6 @@ function bindBrowserEvents() {
 
       const info = getExportInfo(data);
       const validation = validateImportData(data, browserState.settings);
-    // Scope filters
-    $('.vecthare-scope-filter').on('click', function(e) {
-        e.stopPropagation();
-        e.preventDefault();
-        $('.vecthare-scope-filter').removeClass('active');
-        $(this).addClass('active');
-        browserState.filters.scope = $(this).data('scope');
-        renderCollections();
-    });
 
       // Show import confirmation dialog
       let message = `Import "${info.collections[0]?.name || "collection"}"?\n\n`;

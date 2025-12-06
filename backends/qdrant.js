@@ -184,6 +184,15 @@ export class QdrantBackend extends VectorBackend {
             throw new Error(`[Qdrant] Failed to insert ${items.length} vectors into ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
+        // Register the collection after successful insert
+        try {
+            // Dynamic import to avoid circular dependency
+            const { registerCollection } = await import('../core/collection-loader.js');
+            registerCollection(collectionId);
+        } catch (e) {
+            console.warn('VectHare: Failed to register collection after Qdrant insert:', e);
+        }
+
         console.log(`VectHare Qdrant: Inserted ${items.length} vectors into ${collectionId}`);
     }
 
@@ -302,7 +311,7 @@ export class QdrantBackend extends VectorBackend {
             throw new Error(`[Qdrant] Failed to purge collection ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
-        console.log(`VectHare Qdrant: Purged (type: ${type}, sourceId: ${sourceId})`);
+        // console.log(`VectHare Qdrant: Purged (type: ${type}, sourceId: ${sourceId})`);
     }
 
     async purgeFileVectorIndex(collectionId, settings) {
@@ -433,7 +442,7 @@ export class QdrantBackend extends VectorBackend {
 
         if (!response.ok) {
             const errorBody = await response.text().catch(() => 'No response body');
-            throw new Error(`[Qdrant] Failed to get stats for ${collectionId} (type: ${type}, sourceId: ${sourceId}): ${response.status} ${response.statusText} - ${errorBody}`);
+            throw new Error(`[Qdrant] Failed to get stats for ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = await response.json();

@@ -1180,7 +1180,8 @@ function bindCollectionCardEvents() {
         }
 
         const data = await response.json();
-        const results = data.items || [];
+        // Support all plugin response shapes: items (new), chunks/results (older/backends)
+        const results = data.items || data.chunks || data.results || [];
 
         if (!results || results.length === 0) {
           toastr.warning("No chunks found in this collection", "VectHare");

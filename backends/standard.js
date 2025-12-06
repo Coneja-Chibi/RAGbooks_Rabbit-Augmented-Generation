@@ -191,12 +191,23 @@ export class StandardBackend extends VectorBackend {
         const model = getModelFromSettings(settings);
 
         // Log chunk statistics for debugging OOM issues
-        const textLengths = items.map(item => (item.text || '').length);
+        const textLengths = items.map(item => {
+            let text = item.text || '';
+            if (item.keywords && item.keywords.length > 0) {
+                const keywordTexts = item.keywords.map(kw => kw.text || kw).join(' ');
+                text += ` [KEYWORDS: ${keywordTexts}]`;
+            }
+            return text.length;
+        });
         const maxLen = Math.max(...textLengths);
         const avgLen = Math.round(textLengths.reduce((a, b) => a + b, 0) / textLengths.length);
         const longestChunkIndex = textLengths.indexOf(maxLen);
 
-        console.log(`VectHare: Embedding ${items.length} chunks (avg: ${avgLen} chars, max: ${maxLen} chars at index ${longestChunkIndex})`);
+        // Count how many chunks have keywords
+        const chunksWithKeywords = items.filter(item => item.keywords && item.keywords.length > 0).length;
+
+        console.log(`VectHare: Embedding ${items.length} chunks (avg: ${avgLen} chars, max: ${maxLen} chars at index ${longestChunkIndex}) - ${chunksWithKeywords} chunks have keywords`);
+
 
         // Warn if chunks are unusually large (potential OOM risk)
         if (maxLen > 2000) {
@@ -210,15 +221,31 @@ export class StandardBackend extends VectorBackend {
                 headers: getRequestHeaders(),
                 body: JSON.stringify({
                     collectionId: collectionId,
-                    items: items.map(item => ({
-                        hash: item.hash,
-                        text: item.text,
-                        index: item.index ?? 0,
-                    })),
+                    items: items.map(item => {
+                        // Include keywords in the text for embedding/indexing
+                        let textWithKeywords = item.text || '';
+                        if (item.keywords && item.keywords.length > 0) {
+                            const keywordTexts = item.keywords.map(kw => kw.text || kw).join(' ');
+                            textWithKeywords += ` [KEYWORDS: ${keywordTexts}]`;
+                        }
+
+                        return {
+                            hash: item.hash,
+                            text: textWithKeywords,
+                            index: item.index ?? 0,
+                        };
+                    }),
                     source: settings.source || 'transformers',
                     model: model,
                     // Pass embeddings if pre-computed (for webllm, koboldcpp, bananabread)
-                    embeddings: items[0]?.vector ? Object.fromEntries(items.map(i => [i.text, i.vector])) : undefined,
+                    embeddings: items[0]?.vector ? Object.fromEntries(items.map(i => {
+                        let textWithKeywords = i.text || '';
+                        if (i.keywords && i.keywords.length > 0) {
+                            const keywordTexts = i.keywords.map(kw => kw.text || kw).join(' ');
+                            textWithKeywords += ` [KEYWORDS: ${keywordTexts}]`;
+                        }
+                        return [textWithKeywords, i.vector];
+                    })) : undefined,
                     ...providerParams,
                 }),
             });

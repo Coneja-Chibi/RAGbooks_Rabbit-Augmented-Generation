@@ -202,9 +202,14 @@ async function saveAllChanges() {
             delete metadataUpdates._newSummaries;
             delete metadataUpdates._deletedSummaries;
 
-            if (Object.keys(metadataUpdates).length > 0 && updates.text) {
-                // Only update via API if text was changed (which needs re-vectorization)
-                await updateChunkMetadata(currentCollectionId, hash, metadataUpdates, currentSettings);
+            if (Object.keys(metadataUpdates).length > 0 ) {
+                // Send metadata updates (keywords, conditions, etc.) to backend
+                try {
+                    await updateChunkMetadata(currentCollectionId, hash, metadataUpdates, currentSettings);
+                } catch (e) {
+                    console.warn('VectHare: Failed to update metadata in backend:', e);
+                    // Don't fail - local metadata was already saved
+                }
             }
         }
 
@@ -591,7 +596,9 @@ function renderSceneDetailPanel() {
         return;
     }
 
-    const meta = scene.metadata || {};
+    // Read fresh metadata from persistent storage, not from scene object
+    const stored = getChunkMetadata(scene.hash) || {};
+    const meta = { ...scene.metadata, ...stored } || {};
     const start = meta.sceneStart ?? 0;
     const end = meta.sceneEnd ?? start;
     const msgCount = end - start + 1;
@@ -659,10 +666,15 @@ function renderSceneDetailPanel() {
 
             <!-- Keywords Section -->
             <div class="vecthare-detail-section">
-                <div class="vecthare-detail-section-title">Keywords <span class="vecthare-section-hint">(comma-separated)</span></div>
-                <input type="text" class="vecthare-scene-keywords-field" id="vecthare_scene_keywords"
-                       placeholder="keyword1, keyword2, ..."
-                       value="${escapeHtml(keywords.join(', '))}">
+                <div class="vecthare-detail-section-header">
+                    <span class="vecthare-detail-section-title">Keywords <span class="vecthare-section-hint">(boost when query matches)</span></span>
+                </div>
+                <div class="vecthare-scene-keywords-field-wrapper">
+                    <input type="text" class="vecthare-scene-keywords-field" id="vecthare_scene_keywords"
+                           placeholder="keyword1, keyword2, ..."
+                           value="${escapeHtml(keywords.join(', '))}">
+                    <small class="vecthare-keywords-hint">Comma-separated keywords to improve search relevance</small>
+                </div>
             </div>
 
             <!-- Actions Section -->
@@ -685,8 +697,16 @@ function renderSceneDetailPanel() {
  */
 function bindScenesTabEvents() {
     // Scene item click - select scene by hash
-    $(document).off('click', '.vecthare-scene-item').on('click', '.vecthare-scene-item', function() {
+    // Bind to modal container (not document) since modal stops propagation
+    $('#vecthare_visualizer_modal').off('click', '.vecthare-scene-item').on('click', '.vecthare-scene-item', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
         const hash = $(this).data('scene-hash');
+        console.log('VectHare: Clicked scene with hash:', hash);
+        if (!hash) {
+            console.error('VectHare: No scene-hash found on clicked element');
+            return;
+        }
         selectedSceneHash = hash;
         renderSceneList();
         renderSceneDetailPanel();
@@ -702,25 +722,46 @@ function bindSceneDetailEvents() {
     // Title input - saves to chunk metadata
     $('#vecthare_scene_title').off('blur').on('blur', async function() {
         const title = $(this).val().trim();
-        await updateSceneChunkMetadata(scene.hash, { title }, currentSettings);
-        // Update local chunk data
-        if (scene.metadata) scene.metadata.title = title;
-        renderSceneList();
+        try {
+            await updateSceneChunkMetadata(scene.hash, { title }, currentSettings);
+            // Update local chunk data
+            if (scene.metadata) scene.metadata.title = title;
+            renderSceneList();
+            toastr.success('Title saved', 'VectHare');
+        } catch (error) {
+            console.error('VectHare: Failed to save scene title', error);
+            toastr.error('Failed to save title', 'VectHare');
+        }
     });
 
     // Summary input
     $('#vecthare_scene_summary').off('blur').on('blur', async function() {
         const summary = $(this).val().trim();
-        await updateSceneChunkMetadata(scene.hash, { summary }, currentSettings);
-        if (scene.metadata) scene.metadata.summary = summary;
+        try {
+            await updateSceneChunkMetadata(scene.hash, { summary }, currentSettings);
+            if (scene.metadata) scene.metadata.summary = summary;
+            toastr.success('Summary saved', 'VectHare');
+        } catch (error) {
+            console.error('VectHare: Failed to save scene summary', error);
+            toastr.error('Failed to save summary', 'VectHare');
+        }
     });
 
-    // Keywords input
+    // Keywords input - save on blur with feedback
     $('#vecthare_scene_keywords').off('blur').on('blur', async function() {
         const keywordsStr = $(this).val().trim();
         const keywords = keywordsStr ? keywordsStr.split(',').map(k => k.trim()).filter(Boolean) : [];
-        await updateSceneChunkMetadata(scene.hash, { keywords }, currentSettings);
-        if (scene.metadata) scene.metadata.keywords = keywords;
+        try {
+            await updateSceneChunkMetadata(scene.hash, { keywords }, currentSettings);
+            // Update local metadata to reflect saved changes
+            if (scene.metadata) {
+                scene.metadata.keywords = keywords;
+            }
+            toastr.success('Keywords saved', 'VectHare');
+        } catch (error) {
+            console.error('VectHare: Failed to save scene keywords', error);
+            toastr.error('Failed to save keywords', 'VectHare');
+        }
     });
 
     // Jump to scene

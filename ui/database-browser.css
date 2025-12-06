@@ -113,7 +113,8 @@
     display: none;
     flex-direction: column;
     flex: 1;
-    min-height: 0; /* Critical for flex children to scroll */
+    min-height: 0;
+    overflow: hidden;
 }
 
 .vecthare-tab-content.active {
@@ -623,12 +624,16 @@
     height: 100%;
     padding: 20px 24px;
     gap: 16px;
+    min-height: 0;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
 .vecthare-search-input-row {
     display: flex;
     gap: 12px;
     align-items: center;
+    flex-shrink: 0;
 }
 
 .vecthare-search-input {
@@ -659,6 +664,7 @@
     background: color-mix(in srgb, var(--SmartThemeBodyColor) 3%, transparent);
     border-radius: 10px;
     align-items: center;
+    flex-shrink: 0;
 }
 
 .vecthare-search-option {
@@ -690,9 +696,9 @@
 .vecthare-search-results {
     flex: 1;
     overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+    display: block;
+    min-height: 0;
+    box-sizing: border-box;
 }
 
 .vecthare-search-empty,
@@ -721,6 +727,7 @@
     font-weight: 600;
     color: color-mix(in srgb, var(--SmartThemeBodyColor) 70%, transparent);
     padding-bottom: 8px;
+    margin-bottom: 16px;
     border-bottom: 1px solid
         color-mix(in srgb, var(--SmartThemeBodyColor) 10%, transparent);
 }
@@ -731,6 +738,7 @@
         color-mix(in srgb, var(--SmartThemeBodyColor) 10%, transparent);
     border-radius: 12px;
     overflow: hidden;
+    margin-bottom: 16px;
 }
 
 .vecthare-search-collection-header {

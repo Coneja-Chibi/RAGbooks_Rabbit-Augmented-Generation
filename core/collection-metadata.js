@@ -66,10 +66,12 @@ const defaultCollectionMeta = {
     // Chat collections default to enabled; others default to disabled.
     temporalDecay: {
         enabled: false,           // Enable temporal decay for this collection
+        type: 'decay',            // 'decay' (favor recent) or 'nostalgia' (favor old)
         mode: 'exponential',      // 'exponential' or 'linear'
         halfLife: 50,             // Messages until 50% relevance (exponential)
         linearRate: 0.01,         // % per message (linear mode)
-        minRelevance: 0.3,        // Never decay below this (0-1)
+        minRelevance: 0.3,        // Never decay below this (0-1) - decay mode only
+        maxBoost: 2.0,            // Maximum boost multiplier (1-5) - nostalgia mode only
         sceneAware: false,        // Reset decay at scene boundaries
     },
 
@@ -96,26 +98,32 @@ const defaultCollectionMeta = {
 
 /**
  * Gets default temporal decay settings based on collection type
- * Chat collections default to decay enabled; others default to disabled
+ * Uses global defaults from settings, with chat collections getting scene-awareness
  * @param {string} collectionType - 'chat', 'lorebook', 'file', 'document', etc.
  * @returns {object} Default decay settings for this type
  */
 export function getDefaultDecayForType(collectionType) {
+    // Get global defaults from settings
+    const globalSettings = extension_settings.vecthare || {};
+    const globalEnabled = globalSettings.default_decay_enabled ?? false;
+    const globalType = globalSettings.default_decay_type || 'decay';
+
     const baseDefaults = {
-        enabled: false,
+        enabled: globalEnabled,
+        type: globalType,
         mode: 'exponential',
         halfLife: 50,
         linearRate: 0.01,
         minRelevance: 0.3,
+        maxBoost: 2.0,
         sceneAware: false,
     };
 
-    // Chat collections default to decay enabled with scene-awareness
+    // Chat collections get scene-awareness by default (if decay is enabled)
     if (collectionType === 'chat') {
         return {
             ...baseDefaults,
-            enabled: true,
-            sceneAware: true,
+            sceneAware: globalEnabled, // Only enable scene-aware if decay is enabled
         };
     }
 
@@ -693,7 +701,7 @@ export function getCollectionCharacterLockCount(collectionId) {
  * Ensures a collection has metadata (creates with defaults if missing)
  * Called when a collection is discovered/created
  * @param {string} collectionId Collection identifier
- * @param {object} initialData Optional initial data to set
+ * @param {object} initialData Optional initial data to set (can include 'type' for collection type)
  */
 export function ensureCollectionMeta(collectionId, initialData = {}) {
     if (!collectionId) {
@@ -703,13 +711,23 @@ export function ensureCollectionMeta(collectionId, initialData = {}) {
     ensureCollectionsObject();
 
     if (!extension_settings.vecthare.collections[collectionId]) {
+        // Determine collection type for temporal decay defaults
+        // Check initialData.type, or infer from scope, or parse from collectionId
+        let collectionType = initialData.type || initialData.scope || 'unknown';
+        if (collectionType === 'unknown' && collectionId.includes('_chat_')) {
+            collectionType = 'chat';
+        } else if (collectionType === 'unknown' && collectionId.includes('_lorebook_')) {
+            collectionType = 'lorebook';
+        }
+
         extension_settings.vecthare.collections[collectionId] = {
             ...defaultCollectionMeta,
+            temporalDecay: getDefaultDecayForType(collectionType),
             createdAt: Date.now(),
             ...initialData,
         };
         saveSettingsDebounced();
-        console.log(`VectHare: Created metadata for new collection ${collectionId}`);
+        console.log(`VectHare: Created metadata for new collection ${collectionId} (type: ${collectionType})`);
     }
 }
 

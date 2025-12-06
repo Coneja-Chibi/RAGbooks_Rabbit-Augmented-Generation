@@ -413,6 +413,47 @@ export function renderSettings(containerId, settings, callbacks) {
                         </div>
                     </div>
 
+                    <!-- Global Temporal Weighting Defaults Card -->
+                    <div class="vecthare-card">
+                        <div class="vecthare-card-header">
+                            <h3 class="vecthare-card-title">
+                                <span class="vecthare-icon">
+                                    <i class="fa-solid fa-clock"></i>
+                                </span>
+                                Temporal Weighting Defaults
+                            </h3>
+                            <p class="vecthare-card-subtitle">Default settings for new collections (can be overridden per-collection)</p>
+                        </div>
+                        <div class="vecthare-card-body">
+
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                                <input type="checkbox" id="vecthare_default_decay_enabled" />
+                                <label for="vecthare_default_decay_enabled" style="margin: 0;">
+                                    <small>Enable temporal weighting by default</small>
+                                </label>
+                            </div>
+
+                            <div id="vecthare_default_decay_type_section" class="vecthare-subsection-disabled">
+                                <label style="margin-bottom: 4px;">
+                                    <small>Default Type</small>
+                                </label>
+                                <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+                                    <label style="display: flex; align-items: center; gap: 4px; margin: 0;">
+                                        <input type="radio" name="vecthare_default_decay_type" value="decay" />
+                                        <small>Decay (favor recent)</small>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 4px; margin: 0;">
+                                        <input type="radio" name="vecthare_default_decay_type" value="nostalgia" />
+                                        <small>Nostalgia (favor old)</small>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <small class="vecthare_hint">These defaults apply to newly created collections. Existing collections keep their settings.</small>
+
+                        </div>
+                    </div>
+
                     <!-- RAG Context Card -->
                     <div class="vecthare-card">
                         <div class="vecthare-card-header">
@@ -736,8 +777,10 @@ function initializeDiagnosticsModal() {
         closeDiagnosticsModal();
     });
 
-    // Stop propagation on ALL clicks within modal (prevents extension panel from closing)
-    $('#vecthare_diagnostics_modal').on('click', function(e) {
+    // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
+    // Note: This modal is inside the drawer so it doesn't strictly need this,
+    // but we include it for consistency with other modals
+    $('#vecthare_diagnostics_modal').on('mousedown touchstart', function(e) {
         e.stopPropagation();
     });
 
@@ -1341,7 +1384,12 @@ async function showAutoSyncConfirmModal(allMatches, settings) {
             });
         });
 
-        // Handle clicking outside modal
+        // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
+        $modal.on('mousedown touchstart', function(e) {
+            e.stopPropagation();
+        });
+
+        // Close on background click
         $modal.on('click', function(e) {
             if (e.target === this) {
                 $modal.remove();
@@ -1728,6 +1776,42 @@ function bindSettingsEvents(settings, callbacks) {
             Object.assign(extension_settings.vecthare, settings);
             saveSettingsDebounced();
         });
+
+    // Global temporal weighting defaults
+    const updateDecayTypeSection = (enabled) => {
+        const $section = $('#vecthare_default_decay_type_section');
+        const $radios = $section.find('input[type="radio"]');
+
+        if (enabled) {
+            $section.removeClass('vecthare-subsection-disabled');
+            $radios.prop('disabled', false);
+            // Select the saved type (or default to 'decay') when enabling
+            const savedType = settings.default_decay_type || 'decay';
+            $(`input[name="vecthare_default_decay_type"][value="${savedType}"]`).prop('checked', true);
+        } else {
+            $section.addClass('vecthare-subsection-disabled');
+            $radios.prop('disabled', true).prop('checked', false);
+        }
+    };
+
+    $('#vecthare_default_decay_enabled')
+        .prop('checked', settings.default_decay_enabled || false)
+        .on('change', function() {
+            const enabled = $(this).prop('checked');
+            settings.default_decay_enabled = enabled;
+            updateDecayTypeSection(enabled);
+            Object.assign(extension_settings.vecthare, settings);
+            saveSettingsDebounced();
+        });
+
+    // Initialize the section state
+    updateDecayTypeSection(settings.default_decay_enabled || false);
+
+    $('input[name="vecthare_default_decay_type"]').on('change', function() {
+        settings.default_decay_type = $(this).val();
+        Object.assign(extension_settings.vecthare, settings);
+        saveSettingsDebounced();
+    });
 
     // Provider-specific settings
 

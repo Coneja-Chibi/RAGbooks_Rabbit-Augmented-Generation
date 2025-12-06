@@ -428,7 +428,7 @@ export async function init(router) {
                     },
 
                     purge: async (collectionId, source, model, directories, filters = {}) => {
-                        await qdrantBackend.purgeCollection(collectionId, filters);
+                        await qdrantBackend.purgeAll(collectionId, filters);
                     },
 
                     stats: async (collectionId, source, model, directories, filters = {}) => {

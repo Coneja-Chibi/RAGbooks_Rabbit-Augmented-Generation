@@ -762,7 +762,9 @@ class QdrantBackend {
     async purgeAll(collectionName = 'vecthare_main') {
         if (!this.baseUrl) throw new Error('Qdrant not initialized');
 
-        // MULTITENANCY: Delete the entire vecthare_main collection
+        if (collectionName.indexOf('qdrant:') !== -1) {
+            collectionName = collectionName.split('qdrant:')[1]; //strip the "qdrant:" prefix if present
+        }
         const mainCollection = collectionName;
 
         try {

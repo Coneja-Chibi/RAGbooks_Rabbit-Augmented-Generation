@@ -99,7 +99,7 @@ export async function init(router) {
                         if (itemsNeedingVectors.length > 0) {
                             const texts = itemsNeedingVectors.map(i => i.text);
                             const vectors = await getVectorsForSource(source, texts, model, directories, req);
-                            
+
                             let vIndex = 0;
                             itemsWithVectors = itemsWithVectors.map(item => {
                                 if (!item.vector) {
@@ -300,7 +300,7 @@ export async function init(router) {
                             console.log(`[LanceDB] Generating embeddings for ${itemsNeedingVectors.length} items`);
                             const texts = itemsNeedingVectors.map(i => i.text);
                             const vectors = await getVectorsForSource(source, texts, model, directories, req);
-                            
+
                             let vIndex = 0;
                             itemsWithVectors = itemsWithVectors.map(item => {
                                 if (!item.vector) {
@@ -382,7 +382,7 @@ export async function init(router) {
                             console.log(`[Qdrant] Generating embeddings for ${itemsNeedingVectors.length} items`);
                             const texts = itemsNeedingVectors.map(i => i.text);
                             const vectors = await getVectorsForSource(source, texts, model, directories, req);
-                            
+
                             let vIndex = 0;
                             itemsWithVectors = itemsWithVectors.map(item => {
                                 if (!item.vector) {
@@ -466,7 +466,7 @@ export async function init(router) {
                             console.log(`[Milvus] Generating embeddings for ${itemsNeedingVectors.length} items`);
                             const texts = itemsNeedingVectors.map(i => i.text);
                             const vectors = await getVectorsForSource(source, texts, model, directories, req);
-                            
+
                             let vIndex = 0;
                             itemsWithVectors = itemsWithVectors.map(item => {
                                 if (!item.vector) {
@@ -1658,10 +1658,14 @@ async function scanAllSourcesForCollections(vectorsPath) {
                 const healthy = await qdrantBackend.healthCheck();
                 if (healthy) {
                     // List items from vecthare_main collection
-                    const items = await qdrantBackend.listItems('vecthare_main', {});
-                    if (items.length > 0) {
-                        allCollections.push({
-                            id: 'vecthare_main',
+                    const collections = await qdrantBackend.getCollections();
+                    const hasVecthareMain = collections.some(col => col.name === 'vecthare_main'); //just-in-case support for multitenancy?
+
+                    for (const collectionName of collections) {
+                        const items = await qdrantBackend.listItems(collectionName, {});
+                        console.log('Discovered Qdrant Collection:', collectionName + " " + items.length + " items");
+                         allCollections.push({
+                            id: collectionName,
                             source: 'qdrant',
                             backend: 'qdrant',
                             chunkCount: items.length,

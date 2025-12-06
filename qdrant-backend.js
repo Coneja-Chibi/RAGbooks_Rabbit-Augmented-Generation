@@ -369,7 +369,7 @@ class QdrantBackend {
 
                 // ===== LEGACY VECTHARE FEATURES =====
                 importance: item.importance !== undefined ? item.importance : 100,
-                keywords: item.keywords || [],
+                keywords: item.keywords || item.metadata?.keywords || [],
                 customWeights: item.customWeights || {},
                 disabledKeywords: item.disabledKeywords || [],
                 chunkGroup: item.chunkGroup || null,

@@ -62,11 +62,11 @@ class QdrantBackend {
      */
     async _request(method, endpoint, body = null, maxRetries = 3) {
         const url = `${this.baseUrl}${endpoint}`;
-        
+
         // Add explicit timeout of 60s to prevent indefinite hangs during heavy operations (like wait=true)
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 60000);
-        
+
         const options = {
             method,
             headers: this._getHeaders(),
@@ -167,6 +167,10 @@ class QdrantBackend {
 
         // Ensure indexes exist on any existing vecthare_main collection
         await this.ensurePayloadIndexes('vecthare_main');
+        const collections = await this.getCollections();
+        for (const collectionName of collections || []) {
+            await this.ensurePayloadIndexes(collectionName);
+        }
     }
 
     /**
@@ -194,7 +198,9 @@ class QdrantBackend {
             // Check if collection exists
             const collections = await this._request('GET', '/collections');
             const exists = collections.result?.collections?.some(c => c.name === collectionName);
-
+            if (collectionName.indexOf('qdrant:') !== -1) {
+                collectionName = collectionName.split('qdrant:')[1]; //strip the "qdrant:" prefix if present
+            }
             if (!exists) {
                 // Create collection
                 await this._request('PUT', `/collections/${collectionName}`, {
@@ -219,6 +225,9 @@ class QdrantBackend {
      * @param {string} collectionName - Collection name
      */
     async createPayloadIndexes(collectionName) {
+        if (collectionName.indexOf('qdrant:') !== -1) {
+            collectionName = collectionName.split('qdrant:')[1]; //strip the "qdrant:" prefix if present
+        }
         // Fields that need indexes for filtering
         // Tenant fields use { type: 'keyword', is_tenant: true } for optimized multitenancy
         // Regular fields use simple type string
@@ -259,7 +268,7 @@ class QdrantBackend {
      * Ensure payload indexes exist on an existing collection
      * @param {string} collectionName - Collection name
      */
-    async ensurePayloadIndexes(collectionName = 'vecthare_main') {
+    async ensurePayloadIndexes(collectionName) {
         try {
             const collections = await this._request('GET', '/collections');
             const exists = collections.result?.collections?.some(c => c.name === collectionName);
@@ -284,7 +293,10 @@ class QdrantBackend {
         if (items.length === 0) return;
 
         // MULTITENANCY: Always use vecthare_main collection
-        const mainCollection = 'vecthare_main';
+        if (collectionName.indexOf('qdrant:') !== -1) {
+            collectionName = collectionName.split('qdrant:')[1]; //strip the "qdrant:" prefix if present
+        }
+        const mainCollection = collectionName;
 
         // Validate all items have vectors
         const missingVectors = items.filter(item => !item.vector || !Array.isArray(item.vector));
@@ -357,7 +369,7 @@ class QdrantBackend {
 
                 // ===== LEGACY VECTHARE FEATURES =====
                 importance: item.importance !== undefined ? item.importance : 100,
-                keywords: item.keywords || [],
+                keywords: item.keywords || item.metadata?.keywords || [],
                 customWeights: item.customWeights || {},
                 disabledKeywords: item.disabledKeywords || [],
                 chunkGroup: item.chunkGroup || null,
@@ -407,8 +419,10 @@ class QdrantBackend {
     async queryCollection(collectionName, queryVector, topK = 10, filters = {}) {
         if (!this.baseUrl) throw new Error('Qdrant not initialized');
 
-        // MULTITENANCY: Always use vecthare_main collection
-        const mainCollection = 'vecthare_main';
+        if (collectionName.indexOf('qdrant:') !== -1) {
+            collectionName = collectionName.split('qdrant:')[1]; //strip the "qdrant:" prefix if present
+        }
+        const mainCollection = collectionName;
 
         try {
             // Check if collection exists
@@ -516,7 +530,10 @@ class QdrantBackend {
         if (!this.baseUrl) throw new Error('Qdrant not initialized');
 
         // MULTITENANCY: Always use vecthare_main collection
-        const mainCollection = 'vecthare_main';
+        if (collectionName.indexOf('qdrant:') !== -1) {
+            collectionName = collectionName.split('qdrant:')[1]; //strip the "qdrant:" prefix if present
+        }
+        const mainCollection = collectionName;
 
         try {
             // Check if collection exists
@@ -572,6 +589,7 @@ class QdrantBackend {
                 offset = response.result?.next_page_offset;
             } while (offset !== null && offset !== undefined);
 
+            console.log(">>> [Qdrant] Listed", items.length, "items from", mainCollection);
             return items;
         } catch (error) {
             console.error(`[Qdrant] Failed to list items from ${mainCollection}:`, error.message);
@@ -588,8 +606,10 @@ class QdrantBackend {
     async getSavedHashes(collectionName, filters = {}) {
         if (!this.baseUrl) throw new Error('Qdrant not initialized');
 
-        // MULTITENANCY: Always use vecthare_main collection
-        const mainCollection = 'vecthare_main';
+        if (collectionName.indexOf('qdrant:') !== -1) {
+            collectionName = collectionName.split('qdrant:')[1]; //strip the "qdrant:" prefix if present
+        }
+        const mainCollection = collectionName;
 
         try {
             // Check if collection exists
@@ -657,8 +677,10 @@ class QdrantBackend {
         if (!this.baseUrl) throw new Error('Qdrant not initialized');
         if (hashes.length === 0) return;
 
-        // MULTITENANCY: Always use vecthare_main collection
-        const mainCollection = 'vecthare_main';
+        if (collectionName.indexOf('qdrant:') !== -1) {
+            collectionName = collectionName.split('qdrant:')[1]; //strip the "qdrant:" prefix if present
+        }
+        const mainCollection = collectionName;
 
         try {
             // Delete points by ID (hash)
@@ -684,8 +706,10 @@ class QdrantBackend {
     async purgeCollection(collectionName, filters = {}) {
         if (!this.baseUrl) throw new Error('Qdrant not initialized');
 
-        // MULTITENANCY: Always use vecthare_main collection
-        const mainCollection = 'vecthare_main';
+        if (collectionName.indexOf('qdrant:') !== -1) {
+            collectionName = collectionName.split('qdrant:')[1]; //strip the "qdrant:" prefix if present
+        }
+        const mainCollection = collectionName;
 
         try {
             // Check if collection exists
@@ -735,11 +759,13 @@ class QdrantBackend {
      * WARNING: Deletes ALL data from ALL sources
      * @returns {Promise<void>}
      */
-    async purgeAll() {
+    async purgeAll(collectionName = 'vecthare_main') {
         if (!this.baseUrl) throw new Error('Qdrant not initialized');
 
-        // MULTITENANCY: Delete the entire vecthare_main collection
-        const mainCollection = 'vecthare_main';
+        if (collectionName.indexOf('qdrant:') !== -1) {
+            collectionName = collectionName.split('qdrant:')[1]; //strip the "qdrant:" prefix if present
+        }
+        const mainCollection = collectionName;
 
         try {
             await this._request('DELETE', `/collections/${mainCollection}`);
@@ -757,6 +783,19 @@ class QdrantBackend {
     // ADDITIONAL METHODS REQUIRED BY PLUGIN ROUTER
     // ========================================================================
 
+
+
+    async getCollections() {
+        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        try {
+            const collections = await this._request('GET', '/collections');
+            return collections.result?.collections?.map(c => c.name) || [];
+        } catch (error) {
+            console.error(`[Qdrant] getCollections failed:`, error.message);
+            return [];
+        }
+    }
+
     /**
      * Get a single item by hash (MULTITENANCY)
      * @param {string} collectionName - Collection name (always "vecthare_main")
@@ -767,7 +806,10 @@ class QdrantBackend {
     async getItem(collectionName, hash, filters = {}) {
         if (!this.baseUrl) throw new Error('Qdrant not initialized');
 
-        const mainCollection = 'vecthare_main';
+        if (collectionName.indexOf('qdrant:') !== -1) {
+            collectionName = collectionName.split('qdrant:')[1]; //strip the "qdrant:" prefix if present
+        }
+        const mainCollection = collectionName;
 
         // Ensure hash is numeric for consistent matching with stored payload
         const numericHash = typeof hash === 'string' ? parseInt(hash, 10) : hash;
@@ -903,7 +945,7 @@ class QdrantBackend {
     async getCollectionStats(collectionName, filters = {}) {
         if (!this.baseUrl) throw new Error('Qdrant not initialized');
 
-        const mainCollection = 'vecthare_main';
+        const mainCollection = collectionName;
 
         try {
             // Check if collection exists
@@ -990,7 +1032,10 @@ class QdrantBackend {
         if (!this.baseUrl) throw new Error('Qdrant not initialized');
         if (!messageIds || messageIds.length === 0) return false;
 
-        const mainCollection = 'vecthare_main';
+        if (collectionName.indexOf('qdrant:') !== -1) {
+            collectionName = collectionName.split('qdrant:')[1]; //strip the "qdrant:" prefix if present
+        }
+        const mainCollection = collectionName;
 
         try {
             // Build OR conditions for message ID matching

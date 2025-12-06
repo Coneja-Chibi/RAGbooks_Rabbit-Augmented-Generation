@@ -202,9 +202,14 @@ async function saveAllChanges() {
             delete metadataUpdates._newSummaries;
             delete metadataUpdates._deletedSummaries;
 
-            if (Object.keys(metadataUpdates).length > 0 && updates.text) {
-                // Only update via API if text was changed (which needs re-vectorization)
-                await updateChunkMetadata(currentCollectionId, hash, metadataUpdates, currentSettings);
+            if (Object.keys(metadataUpdates).length > 0 ) {
+                // Send metadata updates (keywords, conditions, etc.) to backend
+                try {
+                    await updateChunkMetadata(currentCollectionId, hash, metadataUpdates, currentSettings);
+                } catch (e) {
+                    console.warn('VectHare: Failed to update metadata in backend:', e);
+                    // Don't fail - local metadata was already saved
+                }
             }
         }
 
